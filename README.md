@@ -5,8 +5,6 @@
 [![codecov](https://codecov.io/gh/eugenius1/presenter-garage/graph/badge.svg)](https://codecov.io/gh/eugenius1/presenter-garage)
 
 An installable web app holding a suite of utilities for ProPresenter 7 files.
-It was called ProPresenter Garage until it was renamed to make room for other
-presentation apps.
 
 **<https://presenter-garage.eusebius.tech/>**
 
