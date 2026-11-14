@@ -34,6 +34,23 @@ export const en = {
     updateLater: "Dismiss",
   },
 
+  assistants: {
+    heading: "For AI assistants",
+    lead:
+      "Let an assistant such as Claude read your ProPresenter library from disk, run these checks on it, and fix slide text once you tick each line. It reads nothing outside the folders you choose, and backs up every file before changing it.",
+    privacy:
+      "Unlike this page, it does not keep what it reads on your computer: slide text, notes and file names go into your conversation with the assistant.",
+    desktopHeading: "Claude Desktop",
+    desktopDownload: "Download the extension (.mcpb)",
+    desktopHelp: "Open it with Claude Desktop, then choose your ProPresenter folder.",
+    cliHeading: "Claude Code and other MCP clients",
+    cliHelp: "Run this in a terminal. Needs Node 20 or later.",
+    copy: "Copy",
+    copied: "Copied",
+    copyFailed: "Select the command and copy it",
+    guide: "Full set-up guide",
+  },
+
 
   fidelity: {
     identical: "lossless",

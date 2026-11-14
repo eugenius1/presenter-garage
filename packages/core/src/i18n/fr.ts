@@ -38,6 +38,23 @@ export const fr: Dictionary = {
     updateLater: "Ignorer",
   },
 
+  assistants: {
+    heading: "Pour les assistants IA",
+    lead:
+      "Permettez à un assistant comme Claude de lire votre bibliothèque ProPresenter sur le disque, d'y lancer ces vérifications et de corriger le texte des diapositives une fois chaque ligne cochée. Il ne lit rien en dehors des dossiers que vous choisissez et sauvegarde chaque fichier avant de le modifier.",
+    privacy:
+      "Contrairement à cette page, ce qu'il lit ne reste pas sur votre ordinateur : texte des diapositives, notes et noms de fichiers partent dans votre conversation avec l'assistant.",
+    desktopHeading: "Claude Desktop",
+    desktopDownload: "Télécharger l'extension (.mcpb)",
+    desktopHelp: "Ouvrez-la avec Claude Desktop, puis choisissez votre dossier ProPresenter.",
+    cliHeading: "Claude Code et autres clients MCP",
+    cliHelp: "À lancer dans un terminal. Nécessite Node 20 ou plus récent.",
+    copy: "Copier",
+    copied: "Copié",
+    copyFailed: "Sélectionnez la commande et copiez-la",
+    guide: "Guide d'installation complet",
+  },
+
 
   fidelity: {
     identical: "sans perte",

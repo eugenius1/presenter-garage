@@ -19,11 +19,11 @@
   "keywords": ["propresenter", "church", "lyrics", "slides", "media"],
   "server": {
     "type": "node",
-    "entry_point": "server/propresenter-mcp.mjs",
+    "entry_point": "server/presenter-garage-mcp.mjs",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/server/propresenter-mcp.mjs",
+        "${__dirname}/server/presenter-garage-mcp.mjs",
         "--read-only=${user_config.read_only}",
         "${user_config.library_folders}"
       ]

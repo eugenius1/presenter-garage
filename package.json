@@ -1,7 +1,7 @@
 {
   "name": "presenter-garage",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A suite of utilities for ProPresenter 7 files. Runs entirely in your browser.",
   "license": "GPL-3.0-or-later",
   "type": "module",

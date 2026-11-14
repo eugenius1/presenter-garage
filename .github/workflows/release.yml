@@ -1,0 +1,133 @@
+name: Release
+
+# Runs when a GitHub release is published, and does two things with the
+# commit it was cut from:
+#
+# 1. Attaches the Claude Desktop extension to the release. Every release gets
+#    it, whatever the release is for: the app links to
+#    releases/latest/download/presenter-garage.mcpb, and "latest" is the
+#    newest release in the whole repository, so one release without the file
+#    would break that link for everyone.
+# 2. Stages presenter-garage-mcp on npm, if this version is not there yet.
+#    Staged, not published: the version waits on npmjs.com until a maintainer
+#    approves it with two-factor authentication (`npm stage approve`), so
+#    nothing reaches `npx` users on CI's word alone. A release that does not
+#    bump packages/mcp/package.json simply skips this step.
+#
+# npm authenticates through trusted publishing (OIDC), not a stored token,
+# and adds provenance on its own. The trusted publisher on npmjs.com names
+# this file, so renaming it breaks publishing. Setting it up, and the first
+# publish it depends on, are under "Releasing" in CONTRIBUTING.md.
+#
+# Three jobs so that only the step needing a permission holds it: `build`
+# installs dependencies and runs their scripts with a read-only token, and the
+# jobs that can write to the release or publish to npm install nothing from
+# the project. No dependency cache either, so nothing another workflow saved
+# reaches the files that get published.
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci
+
+      # The same gate CI runs, on the released commit. It also builds the
+      # server and packs the extension.
+      - run: npm run check
+
+      # Both files the other jobs need, gathered outside dist/: npm pack
+      # rebuilds the server first, and the build empties dist/ as it starts.
+      # The npm package is packed here so the publish job uploads exactly this
+      # tarball rather than building its own.
+      - working-directory: packages/mcp
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          cp dist/presenter-garage.mcpb "$RUNNER_TEMP/release/"
+          npm pack --pack-destination "$RUNNER_TEMP/release"
+
+      - id: version
+        working-directory: packages/mcp
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+
+  attach:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+
+      - name: Attach the Claude Desktop extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" presenter-garage.mcpb --clobber --repo "$GITHUB_REPOSITORY"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Exchanged with npm for a short-lived publish credential.
+      id-token: write
+    steps:
+      # Only .nvmrc, so this job runs the same Node as the build without
+      # holding any of the project's code.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      # Staged publishing needs npm 11.15 or later.
+      - run: npm install -g npm@12
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+
+      - name: Stage the npm package
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          # npm will not give a prerelease the `latest` tag, and should not.
+          DIST_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
+        run: |
+          # npm view sees only approved versions: re-running this before the
+          # last stage is approved stages it again, and npm refuses that.
+          if npm view "presenter-garage-mcp@$VERSION" version > /dev/null 2>&1; then
+            echo "::notice::presenter-garage-mcp@$VERSION is already on npm, so nothing is staged."
+          else
+            npm stage publish "./presenter-garage-mcp-$VERSION.tgz" --tag "$DIST_TAG"
+            echo "::notice::presenter-garage-mcp@$VERSION is staged as $DIST_TAG. Approve it with 'npm stage approve' or on npmjs.com."
+          fi

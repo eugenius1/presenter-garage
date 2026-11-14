@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "pp-garage",
+      "name": "presenter-garage",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
