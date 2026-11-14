@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { AiAssistants } from "./components/AiAssistants";
 import { Logo } from "./components/Logo";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
@@ -110,6 +111,8 @@ export default function App() {
       <p className="tool-tagline">{current.tagline}</p>
 
       {tool === "presentations" ? <Presentations /> : <MediaBin />}
+
+      <AiAssistants />
 
       <p className="footnote">
         <span className="copyright">

@@ -247,6 +247,28 @@ body {
 }
 .card > .sub { color: var(--text-dim); font-size: 12.5px; margin: 0 0 12px; }
 
+/* ---------- for AI assistants ---------- */
+
+.assistants { margin-top: 18px; }
+.assistants > summary { cursor: pointer; list-style: none; }
+.assistants > summary::-webkit-details-marker { display: none; }
+.assistants > summary > h2 { display: inline; font-size: 13px; margin: 0; }
+.assistants > summary::before { content: "▸ "; color: var(--text-faint); }
+.assistants[open] > summary::before { content: "▾ "; }
+.assistants[open] > summary { margin-bottom: 10px; }
+.assistants h3 { font-size: 12.5px; margin: 14px 0 6px; }
+.assistants .sub { color: var(--text-dim); font-size: 12.5px; margin: 0 0 8px; }
+.assistants a.btn { text-decoration: none; display: inline-block; }
+.assistants-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 8px; }
+.assistants-row .sub { margin: 0; }
+/* Long enough to wrap on a phone; breaking anywhere beats a sideways scroll,
+   and the Copy button copies the whole of it either way. */
+.assistants .command {
+  font-family: var(--mono); font-size: 12px; padding: 6px 9px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px;
+  overflow-wrap: anywhere; flex: 1 1 320px; min-width: 0;
+}
+
 .empty-state { text-align: center; padding: 44px 20px; color: var(--text-dim); }
 .empty-state strong { display: block; color: var(--text); margin-bottom: 6px; font-size: 15px; }
 

@@ -1,0 +1,71 @@
+name: Release
+
+# Runs when a GitHub release is published, and does two things with the
+# commit it was cut from:
+#
+# 1. Attaches the Claude Desktop extension to the release. Every release gets
+#    it, whatever the release is for: the app links to
+#    releases/latest/download/presenter-garage.mcpb, and "latest" is the
+#    newest release in the whole repository, so one release without the file
+#    would break that link for everyone.
+# 2. Stages presenter-garage-mcp on npm, if this version is not there yet.
+#    Staged, not published: the version waits on npmjs.com until a maintainer
+#    approves it with two-factor authentication (`npm stage approve`), so
+#    nothing reaches `npx` users on CI's word alone. A release that does not
+#    bump packages/mcp/package.json simply skips this step.
+#
+# npm authenticates this job through trusted publishing (OIDC), not a stored
+# token, and adds provenance on its own. The trusted publisher on npmjs.com
+# names this file, so renaming it breaks publishing. Setting it up, and the
+# first publish it depends on, are under "Releasing" in CONTRIBUTING.md.
+on:
+  release:
+    types: [published]
+
+permissions:
+  # Uploads the .mcpb to the release.
+  contents: write
+  # Exchanged with npm for a short-lived publish credential.
+  id-token: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Staged publishing needs npm 11.15 or later; Node 22 ships npm 10.
+      - run: npm install -g npm@12
+
+      - run: npm ci
+
+      # The same gate CI runs, on the released commit. It also builds the
+      # server and packs the extension, so the files below exist after it.
+      - run: npm run check
+
+      - name: Attach the Claude Desktop extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" packages/mcp/dist/presenter-garage.mcpb --clobber
+
+      - name: Stage the npm package
+        working-directory: packages/mcp
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "presenter-garage-mcp@$version" version > /dev/null 2>&1; then
+            echo "::notice::presenter-garage-mcp@$version is already on npm, so nothing is staged."
+          else
+            npm stage publish
+            echo "::notice::presenter-garage-mcp@$version is staged. Approve it with 'npm stage approve' or on npmjs.com."
+          fi

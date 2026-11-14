@@ -101,12 +101,11 @@ the conversation to that model's provider like anything else you type.
 The server is packaged as a desktop extension, so Claude Desktop installs it in
 one click and brings its own Node; there is nothing else to install.
 
-```bash
-npm ci && npm run mcp:pack
-```
-
-1. Open `packages/mcp/dist/presenter-garage.mcpb` with Claude Desktop: double-click
-   it, drag it onto the window, or install it from **Settings → Extensions**.
+1. Download
+   [`presenter-garage.mcpb`](https://github.com/eugenius1/presenter-garage/releases/latest/download/presenter-garage.mcpb)
+   from the latest release (the app links it too, under *For AI assistants*),
+   and open it with Claude Desktop: double-click it, drag it onto the window,
+   or install it from **Settings → Extensions**.
 2. Click **Install**, then choose your ProPresenter folder when asked. It
    suggests `Documents/ProPresenter`; add more than one folder if you keep
    libraries elsewhere.
@@ -134,7 +133,8 @@ command `npx`, arguments `-y presenter-garage-mcp` followed by your folders.
 Pass one or more folders; with none, it reads `~/Documents/ProPresenter`. Add
 `--read-only` to turn editing off.
 
-To run it from a checkout instead:
+To run it from a checkout instead, or to build the extension yourself
+(`npm run mcp:pack` writes it to `packages/mcp/dist/presenter-garage.mcpb`):
 
 ```bash
 npm ci && npm run mcp:build

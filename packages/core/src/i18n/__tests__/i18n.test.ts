@@ -42,6 +42,8 @@ describe("dictionaries", () => {
       "errors.playlistType.audio", "playback.none",
       // Platform names, not words.
       "tools.mediaBin.whereWindows", "tools.mediaBin.whereMac",
+      // A product name.
+      "assistants.desktopHeading",
     ]);
 
     const flat = (dict: unknown, prefix = ""): Record<string, string> => {

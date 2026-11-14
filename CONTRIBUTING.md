@@ -355,6 +355,39 @@ such PRs free of other code.
 A change to the shared actions reaches every repo's next PR as soon as it is
 merged there.
 
+## Releasing
+
+A release is a GitHub release; `.github/workflows/release.yml` does the rest
+when one is published. It runs `npm run check` on the tagged commit, attaches
+`presenter-garage.mcpb` to the release, and *stages* `presenter-garage-mcp`
+on npm if that version is not there yet.
+
+1. Bump every package together with
+   `npm version <x.y.z> --workspaces --include-workspace-root --no-git-tag-version`
+   (a test holds them equal, and it updates the lockfile too) and merge that.
+   The extension takes its version from the server's `package.json`. A
+   release that leaves the version alone still gets the extension, rebuilt
+   from its own commit, and stages nothing.
+2. Publish a GitHub release tagged `v<x.y.z>`.
+3. Approve the staged version: `npm stage list presenter-garage-mcp`, then
+   `npm stage approve <stage-id>`, or **Approve** under *Staged Packages* on
+   npmjs.com. Both ask for two-factor authentication; until then nothing
+   reaches `npx` users.
+
+Every release gets the extension, not only the ones that change the server:
+the app links to `releases/latest/download/presenter-garage.mcpb`, and
+"latest" is the newest release in the whole repository. A test holds the
+file name equal in the pack script, the workflow and that link.
+
+npm accepts the workflow through trusted publishing (OIDC), so there is no
+npm token in the repository's secrets. Its trusted publisher on npmjs.com is
+user `eugenius1`, repository `presenter-garage`, workflow `release.yml`,
+allowed to stage only. npm checks those names at publish time, so renaming
+the workflow or the repository breaks publishing until the publisher is
+recreated to match. A trusted publisher can only be attached to a package that
+exists, so the first version, 0.1.0, is published by hand from a
+maintainer's terminal before the publisher is added.
+
 ## Conventions
 
 - **`npm run check` must pass.** Codegen, `oxlint`, every package's
