@@ -18,7 +18,7 @@ async function main() {
   const roots = await openRoots(dirs);
   await createServer(roots).connect(new StdioServerTransport());
   // stdout is the protocol channel; anything for a person goes to stderr.
-  console.error(`propresenter-garage MCP reading ${roots.join(", ")}`);
+  console.error(`presenter-garage MCP reading ${roots.join(", ")}`);
 }
 
 main().catch((e) => {

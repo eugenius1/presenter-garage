@@ -1,12 +1,14 @@
-# ProPresenter Garage
+# Presenter Garage
 
-[![CI](https://github.com/eugenius1/propresenter-garage/actions/workflows/ci.yml/badge.svg)](https://github.com/eugenius1/propresenter-garage/actions/workflows/ci.yml)
-[![Deploy](https://github.com/eugenius1/propresenter-garage/actions/workflows/deploy.yml/badge.svg)](https://github.com/eugenius1/propresenter-garage/actions/workflows/deploy.yml)
-[![codecov](https://codecov.io/gh/eugenius1/propresenter-garage/graph/badge.svg)](https://codecov.io/gh/eugenius1/propresenter-garage)
+[![CI](https://github.com/eugenius1/presenter-garage/actions/workflows/ci.yml/badge.svg)](https://github.com/eugenius1/presenter-garage/actions/workflows/ci.yml)
+[![Deploy](https://github.com/eugenius1/presenter-garage/actions/workflows/deploy.yml/badge.svg)](https://github.com/eugenius1/presenter-garage/actions/workflows/deploy.yml)
+[![codecov](https://codecov.io/gh/eugenius1/presenter-garage/graph/badge.svg)](https://codecov.io/gh/eugenius1/presenter-garage)
 
 An installable web app holding a suite of utilities for ProPresenter 7 files.
+It was called ProPresenter Garage until it was renamed to make room for other
+presentation apps.
 
-**<https://eusebius.tech/propresenter-garage/>**
+**<https://presenter-garage.eusebius.tech/>**
 
 The app runs entirely in the browser. No server, no upload: your media library
 never leaves the machine, and once installed the app works with no network at
@@ -92,7 +94,7 @@ one click and brings its own Node; there is nothing else to install.
 npm ci && npm run mcp:pack
 ```
 
-1. Open `packages/mcp/dist/propresenter-garage.mcpb` with Claude Desktop: double-click
+1. Open `packages/mcp/dist/presenter-garage.mcpb` with Claude Desktop: double-click
    it, drag it onto the window, or install it from **Settings → Extensions**.
 2. Click **Install**, then choose your ProPresenter folder when asked. It
    suggests `Documents/ProPresenter`; add more than one folder if you keep
@@ -101,7 +103,7 @@ npm ci && npm run mcp:pack
    lines ending in a full stop?"* or *"Find the presentation with the lyric
    'how great thou art'."*
 
-To change the folders later, find ProPresenter Garage under **Settings →
+To change the folders later, find Presenter Garage under **Settings →
 Extensions**. The extension is unsigned, so Claude Desktop says so when
 installing it.
 
@@ -113,11 +115,11 @@ package is a single file with no dependencies, so there is nothing else to
 install:
 
 ```bash
-claude mcp add propresenter -- npx -y propresenter-garage-mcp ~/Documents/ProPresenter
+claude mcp add propresenter -- npx -y presenter-garage-mcp ~/Documents/ProPresenter
 ```
 
 Other clients take the same command and arguments in their MCP settings:
-command `npx`, arguments `-y propresenter-garage-mcp` followed by your folders.
+command `npx`, arguments `-y presenter-garage-mcp` followed by your folders.
 Pass one or more folders; with none, it reads `~/Documents/ProPresenter`.
 
 To run it from a checkout instead:

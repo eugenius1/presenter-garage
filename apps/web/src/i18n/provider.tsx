@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { createI18n, detectLanguage, isLang, type I18n, type Lang } from "@propresenter-garage/core/i18n/core";
+import { createI18n, detectLanguage, isLang, type I18n, type Lang } from "@presenter-garage/core/i18n/core";
 
 /**
  * React binding for the translation core.
@@ -7,6 +7,7 @@ import { createI18n, detectLanguage, isLang, type I18n, type Lang } from "@propr
  * Separate from the barrel so this file exports only the provider and its hook
  * -- which is what keeps fast refresh granular during development.
  */
+// Keeps the app's old name: renaming the key would forget every reader's choice.
 const STORAGE_KEY = "propresenter-garage.lang";
 
 /** A language the reader chose explicitly, which outranks the device default. */

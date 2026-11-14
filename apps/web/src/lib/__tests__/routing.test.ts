@@ -10,8 +10,8 @@ describe("finding where the app is mounted", () => {
   });
 
   it("handles a project subpath, which is how GitHub Pages serves it", () => {
-    expect(basePath("/propresenter-garage/", SLUGS)).toBe("/propresenter-garage/");
-    expect(basePath("/propresenter-garage/media-bin", SLUGS)).toBe("/propresenter-garage/");
+    expect(basePath("/presenter-garage/", SLUGS)).toBe("/presenter-garage/");
+    expect(basePath("/presenter-garage/media-bin", SLUGS)).toBe("/presenter-garage/");
   });
 
   it("does not mistake a folder for a tool", () => {
@@ -21,47 +21,47 @@ describe("finding where the app is mounted", () => {
 
   it("treats the document's own name as part of where it was served, not a folder", () => {
     // Otherwise switching tool from /app/index.html goes to /app/index.html/media-bin.
-    expect(basePath("/propresenter-garage/index.html", SLUGS)).toBe("/propresenter-garage/");
+    expect(basePath("/presenter-garage/index.html", SLUGS)).toBe("/presenter-garage/");
     expect(basePath("/index.html", SLUGS)).toBe("/");
   });
 
   it("tolerates a trailing slash on a tool path", () => {
-    expect(basePath("/propresenter-garage/media-bin/", SLUGS)).toBe("/propresenter-garage/");
+    expect(basePath("/presenter-garage/media-bin/", SLUGS)).toBe("/presenter-garage/");
   });
 });
 
 describe("reading the tool from a path", () => {
   it("recognises a tool segment", () => {
-    expect(slugFromPath("/propresenter-garage/media-bin", SLUGS)).toBe("media-bin");
+    expect(slugFromPath("/presenter-garage/media-bin", SLUGS)).toBe("media-bin");
     expect(slugFromPath("/presentations", SLUGS)).toBe("presentations");
   });
 
   it("returns null at the root, where the first tool lives", () => {
     expect(slugFromPath("/", SLUGS)).toBeNull();
-    expect(slugFromPath("/propresenter-garage/", SLUGS)).toBeNull();
+    expect(slugFromPath("/presenter-garage/", SLUGS)).toBeNull();
   });
 
   it("returns null for an unknown segment", () => {
-    expect(slugFromPath("/propresenter-garage/nonsense", SLUGS)).toBeNull();
+    expect(slugFromPath("/presenter-garage/nonsense", SLUGS)).toBeNull();
   });
 });
 
 describe("building a tool's URL", () => {
   it("gives the first tool the root itself, not a redirect", () => {
-    expect(pathForSlug("/propresenter-garage/", "presentations", SLUGS)).toBe(
-      "/propresenter-garage/"
+    expect(pathForSlug("/presenter-garage/", "presentations", SLUGS)).toBe(
+      "/presenter-garage/"
     );
   });
 
   it("gives every other tool its own segment", () => {
-    expect(pathForSlug("/propresenter-garage/", "media-bin", SLUGS)).toBe(
-      "/propresenter-garage/media-bin"
+    expect(pathForSlug("/presenter-garage/", "media-bin", SLUGS)).toBe(
+      "/presenter-garage/media-bin"
     );
     expect(pathForSlug("/", "media-bin", SLUGS)).toBe("/media-bin");
   });
 
   it("round-trips: a built path reads back as the tool that built it", () => {
-    for (const base of ["/", "/propresenter-garage/"]) {
+    for (const base of ["/", "/presenter-garage/"]) {
       for (const slug of SLUGS) {
         const url = pathForSlug(base, slug, SLUGS);
         expect(basePath(url, SLUGS)).toBe(base);

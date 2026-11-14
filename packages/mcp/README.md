@@ -1,8 +1,8 @@
-# propresenter-garage-mcp
+# presenter-garage-mcp
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant
 read a ProPresenter 7 library from disk. Part of
-[ProPresenter Garage](https://github.com/eugenius1/propresenter-garage).
+[Presenter Garage](https://github.com/eugenius1/presenter-garage).
 
 - List and search presentations, and read their slides line by line
 - See what each file records about itself: when ProPresenter last edited and
@@ -20,16 +20,16 @@ folders you give it.
 ## Use
 
 ```bash
-claude mcp add propresenter -- npx -y propresenter-garage-mcp ~/Documents/ProPresenter
+claude mcp add propresenter -- npx -y presenter-garage-mcp ~/Documents/ProPresenter
 ```
 
 Any MCP client that starts a local server over stdio takes the same command:
-`npx`, then `-y propresenter-garage-mcp` and one or more library folders. With
+`npx`, then `-y presenter-garage-mcp` and one or more library folders. With
 no folder it reads `~/Documents/ProPresenter`. Needs Node 20 or later; the
 package is one file with no dependencies.
 
 For Claude Desktop there is also a one-click extension (`.mcpb`): see the
-[main README](https://github.com/eugenius1/propresenter-garage#claude-desktop).
+[main README](https://github.com/eugenius1/presenter-garage#claude-desktop).
 
 ## Licence
 

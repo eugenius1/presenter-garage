@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
-import type { Fidelity } from "@propresenter-garage/core/lib/decode";
-import { formatBytes, loadMediaFile, type LoadedFile } from "@propresenter-garage/core/lib/loadFile";
+import type { Fidelity } from "@presenter-garage/core/lib/decode";
+import { formatBytes, loadMediaFile, type LoadedFile } from "@presenter-garage/core/lib/loadFile";
 import { useI18n, type I18n } from "../i18n";
-import { errorMessage } from "@propresenter-garage/core/i18n/errors";
+import { errorMessage } from "@presenter-garage/core/i18n/errors";
 
 interface Props {
   role: string;

@@ -5,7 +5,7 @@ import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { MediaBin } from "./tools/MediaBin";
 import { Presentations } from "./tools/Presentations";
-import { PROTO_VERSION } from "@propresenter-garage/core/lib/decode";
+import { PROTO_VERSION } from "@presenter-garage/core/lib/decode";
 import { applyDocumentLanguage, useI18n } from "./i18n";
 import { basePath, pathForSlug, slugFromPath } from "./lib/routing";
 
@@ -119,7 +119,7 @@ export default function App() {
           </a>{" "}
           ·{" "}
           <a
-            href="https://github.com/eugenius1/propresenter-garage"
+            href="https://github.com/eugenius1/presenter-garage"
             target="_blank"
             rel="noreferrer"
           >

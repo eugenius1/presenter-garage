@@ -12,6 +12,8 @@
  * uses it offers a way to forget it.
  */
 
+// Keeps the app's old name: renaming the database would forget every folder
+// and file a reader has open.
 const DATABASE = "propresenter-garage";
 const STORE = "session";
 const VERSION = 1;

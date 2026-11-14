@@ -5,9 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Presentations } from "../Presentations";
 import { I18nProvider } from "../../i18n";
-import { checkPresentation, decodePresentation, readPresentation } from "@propresenter-garage/core/lib/presentation";
-import { syntheticTextPresentation } from "@propresenter-garage/core/lib/__tests__/synthetic";
-import type { FolderAccess, PickedFolder } from "@propresenter-garage/core/lib/folder";
+import { checkPresentation, decodePresentation, readPresentation } from "@presenter-garage/core/lib/presentation";
+import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
 
 /**
  * A folder held in memory, standing in for one on disk.
@@ -38,8 +38,8 @@ function fakeFolder(): PickedFolder {
   };
 }
 
-vi.mock("@propresenter-garage/core/lib/folder", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@propresenter-garage/core/lib/folder")>()),
+vi.mock("@presenter-garage/core/lib/folder", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@presenter-garage/core/lib/folder")>()),
   folderAccess: () => access,
   pickFolder: async () => fakeFolder(),
 }));

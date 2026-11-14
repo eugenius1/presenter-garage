@@ -8,7 +8,7 @@
  * rather than a hash.
  *
  * The base is derived from where the document was served rather than hardcoded,
- * so the same build runs at the domain root, under /propresenter-garage/, or
+ * so the same build runs at the domain root, under /presenter-garage/, or
  * from a dev server, without configuration.
  */
 

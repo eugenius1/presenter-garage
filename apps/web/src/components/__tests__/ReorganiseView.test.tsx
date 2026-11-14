@@ -5,10 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReorganiseView } from "../ReorganiseView";
 import { I18nProvider } from "../../i18n";
-import { loadMediaFile, type LoadedFile } from "@propresenter-garage/core/lib/loadFile";
-import { checkFidelity } from "@propresenter-garage/core/lib/decode";
-import { buildLibrary, decodeMediaDocument } from "@propresenter-garage/core/lib/model";
-import { syntheticMediaFile } from "@propresenter-garage/core/lib/__tests__/synthetic";
+import { loadMediaFile, type LoadedFile } from "@presenter-garage/core/lib/loadFile";
+import { checkFidelity } from "@presenter-garage/core/lib/decode";
+import { buildLibrary, decodeMediaDocument } from "@presenter-garage/core/lib/model";
+import { syntheticMediaFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 
 async function loadSynthetic(): Promise<LoadedFile> {
   return loadMediaFile(

@@ -1,5 +1,5 @@
 {
-  "name": "@propresenter-garage/core",
+  "name": "@presenter-garage/core",
   "version": "0.0.0",
   "private": true,
   "description": "Reading, checking and editing ProPresenter 7 files. Shared by the web app and the MCP server; no UI.",

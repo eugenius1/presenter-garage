@@ -5,9 +5,9 @@ import { DiffView } from "../components/DiffView";
 import { AuditView } from "../components/AuditView";
 import { TreeView } from "../components/TreeView";
 import { ReorganiseView } from "../components/ReorganiseView";
-import { auditLibrary, type FindingId } from "@propresenter-garage/core/lib/audit";
-import { diffLibraries } from "@propresenter-garage/core/lib/diff";
-import { loadMediaBytes, type LoadedFile } from "@propresenter-garage/core/lib/loadFile";
+import { auditLibrary, type FindingId } from "@presenter-garage/core/lib/audit";
+import { diffLibraries } from "@presenter-garage/core/lib/diff";
+import { loadMediaBytes, type LoadedFile } from "@presenter-garage/core/lib/loadFile";
 import { forget, keep, KEYS, remember, type RememberedFile } from "../lib/persistence";
 import { useI18n } from "../i18n";
 

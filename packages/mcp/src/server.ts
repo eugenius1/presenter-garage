@@ -56,7 +56,7 @@ async function answer(run: () => Promise<unknown>) {
 
 export function createServer(roots: readonly string[]): McpServer {
   const server = new McpServer(
-    { name: "propresenter-garage", version },
+    { name: "presenter-garage", version },
     {
       instructions:
         `Reads ProPresenter 7 files under: ${roots.join(", ")}. ` +
@@ -144,7 +144,7 @@ export function createServer(roots: readonly string[]): McpServer {
     {
       title: "Check presentation text",
       description:
-        "Run the text checks from ProPresenter Garage's Presentations tool: leading/trailing/repeated " +
+        "Run the text checks from Presenter Garage's Presentations tool: leading/trailing/repeated " +
         "spaces, blank lines inside a slide, and lines ending in a comma, semicolon or full stop. " +
         "Takes one .pro file or a folder; with neither, checks every library. Lists only files with findings.",
       inputSchema: {

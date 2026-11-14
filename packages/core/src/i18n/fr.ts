@@ -20,7 +20,7 @@ export const fr: Dictionary = {
   },
 
   app: {
-    title: "ProPresenter Garage",
+    title: "Presenter Garage",
     offline: "Fonctionne hors ligne",
     offlineHelp: "Les fichiers sont lus dans votre navigateur. Rien n'est envoyé.",
     schemaHelp: "{files} fichiers proto, générés le {date}",

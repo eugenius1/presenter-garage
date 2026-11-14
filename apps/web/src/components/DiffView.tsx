@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
-import { planMerges, type MergeDirection } from "@propresenter-garage/core/lib/merge";
-import { exportFilename, exportOperations } from "@propresenter-garage/core/lib/operations";
-import { toggled } from "@propresenter-garage/core/lib/collections";
-import { download } from "@propresenter-garage/core/lib/download";
-import type { LoadedFile } from "@propresenter-garage/core/lib/loadFile";
-import { itemLabel } from "@propresenter-garage/core/lib/model";
-import type { Change, ChangeDetail, ChangeType, DiffResult, PlaylistChange } from "@propresenter-garage/core/lib/diff";
+import { planMerges, type MergeDirection } from "@presenter-garage/core/lib/merge";
+import { exportFilename, exportOperations } from "@presenter-garage/core/lib/operations";
+import { toggled } from "@presenter-garage/core/lib/collections";
+import { download } from "@presenter-garage/core/lib/download";
+import type { LoadedFile } from "@presenter-garage/core/lib/loadFile";
+import { itemLabel } from "@presenter-garage/core/lib/model";
+import type { Change, ChangeDetail, ChangeType, DiffResult, PlaylistChange } from "@presenter-garage/core/lib/diff";
 import { useI18n, type I18n } from "../i18n";
-import { describeModsInline, playbackLabel, playbackValue } from "@propresenter-garage/core/i18n/describe";
+import { describeModsInline, playbackLabel, playbackValue } from "@presenter-garage/core/i18n/describe";
 
 const ORDER: ChangeType[] = [
   "added", "removed", "moved", "renamed", "relinked", "restyled", "retimed",

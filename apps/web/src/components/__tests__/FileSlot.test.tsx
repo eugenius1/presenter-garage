@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FileSlot } from "../FileSlot";
 import { LanguageSwitcher } from "../LanguageSwitcher";
 import { I18nProvider } from "../../i18n";
-import { syntheticMediaFile, syntheticPresentationFile } from "@propresenter-garage/core/lib/__tests__/synthetic";
+import { syntheticMediaFile, syntheticPresentationFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 
 function renderSlot(overrides: Partial<Parameters<typeof FileSlot>[0]> = {}) {
   const onLoad = vi.fn();

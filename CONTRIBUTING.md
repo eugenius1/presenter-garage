@@ -1,4 +1,4 @@
-# Developing ProPresenter Garage
+# Developing Presenter Garage
 
 Everything a contributor needs. The [README](README.md) is for people using the
 app; this is for people changing it; [AGENTS.md](AGENTS.md) holds the handful
@@ -26,7 +26,7 @@ commit — it includes the codegen step, so it also catches the case where a
 clean checkout would not build.
 
 In CI the suite also measures coverage and uploads `coverage/lcov.info` to
-[Codecov](https://codecov.io/gh/eugenius1/propresenter-garage), through OIDC so
+[Codecov](https://codecov.io/gh/eugenius1/presenter-garage), through OIDC so
 there is no token to keep. `npm run coverage` gives the same report locally.
 Coverage only counts what CI can run, so the tests that need a real library
 show up as gaps there.
@@ -371,17 +371,17 @@ they may never read.
 What other code imports or npm installs lives under `packages/`, and the
 deployed site under `apps/`, one version between all three:
 
-- **`core`** (`@propresenter-garage/core`, private): reading, checking and
+- **`core`** (`@presenter-garage/core`, private): reading, checking and
   editing ProPresenter files — `src/lib/`, the vendored schema in `proto/`,
   the descriptor generated from it, and the dictionaries in `src/i18n/`. No
   UI and no Node APIs; its source is typechecked without Node's types so
   neither creeps in. It is never built on its own: `web` and `mcp` import its
-  TypeScript directly (`@propresenter-garage/core/lib/presentation`) and
+  TypeScript directly (`@presenter-garage/core/lib/presentation`) and
   bundle what they use.
-- **`web`** (`@propresenter-garage/web`, private): the installable browser
+- **`web`** (`@presenter-garage/web`, private): the installable browser
   app — React, the PWA, its stylesheet and icons, and the two browser-only
   pieces of `lib/`, persistence and routing.
-- **`mcp`** (`propresenter-garage-mcp`, published to npm): the MCP server.
+- **`mcp`** (`presenter-garage-mcp`, published to npm): the MCP server.
 
 `core` and `mcp` may import only what their own `package.json` declares, and
 `packages/mcp/src/__tests__/workspace.test.ts` fails if either reaches for
