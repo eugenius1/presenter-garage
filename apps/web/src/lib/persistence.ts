@@ -12,7 +12,7 @@
  * uses it offers a way to forget it.
  */
 
-const DATABASE = "propresenter-garage";
+const DATABASE = "presenter-garage";
 const STORE = "session";
 const VERSION = 1;
 

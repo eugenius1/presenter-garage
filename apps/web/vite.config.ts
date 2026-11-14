@@ -15,8 +15,8 @@ export default defineConfig({
       injectRegister: null,
       includeAssets: ["favicon.svg"],
       manifest: {
-        name: "ProPresenter Garage",
-        short_name: "PP Garage",
+        name: "Presenter Garage",
+        short_name: "Garage",
         description:
           "A suite of utilities for ProPresenter 7 files. Runs entirely in your browser.",
         theme_color: "#3b6ef5",

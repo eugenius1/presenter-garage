@@ -39,12 +39,12 @@ export function sha256(bytes: Uint8Array): string {
  */
 export function defaultBackupDir(): string {
   const home = os.homedir();
-  const app = "ProPresenter Garage";
+  const app = "Presenter Garage";
   if (process.platform === "darwin") return path.join(home, "Library", "Application Support", app, "Backups");
   if (process.platform === "win32") {
     return path.join(process.env.APPDATA ?? path.join(home, "AppData", "Roaming"), app, "Backups");
   }
-  return path.join(process.env.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "propresenter-garage", "backups");
+  return path.join(process.env.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "presenter-garage", "backups");
 }
 
 /**

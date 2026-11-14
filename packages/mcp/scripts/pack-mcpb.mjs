@@ -16,7 +16,7 @@ const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 // The file npm installs is the file the extension runs.
 const server = pkg.bin[pkg.name];
 const stage = "dist/bundle";
-const output = "dist/propresenter-garage.mcpb";
+const output = "dist/presenter-garage.mcpb";
 
 if (!fs.existsSync(server)) {
   console.error(`pack-mcpb: no ${server} -- run npm run mcp:build first`);

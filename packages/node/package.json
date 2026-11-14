@@ -1,5 +1,5 @@
 {
-  "name": "@propresenter-garage/node",
+  "name": "@presenter-garage/node",
   "version": "0.0.0",
   "private": true,
   "description": "Reading and writing a ProPresenter 7 library on disk, for the tools that run under Node: the MCP server now, a command line later. No UI, no protocol.",
@@ -12,6 +12,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@propresenter-garage/core": "*"
+    "@presenter-garage/core": "*"
   }
 }

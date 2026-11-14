@@ -1,5 +1,5 @@
 {
-  "name": "@propresenter-garage/web",
+  "name": "@presenter-garage/web",
   "version": "0.0.0",
   "private": true,
   "description": "A suite of utilities for ProPresenter 7 files. Runs entirely in your browser.",
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
-    "@propresenter-garage/core": "*",
+    "@presenter-garage/core": "*",
     "@radix-ui/colors": "^3.0.0",
     "lucide-react": "^1.45.0",
     "react": "^19.2.8",

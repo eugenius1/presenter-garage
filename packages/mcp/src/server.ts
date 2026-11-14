@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { version } from "../package.json";
-import { LibraryError } from "@propresenter-garage/node/library";
-import { defaultBackupDir } from "@propresenter-garage/node/write";
+import { LibraryError } from "@presenter-garage/node/library";
+import { defaultBackupDir } from "@presenter-garage/node/write";
 import { applyPlan, confirmationRequest, MAX_PLAN_LINES, planSlideEdits, PlanStore, type ApplyResult } from "./edits";
 import {
   auditMediaBin,
@@ -70,7 +70,7 @@ async function answer(run: () => Promise<unknown>) {
 
 export function createServer(roots: readonly string[], options: ServerOptions = {}): McpServer {
   const server = new McpServer(
-    { name: "propresenter-garage", version },
+    { name: "presenter-garage", version },
     {
       instructions:
         `Reads ProPresenter 7 files under: ${roots.join(", ")}. ` +
@@ -162,7 +162,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
     {
       title: "Check presentation text",
       description:
-        "Run the text checks from ProPresenter Garage's Presentations tool: leading/trailing/repeated " +
+        "Run the text checks from Presenter Garage's Presentations tool: leading/trailing/repeated " +
         "spaces, blank lines inside a slide, and lines ending in a comma, semicolon or full stop. " +
         "Takes one .pro file or a folder; with neither, checks every library. Lists only files with findings.",
       inputSchema: {
@@ -340,7 +340,7 @@ function registerEditTools(server: McpServer, roots: readonly string[], backupDi
         if (!server.server.getClientCapabilities()?.elicitation?.form) {
           throw new LibraryError(
             "This MCP client cannot ask its user to confirm a change, so nothing was written. Edit in a client " +
-              "that supports elicitation, or with the ProPresenter Garage web app."
+              "that supports elicitation, or with the Presenter Garage web app."
           );
         }
         let reply;

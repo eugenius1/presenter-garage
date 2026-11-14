@@ -16,7 +16,7 @@ export const en = {
   },
 
   app: {
-    title: "ProPresenter Garage",
+    title: "Presenter Garage",
     offline: "Runs offline",
     offlineHelp: "Files are read in your browser. Nothing is uploaded.",
     schemaHelp: "{files} proto files, built {date}",

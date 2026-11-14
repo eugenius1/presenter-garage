@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { itemLabel, itemPath, type MediaLibrary, type PlaylistNode } from "@propresenter-garage/core/lib/model";
-import { fold } from "@propresenter-garage/core/lib/search";
+import { itemLabel, itemPath, type MediaLibrary, type PlaylistNode } from "@presenter-garage/core/lib/model";
+import { fold } from "@presenter-garage/core/lib/search";
 import { useI18n, type I18n } from "../i18n";
 
 function Node({ node, depth, i18n }: { node: PlaylistNode; depth: number; i18n: I18n }) {

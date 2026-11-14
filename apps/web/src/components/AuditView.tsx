@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { FINDING_DOM_ID, type AuditResult, type FindingId } from "@propresenter-garage/core/lib/audit";
-import { itemLabel, type MediaLibrary } from "@propresenter-garage/core/lib/model";
+import { FINDING_DOM_ID, type AuditResult, type FindingId } from "@presenter-garage/core/lib/audit";
+import { itemLabel, type MediaLibrary } from "@presenter-garage/core/lib/model";
 import { useEffect } from "react";
 import { useI18n, type I18n } from "../i18n";
-import { describeModsInline } from "@propresenter-garage/core/i18n/describe";
+import { describeModsInline } from "@presenter-garage/core/i18n/describe";
 
 function Rows({
   children,

@@ -1,12 +1,12 @@
-# ProPresenter Garage
+# Presenter Garage
 
-[![CI](https://github.com/eugenius1/propresenter-garage/actions/workflows/ci.yml/badge.svg)](https://github.com/eugenius1/propresenter-garage/actions/workflows/ci.yml)
-[![Deploy](https://github.com/eugenius1/propresenter-garage/actions/workflows/deploy.yml/badge.svg)](https://github.com/eugenius1/propresenter-garage/actions/workflows/deploy.yml)
-[![codecov](https://codecov.io/gh/eugenius1/propresenter-garage/graph/badge.svg)](https://codecov.io/gh/eugenius1/propresenter-garage)
+[![CI](https://github.com/eugenius1/presenter-garage/actions/workflows/ci.yml/badge.svg)](https://github.com/eugenius1/presenter-garage/actions/workflows/ci.yml)
+[![Deploy](https://github.com/eugenius1/presenter-garage/actions/workflows/deploy.yml/badge.svg)](https://github.com/eugenius1/presenter-garage/actions/workflows/deploy.yml)
+[![codecov](https://codecov.io/gh/eugenius1/presenter-garage/graph/badge.svg)](https://codecov.io/gh/eugenius1/presenter-garage)
 
 An installable web app holding a suite of utilities for ProPresenter 7 files.
 
-**<https://eusebius.tech/propresenter-garage/>**
+**<https://presenter-garage.eusebius.tech/>**
 
 The app runs entirely in the browser. No server, no upload: your media library
 never leaves the machine, and once installed the app works with no network at
@@ -69,8 +69,8 @@ tools.
 Editing needs a client that can ask you a question mid-task (MCP
 *elicitation*); with one that cannot, nothing is written. Close a song in
 ProPresenter before editing it: ProPresenter may save its own copy over the
-change. Backups go to `~/Library/Application Support/ProPresenter
-Garage/Backups` on macOS and `%APPDATA%\ProPresenter Garage\Backups` on
+change. Backups go to `~/Library/Application Support/Presenter
+Garage/Backups` on macOS and `%APPDATA%\Presenter Garage\Backups` on
 Windows, one dated folder per change; `--backup-dir=<folder>` puts them
 elsewhere, and restoring is copying a file back.
 
@@ -105,7 +105,7 @@ one click and brings its own Node; there is nothing else to install.
 npm ci && npm run mcp:pack
 ```
 
-1. Open `packages/mcp/dist/propresenter-garage.mcpb` with Claude Desktop: double-click
+1. Open `packages/mcp/dist/presenter-garage.mcpb` with Claude Desktop: double-click
    it, drag it onto the window, or install it from **Settings → Extensions**.
 2. Click **Install**, then choose your ProPresenter folder when asked. It
    suggests `Documents/ProPresenter`; add more than one folder if you keep
@@ -114,7 +114,7 @@ npm ci && npm run mcp:pack
    lines ending in a full stop?"* or *"Find the presentation with the lyric
    'how great thou art'."*
 
-To change the folders, or to make it read-only, find ProPresenter Garage under
+To change the folders, or to make it read-only, find Presenter Garage under
 **Settings → Extensions**. The extension is unsigned, so Claude Desktop says so when
 installing it.
 
@@ -126,11 +126,11 @@ package is a single file with no dependencies, so there is nothing else to
 install:
 
 ```bash
-claude mcp add propresenter -- npx -y propresenter-garage-mcp ~/Documents/ProPresenter
+claude mcp add presenter-garage -- npx -y presenter-garage-mcp ~/Documents/ProPresenter
 ```
 
 Other clients take the same command and arguments in their MCP settings:
-command `npx`, arguments `-y propresenter-garage-mcp` followed by your folders.
+command `npx`, arguments `-y presenter-garage-mcp` followed by your folders.
 Pass one or more folders; with none, it reads `~/Documents/ProPresenter`. Add
 `--read-only` to turn editing off.
 
@@ -138,7 +138,7 @@ To run it from a checkout instead:
 
 ```bash
 npm ci && npm run mcp:build
-claude mcp add propresenter -- node "$PWD/packages/mcp/dist/propresenter-mcp.mjs" ~/Documents/ProPresenter
+claude mcp add presenter-garage -- node "$PWD/packages/mcp/dist/propresenter-mcp.mjs" ~/Documents/ProPresenter
 ```
 
 ## Why

@@ -5,11 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiffView } from "../DiffView";
 import { I18nProvider } from "../../i18n";
-import { encodeDocument } from "@propresenter-garage/core/lib/decode";
-import { diffLibraries } from "@propresenter-garage/core/lib/diff";
-import { loadMediaBytes, type LoadedFile } from "@propresenter-garage/core/lib/loadFile";
-import { decodeMediaDocument } from "@propresenter-garage/core/lib/model";
-import { syntheticMediaFile } from "@propresenter-garage/core/lib/__tests__/synthetic";
+import { encodeDocument } from "@presenter-garage/core/lib/decode";
+import { diffLibraries } from "@presenter-garage/core/lib/diff";
+import { loadMediaBytes, type LoadedFile } from "@presenter-garage/core/lib/loadFile";
+import { decodeMediaDocument } from "@presenter-garage/core/lib/model";
+import { syntheticMediaFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 
 /** The synthetic library, and a copy with one item renamed and one removed. */
 function pair(): { baseline: LoadedFile; compare: LoadedFile } {

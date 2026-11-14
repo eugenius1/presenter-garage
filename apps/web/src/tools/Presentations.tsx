@@ -8,7 +8,7 @@ import {
   readFolderFromInput,
   readFolderHandle,
   type FolderFile,
-} from "@propresenter-garage/core/lib/folder";
+} from "@presenter-garage/core/lib/folder";
 import {
   forget,
   handlePermission,
@@ -17,7 +17,7 @@ import {
   remember,
   requestHandlePermission,
 } from "../lib/persistence";
-import { download, stamp } from "@propresenter-garage/core/lib/download";
+import { download, stamp } from "@presenter-garage/core/lib/download";
 import {
   examine,
   fixFiles,
@@ -27,16 +27,16 @@ import {
   type Examined,
   type FixOutcome,
   type LineFix,
-} from "@propresenter-garage/core/lib/fixes";
+} from "@presenter-garage/core/lib/fixes";
 import {
   SPACE_CLASS,
   TRAILING_PUNCTUATION,
   type TextIssue,
   type TextIssueKind,
   type TrailingPunctuation,
-} from "@propresenter-garage/core/lib/presentation";
-import { groupBy, toggled } from "@propresenter-garage/core/lib/collections";
-import { zip } from "@propresenter-garage/core/lib/zip";
+} from "@presenter-garage/core/lib/presentation";
+import { groupBy, toggled } from "@presenter-garage/core/lib/collections";
+import { zip } from "@presenter-garage/core/lib/zip";
 import { useI18n } from "../i18n";
 
 /**

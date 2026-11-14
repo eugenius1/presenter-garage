@@ -1,10 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { examine } from "@propresenter-garage/core/lib/fixes";
-import { isPresentationFile } from "@propresenter-garage/core/lib/folder";
-import { auditLibrary } from "@propresenter-garage/core/lib/audit";
-import { checkFidelity, DecodeError, enumLabel, type Fidelity } from "@propresenter-garage/core/lib/decode";
-import { loadMediaBytes } from "@propresenter-garage/core/lib/loadFile";
+import { examine } from "@presenter-garage/core/lib/fixes";
+import { isPresentationFile } from "@presenter-garage/core/lib/folder";
+import { auditLibrary } from "@presenter-garage/core/lib/audit";
+import { checkFidelity, DecodeError, enumLabel, type Fidelity } from "@presenter-garage/core/lib/decode";
+import { loadMediaBytes } from "@presenter-garage/core/lib/loadFile";
 import {
   applicationInfo,
   itemLabel,
@@ -13,8 +13,8 @@ import {
   rawChildren,
   rawItems,
   type MediaItem,
-} from "@propresenter-garage/core/lib/model";
-import { decodePlaylistsDocument } from "@propresenter-garage/core/lib/playlists";
+} from "@presenter-garage/core/lib/model";
+import { decodePlaylistsDocument } from "@presenter-garage/core/lib/playlists";
 import {
   planStyle,
   presentationStyle,
@@ -24,7 +24,7 @@ import {
   type SkipReason,
   type SlideStyle,
   type StyleOptions,
-} from "@propresenter-garage/core/lib/style";
+} from "@presenter-garage/core/lib/style";
 import {
   checkPresentationFidelity,
   hasText,
@@ -36,9 +36,9 @@ import {
   type PresentationDoc,
   type ReadProblem,
   type TextIssue,
-} from "@propresenter-garage/core/lib/presentation";
-import { fold } from "@propresenter-garage/core/lib/search";
-import { createI18n } from "@propresenter-garage/core/i18n/core";
+} from "@presenter-garage/core/lib/presentation";
+import { fold } from "@presenter-garage/core/lib/search";
+import { createI18n } from "@presenter-garage/core/i18n/core";
 import {
   findMediaBin,
   findPlaylists,
@@ -51,7 +51,7 @@ import {
   resolveFolder,
   resolveInRoots,
   statFoundFile,
-} from "@propresenter-garage/node/library";
+} from "@presenter-garage/node/library";
 
 /**
  * What each tool returns, as plain data.

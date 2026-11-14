@@ -1,7 +1,7 @@
 import { constants as fsConstants } from "node:fs";
 import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { isPresentationFile } from "@propresenter-garage/core/lib/folder";
+import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 
 /**
  * The folders the server may read, and nothing outside them.

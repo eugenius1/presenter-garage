@@ -4,9 +4,9 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { AuditView } from "../AuditView";
 import { I18nProvider } from "../../i18n";
-import { auditLibrary } from "@propresenter-garage/core/lib/audit";
-import { buildLibrary, decodeMediaDocument } from "@propresenter-garage/core/lib/model";
-import { syntheticMediaFile } from "@propresenter-garage/core/lib/__tests__/synthetic";
+import { auditLibrary } from "@presenter-garage/core/lib/audit";
+import { buildLibrary, decodeMediaDocument } from "@presenter-garage/core/lib/model";
+import { syntheticMediaFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 
 describe("AuditView", () => {
   it("shows each finding the library has, with its count, and none it does not", () => {

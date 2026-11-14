@@ -1,5 +1,5 @@
 {
-  "name": "propresenter-garage-mcp",
+  "name": "presenter-garage-mcp",
   "version": "0.0.0",
   "description": "An MCP server that lets an AI assistant read a ProPresenter 7 library from disk: search and read presentations, run text checks, audit the media bin, and edit slide text with a confirmation and a backup for every change.",
   "license": "GPL-3.0-or-later",
@@ -13,12 +13,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eugenius1/propresenter-garage.git",
+    "url": "git+https://github.com/eugenius1/presenter-garage.git",
     "directory": "packages/mcp"
   },
-  "homepage": "https://github.com/eugenius1/propresenter-garage#for-ai-assistants-mcp",
+  "homepage": "https://github.com/eugenius1/presenter-garage#for-ai-assistants-mcp",
   "bin": {
-    "propresenter-garage-mcp": "dist/propresenter-mcp.mjs"
+    "presenter-garage-mcp": "dist/propresenter-mcp.mjs"
   },
   "files": [
     "dist/propresenter-mcp.mjs"
@@ -29,12 +29,12 @@
   "scripts": {
     "build": "vite build --logLevel warn",
     "pack:mcpb": "node scripts/pack-mcpb.mjs",
-    "prepack": "npm run protos -w @propresenter-garage/core && npm run build",
+    "prepack": "npm run protos -w @presenter-garage/core && npm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
-    "@propresenter-garage/core": "*",
-    "@propresenter-garage/node": "*",
+    "@presenter-garage/core": "*",
+    "@presenter-garage/node": "*",
     "@anthropic-ai/mcpb": "^2.1.2",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "zod": "^4.6.7"

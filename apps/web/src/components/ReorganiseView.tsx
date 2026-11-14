@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
-import { auditLibrary, type FindingId } from "@propresenter-garage/core/lib/audit";
-import { diffLibraries } from "@propresenter-garage/core/lib/diff";
-import { download } from "@propresenter-garage/core/lib/download";
-import { buildLibrary, itemLabel, itemPath, type MediaItem, type MediaLibrary, type PlaylistNode } from "@propresenter-garage/core/lib/model";
+import { auditLibrary, type FindingId } from "@presenter-garage/core/lib/audit";
+import { diffLibraries } from "@presenter-garage/core/lib/diff";
+import { download } from "@presenter-garage/core/lib/download";
+import { buildLibrary, itemLabel, itemPath, type MediaItem, type MediaLibrary, type PlaylistNode } from "@presenter-garage/core/lib/model";
 import {
   applyOperations,
   exportFilename,
   exportOperations,
   type Operation,
-} from "@propresenter-garage/core/lib/operations";
-import type { LoadedFile } from "@propresenter-garage/core/lib/loadFile";
+} from "@presenter-garage/core/lib/operations";
+import type { LoadedFile } from "@presenter-garage/core/lib/loadFile";
 import { useI18n } from "../i18n";
 
 /**

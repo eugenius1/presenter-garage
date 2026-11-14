@@ -16,14 +16,14 @@ import {
   syntheticTextPresentation,
   SYNTHETIC,
   textLines,
-} from "@propresenter-garage/core/lib/__tests__/synthetic";
-import { encodeDocument, messageType } from "@propresenter-garage/core/lib/decode";
-import { decodeMediaDocument, rawItems, walkNodes } from "@propresenter-garage/core/lib/model";
-import { applyOperations } from "@propresenter-garage/core/lib/operations";
-import { decodePlaylistsDocument, headerEntry, mediaEntry, presentationEntry } from "@propresenter-garage/core/lib/playlists";
-import { decodePresentation, encodePresentation, slidesInOrder } from "@propresenter-garage/core/lib/presentation";
-import { syntheticPresentationFile } from "@propresenter-garage/core/lib/__tests__/synthetic";
-import { findPresentations, openRoots, readFoundFile, readLibraryFile, resolveInRoots } from "@propresenter-garage/node/library";
+} from "@presenter-garage/core/lib/__tests__/synthetic";
+import { encodeDocument, messageType } from "@presenter-garage/core/lib/decode";
+import { decodeMediaDocument, rawItems, walkNodes } from "@presenter-garage/core/lib/model";
+import { applyOperations } from "@presenter-garage/core/lib/operations";
+import { decodePlaylistsDocument, headerEntry, mediaEntry, presentationEntry } from "@presenter-garage/core/lib/playlists";
+import { decodePresentation, encodePresentation, slidesInOrder } from "@presenter-garage/core/lib/presentation";
+import { syntheticPresentationFile } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { findPresentations, openRoots, readFoundFile, readLibraryFile, resolveInRoots } from "@presenter-garage/node/library";
 import { parseArgs } from "../args";
 import { createServer, type ServerOptions } from "../server";
 import { applyPlan, planSlideEdits, PlanStore } from "../edits";

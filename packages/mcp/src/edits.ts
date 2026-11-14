@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { createI18n } from "@propresenter-garage/core/i18n/core";
-import { isPresentationFile } from "@propresenter-garage/core/lib/folder";
+import { createI18n } from "@presenter-garage/core/i18n/core";
+import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 import {
   EditError,
   FixError,
@@ -10,16 +10,16 @@ import {
   type FixRefusal,
   type LineChange,
   type LineFix,
-} from "@propresenter-garage/core/lib/fixes";
-import { checkPresentationFidelity } from "@propresenter-garage/core/lib/presentation";
-import { LibraryError, readFoundFile, resolveInRoots } from "@propresenter-garage/node/library";
+} from "@presenter-garage/core/lib/fixes";
+import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
+import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
 import {
   openBackupDir,
   replaceWithBackup,
   sha256,
   type Replacement,
   type WriteRefusal,
-} from "@propresenter-garage/node/write";
+} from "@presenter-garage/node/write";
 import { open, presentationName } from "./tools";
 
 /**

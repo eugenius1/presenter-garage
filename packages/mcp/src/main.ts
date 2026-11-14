@@ -1,8 +1,8 @@
 import os from "node:os";
 import path from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { openRoots } from "@propresenter-garage/node/library";
-import { defaultBackupDir, openBackupDir } from "@propresenter-garage/node/write";
+import { openRoots } from "@presenter-garage/node/library";
+import { defaultBackupDir, openBackupDir } from "@presenter-garage/node/write";
 import { parseArgs } from "./args";
 import { createServer } from "./server";
 
@@ -34,7 +34,7 @@ async function main() {
   const editing = backups !== undefined;
   await createServer(roots, { readOnly: !editing, backupDir: backups }).connect(new StdioServerTransport());
   console.error(
-    `propresenter-garage MCP ${editing ? `reading and editing ${roots.join(", ")}, backing up to ${backups}` : `reading ${roots.join(", ")}`}`
+    `presenter-garage MCP ${editing ? `reading and editing ${roots.join(", ")}, backing up to ${backups}` : `reading ${roots.join(", ")}`}`
   );
 }
 

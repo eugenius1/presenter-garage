@@ -1,7 +1,7 @@
 // Copy index.html to 404.html after building.
 //
 // GitHub Pages serves only static files and has no rewrite rules, so a deep
-// link such as /propresenter-garage/media-bin has no file behind it and would
+// link such as /presenter-garage/media-bin has no file behind it and would
 // 404 on refresh or when shared. Pages serves 404.html for any unmatched path,
 // so a copy of the app there makes deep links work: the app reads the path and
 // shows the right tool.
