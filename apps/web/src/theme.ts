@@ -13,9 +13,7 @@ export const THEMES: Theme[] = ["system", "light", "dark"];
 /** What `system` currently resolves to. */
 export type ResolvedTheme = "light" | "dark";
 
-// Keeps the app's old name: renaming the key would forget every reader's choice.
-// index.html reads the same key before first paint.
-const STORAGE_KEY = "propresenter-garage.theme";
+const STORAGE_KEY = "presenter-garage.theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 export function isTheme(value: unknown): value is Theme {

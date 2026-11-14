@@ -7,8 +7,7 @@ import { createI18n, detectLanguage, isLang, type I18n, type Lang } from "@prese
  * Separate from the barrel so this file exports only the provider and its hook
  * -- which is what keeps fast refresh granular during development.
  */
-// Keeps the app's old name: renaming the key would forget every reader's choice.
-const STORAGE_KEY = "propresenter-garage.lang";
+const STORAGE_KEY = "presenter-garage.lang";
 
 /** A language the reader chose explicitly, which outranks the device default. */
 function storedLanguage(): Lang | null {

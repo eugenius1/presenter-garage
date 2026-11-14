@@ -54,7 +54,7 @@ describe("ThemeSwitcher", () => {
     await waitFor(() => expect(isDark()).toBe(true));
     expect(themeSelect().value).toBe("system");
     // Following the system is the default, not a stored choice.
-    expect(localStorage.getItem("propresenter-garage.theme")).toBeNull();
+    expect(localStorage.getItem("presenter-garage.theme")).toBeNull();
   });
 
   it("keeps following after load when the system preference changes", async () => {
@@ -88,7 +88,7 @@ describe("ThemeSwitcher", () => {
     await userEvent.selectOptions(themeSelect(), "dark");
 
     await waitFor(() => expect(isDark()).toBe(true));
-    expect(localStorage.getItem("propresenter-garage.theme")).toBe("dark");
+    expect(localStorage.getItem("presenter-garage.theme")).toBe("dark");
   });
 
   it("stops following the system once a choice is made", async () => {
