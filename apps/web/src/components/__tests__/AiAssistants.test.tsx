@@ -29,10 +29,14 @@ describe("AiAssistants", () => {
       MCPB_URL
     );
     // Three places name the file: the pack script writes it, the workflow
-    // uploads it, and this link fetches it. A rename in one breaks the link.
+    // carries it to the release and uploads it, and this link fetches it. A
+    // rename in one breaks the link. The upload is the line that names the
+    // asset, so it is checked on its own rather than through the copy before it.
     const file = path.basename(MCPB_URL);
+    const workflow = read(".github/workflows/release.yml");
     expect(read("packages/mcp/scripts/pack-mcpb.mjs")).toContain(`dist/${file}`);
-    expect(read(".github/workflows/release.yml")).toContain(`dist/${file}`);
+    expect(workflow).toContain(`cp dist/${file} `);
+    expect(workflow).toMatch(new RegExp(`gh release upload "\\$TAG" ${file.replace(".", "\\.")} `));
   });
 
   it("gives the same command as the README", () => {
