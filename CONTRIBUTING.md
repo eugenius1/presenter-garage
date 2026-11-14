@@ -463,7 +463,7 @@ Shared analysis lives in `packages/core/src/lib/`, shared interface pieces in
 
 `packages/mcp/` is the MCP server. It calls `core` and nothing in `core` knows
 it exists. Its `vite.config.ts` bundles it into one self-contained file,
-`dist/propresenter-mcp.mjs`, and that file is the whole npm package: `bin`
+`dist/presenter-garage-mcp.mjs`, and that file is the whole npm package: `bin`
 points at it and there are no runtime dependencies, so `npx` starts it with
 nothing to install. npm packs only what is inside the package, so
 `packages/mcp/LICENSE` is a committed copy of the root licence, which the same

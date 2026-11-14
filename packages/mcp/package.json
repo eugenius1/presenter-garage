@@ -18,10 +18,10 @@
   },
   "homepage": "https://github.com/eugenius1/presenter-garage#for-ai-assistants-mcp",
   "bin": {
-    "presenter-garage-mcp": "dist/propresenter-mcp.mjs"
+    "presenter-garage-mcp": "dist/presenter-garage-mcp.mjs"
   },
   "files": [
-    "dist/propresenter-mcp.mjs"
+    "dist/presenter-garage-mcp.mjs"
   ],
   "engines": {
     "node": ">=20"

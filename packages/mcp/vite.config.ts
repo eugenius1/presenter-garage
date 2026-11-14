@@ -17,7 +17,7 @@ export default defineConfig({
     copyPublicDir: false,
     target: "node20",
     rollupOptions: {
-      output: { entryFileNames: "propresenter-mcp.mjs", banner: "#!/usr/bin/env node" },
+      output: { entryFileNames: "presenter-garage-mcp.mjs", banner: "#!/usr/bin/env node" },
     },
   },
   ssr: { noExternal: true, target: "node" },

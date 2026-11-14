@@ -138,7 +138,7 @@ To run it from a checkout instead, or to build the extension yourself
 
 ```bash
 npm ci && npm run mcp:build
-claude mcp add presenter-garage -- node "$PWD/packages/mcp/dist/propresenter-mcp.mjs" ~/Documents/ProPresenter
+claude mcp add presenter-garage -- node "$PWD/packages/mcp/dist/presenter-garage-mcp.mjs" ~/Documents/ProPresenter
 ```
 
 ## Why
