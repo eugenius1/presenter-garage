@@ -2,7 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AiAssistants, CLI_COMMAND, MCPB_URL } from "../AiAssistants";
@@ -48,6 +48,23 @@ describe("AiAssistants", () => {
 
     expect(writeText).toHaveBeenCalledWith(CLI_COMMAND);
     await waitFor(() => expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument());
+  });
+
+  it("goes back to Copy after a moment, so a second copy is confirmed too", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      vi.spyOn(navigator.clipboard, "writeText");
+      renderIt();
+
+      await user.click(screen.getByRole("button", { name: "Copy" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument());
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+
+      expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("selects the command when the clipboard refuses", async () => {
