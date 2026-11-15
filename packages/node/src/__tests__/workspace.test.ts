@@ -340,7 +340,9 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
     const legacy = new Map<string, Uint8Array>();
     for (const file of (await findPresentations(await openRoots([REAL_LEGACY!]))).files) {
       const bytes = fs.readFileSync(file);
-      const uuid = openPresentation(bytes).raw?.uuid?.string;
+      const opened = openPresentation(bytes);
+      // A library holds files that are not presentations; they have no counterpart to find.
+      const uuid: string | undefined = opened.problem ? undefined : opened.raw.uuid?.string;
       if (uuid) legacy.set(uuid.toLowerCase(), bytes);
     }
 
