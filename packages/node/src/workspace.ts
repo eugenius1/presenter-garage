@@ -92,13 +92,20 @@ type Database = import("node:sqlite").DatabaseSync;
  *
  * Read-only is not enough to leave the folder alone. The databases are in
  * WAL mode, and SQLite opening one read-only still creates the `-shm` and
- * `-wal` files beside it if they are not there, which they are not whenever
- * ProPresenter is closed: found by reading a copy and seeing two new files
- * in it. So with no write-ahead log the database is opened `immutable`,
- * which creates nothing and takes no lock, and is correct because without a
- * log the file is the whole database. With a log, ProPresenter is running
- * and has made both files itself, and an ordinary read-only connection reads
- * beside it. ProPresenter starting between the check and the open could give
+ * `-wal` files beside it if they are not there, which on Windows they are
+ * not once ProPresenter has quit: found by reading a copy and seeing two new
+ * files in it. So with no write-ahead log the database is opened
+ * `immutable`, which creates nothing and takes no lock, and is correct
+ * because without a log the file is the whole database.
+ *
+ * With a log the database is not whole without it, so it has to be read:
+ * ProPresenter is running, or is the macOS one, which leaves megabytes in
+ * the log when it quits. An ordinary read-only connection reads beside it.
+ * If nothing else has the database open that connection rebuilds the `-shm`
+ * index, the one file this ever changes; it holds nothing of the workspace
+ * and whatever opens the database next rebuilds it again.
+ *
+ * ProPresenter starting between the check and the open could give
  * an immutable reader a page mid-change; that surfaces as an error or is put
  * right by the next read, since the list is refreshed when the log appears.
  */

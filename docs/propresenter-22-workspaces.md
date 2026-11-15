@@ -76,10 +76,19 @@ CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
 folder a workspace was made from. There are also
 `cloud_workspace_organizations` and `trashed_workspaces`.
 
-Both databases are in WAL mode. While ProPresenter runs there is a `-wal`
-and a `-shm` file beside each; closed, there is neither. **Opening one
-read-only is not enough to leave the folder untouched:** SQLite creates both
-files if they are missing. Open it `immutable` when there is no `-wal`.
+Both databases are in WAL mode, so there can be a `-wal` and a `-shm` file
+beside each. What is left when ProPresenter quits differs: on Windows
+neither file was there, while on macOS both stayed, with 5 MB of the
+workspace still only in the `-wal`. So the `-wal` must be read whenever it
+exists, and copied along with the database.
+
+**Opening one read-only is not enough to leave the folder untouched.** With
+no `-wal`, SQLite creates both files; open it `immutable` instead, which
+creates nothing. With a `-wal` and nothing else holding the database open,
+a read-only connection rebuilds the `-shm`. That one cannot be avoided short
+of copying the database elsewhere first: the `-shm` is only an index into the
+`-wal`, rebuilt by whichever program opens the database next, and the
+database and `-wal` themselves come through byte for byte.
 
 ### The document store
 

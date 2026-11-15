@@ -22,6 +22,9 @@ after; nothing opened in the app beyond the upgrade itself (#51).
 - A presentation no longer records when it was last shown. Filtering by use
   is refused for a workspace rather than answered wrongly.
 - Read-only: the edit tools are not offered for a workspace.
+- With ProPresenter quit, the server read the live workspace and the
+  database and its write-ahead log were byte for byte as before. Only the
+  `-shm` index was rebuilt, as it is by whatever opens the database next.
 - Not checked: the web app.
 
 **2026-11-15, Windows.** A Cloud workspace that had been in use for a week,
@@ -32,9 +35,9 @@ with the folder it was upgraded from; files only, not opened in the app (#51).
 - All but the 41 presentations edited since the upgrade read the same from
   the workspace as from the old folder, of 1,227. Every playlist entry
   opened the presentation it names.
-- Opening the database read-only left `-shm` and `-wal` files in a workspace
-  ProPresenter had closed. Fixed: it is opened immutable when there is no
-  write-ahead log.
+- Opening the copy read-only, on a Mac, left `-shm` and `-wal` files in it:
+  ProPresenter on Windows had quit leaving neither, and SQLite makes both.
+  Fixed: it is opened immutable when there is no write-ahead log.
 - A playlist written on Windows records its entries with backslashes. Fixed:
   a document is found by either separator.
 
