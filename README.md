@@ -146,7 +146,8 @@ claude mcp add presenter-garage -- npx -y presenter-garage-mcp ~/Documents/ProPr
 Other clients take the same command and arguments in their MCP settings:
 command `npx`, arguments `-y presenter-garage-mcp` followed by your folders.
 Pass one or more folders; with none, it reads the workspace ProPresenter 22
-has open, or `~/Documents/ProPresenter` where there is none. Add
+has open, else `~/Documents/ProPresenter`, else the one workspace ProPresenter
+20 or 21 made elsewhere. Add
 `--read-only` to turn editing off. Reading a ProPresenter 22 workspace needs
 Node 22.13 or later.
 

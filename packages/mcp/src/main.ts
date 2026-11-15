@@ -1,8 +1,15 @@
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { openRoots } from "@presenter-garage/node/library";
-import { isInWorkspace, registeredWorkspaces, type RegisteredWorkspace } from "@presenter-garage/node/workspace";
+import {
+  defaultLibrary,
+  folderWorkspaces,
+  isInWorkspace,
+  registeredWorkspaces,
+  type RegisteredWorkspace,
+} from "@presenter-garage/node/workspace";
 import { defaultBackupDir, openBackupDir } from "@presenter-garage/node/write";
 import { parseArgs } from "./args";
 import { createServer } from "./server";
@@ -13,8 +20,8 @@ import { createServer } from "./server";
  *   node packages/mcp/dist/presenter-garage-mcp.mjs [--read-only] [--backup-dir=<folder>] [library folder...]
  *
  * With no folder named it reads the workspace ProPresenter 22 has open, and
- * where there is none, `~/Documents/ProPresenter`, the folder every version
- * before 22 keeps its libraries and playlists in on both macOS and Windows.
+ * where there is none, `~/Documents/ProPresenter` or the one workspace
+ * ProPresenter 20 or 21 made elsewhere. `defaultLibrary` has the order.
  */
 
 /**
@@ -38,9 +45,18 @@ function staleNotes(roots: readonly string[], workspaces: readonly RegisteredWor
 async function main() {
   const { folders, readOnly, backupDir } = parseArgs(process.argv.slice(2));
   const workspaces = await registeredWorkspaces();
-  const active = workspaces.find((w) => w.active);
+  const documents = path.join(os.homedir(), "Documents", "ProPresenter");
   const dirs =
-    folders.length > 0 ? folders : [active?.root ?? path.join(os.homedir(), "Documents", "ProPresenter")];
+    folders.length > 0
+      ? folders
+      : [
+          defaultLibrary({
+            registered: workspaces,
+            documents,
+            documentsExists: await fs.stat(documents).then((s) => s.isDirectory(), () => false),
+            folders: await folderWorkspaces(),
+          }),
+        ];
   const roots = await openRoots(dirs);
   const notes = staleNotes(roots, workspaces);
   for (const note of notes) console.error(note);

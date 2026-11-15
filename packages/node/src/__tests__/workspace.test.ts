@@ -29,7 +29,14 @@ import {
   resolveInRoots,
   statFoundFile,
 } from "../library";
-import { isInWorkspace, registeredWorkspaces, WORKSPACE_READ_ONLY } from "../workspace";
+import {
+  defaultLibrary,
+  folderWorkspaces,
+  isInWorkspace,
+  registeredWorkspaces,
+  WORKSPACE_READ_ONLY,
+  type RegisteredWorkspace,
+} from "../workspace";
 import { openBackupDir, replaceWithBackup } from "../write";
 import { createWorkspace, MODIFIED, putDocument, sqlite, storeOf } from "./workspace-db";
 
@@ -223,6 +230,46 @@ describe("the registry of workspaces", () => {
     fs.mkdirSync(dir);
     fs.writeFileSync(path.join(dir, "registry-v1.sqlite3"), "not a database");
     expect(await registeredWorkspaces(dir)).toEqual([]);
+  });
+});
+
+describe("the library read when none is named", () => {
+  const registered = (active: boolean): RegisteredWorkspace => ({
+    root: "/ws/v22",
+    name: "Church",
+    active,
+    cloud: false,
+    schemaVersion: "22.9.0",
+  });
+  const DOCUMENTS = "/home/Documents/ProPresenter";
+
+  it("finds the workspaces ProPresenter 20 and 21 made, and nothing else kept beside them", async () => {
+    const dir = path.join(tmp, "UserWorkspaces");
+    fs.mkdirSync(path.join(dir, "Youth", "Libraries"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "Main", "Playlists"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "Cache"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "notes.txt"), "");
+    expect(await folderWorkspaces(dir)).toEqual([path.join(dir, "Main"), path.join(dir, "Youth")]);
+    expect(await folderWorkspaces(path.join(tmp, "nowhere"))).toEqual([]);
+  });
+
+  it("is the workspace ProPresenter 22 has open, whatever else exists", () => {
+    expect(
+      defaultLibrary({ registered: [registered(true)], documents: DOCUMENTS, documentsExists: true, folders: ["/a"] })
+    ).toBe("/ws/v22");
+  });
+
+  it("is Documents when that is there, and when nothing is", () => {
+    const none = { registered: [registered(false)], documents: DOCUMENTS };
+    expect(defaultLibrary({ ...none, documentsExists: true, folders: ["/a", "/b"] })).toBe(DOCUMENTS);
+    // Named anyway, so "folder not found" says where a library was expected.
+    expect(defaultLibrary({ ...none, documentsExists: false, folders: [] })).toBe(DOCUMENTS);
+  });
+
+  it("is the one workspace made elsewhere, and asks when there are several", () => {
+    const none = { registered: [], documents: DOCUMENTS, documentsExists: false };
+    expect(defaultLibrary({ ...none, folders: ["/ws/Main"] })).toBe("/ws/Main");
+    expect(() => defaultLibrary({ ...none, folders: ["/ws/Main", "/ws/Youth"] })).toThrow("/ws/Main, /ws/Youth");
   });
 });
 

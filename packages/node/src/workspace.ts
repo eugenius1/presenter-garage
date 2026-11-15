@@ -321,11 +321,74 @@ export interface RegisteredWorkspace {
  * real installation.
  */
 export function workspacesDir(): string {
+  return path.join(supportDir(), "Workspaces");
+}
+
+/** ProPresenter's own folder under the user's application support. */
+function supportDir(): string {
   const support =
     process.platform === "win32"
       ? (process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"))
       : path.join(os.homedir(), "Library", "Application Support");
-  return path.join(support, "RenewedVision", "ProPresenter", "Workspaces");
+  return path.join(support, "RenewedVision", "ProPresenter");
+}
+
+/**
+ * Where ProPresenter 20 and 21 make a new workspace: a folder of the same
+ * files as ever, no longer in Documents. Named differently on each system,
+ * by Renewed Vision's own note on the move.
+ */
+export function folderWorkspacesDir(): string {
+  return path.join(supportDir(), process.platform === "win32" ? "LocalWorkspaces" : "UserWorkspaces");
+}
+
+/**
+ * The workspaces ProPresenter 20 or 21 made, each a folder in the old
+ * layout. Told from anything else kept there by holding `Libraries` or
+ * `Playlists`. Which one ProPresenter has open is recorded only in its
+ * preferences, which are a property list on macOS and the registry on
+ * Windows, so it is not known here.
+ */
+export async function folderWorkspaces(dir: string = folderWorkspacesDir()): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const found: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const folder = path.join(dir, entry.name);
+    const holds = await Promise.all(
+      ["Libraries", "Playlists"].map((name) => fs.stat(path.join(folder, name)).then((s) => s.isDirectory(), () => false))
+    );
+    if (holds.some(Boolean)) found.push(folder);
+  }
+  return found.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * The library to read when none was named, most certain first.
+ *
+ * The workspace ProPresenter 22 has open, since its registry says so. Then
+ * `Documents/ProPresenter`, where every version before 20 keeps its only
+ * library and later ones keep the first. Then a workspace ProPresenter 20 or
+ * 21 made elsewhere, but only when there is one: with several there is no
+ * telling which is in use, and reading the wrong church's songs without a
+ * word is worse than asking, so that is an error naming them.
+ *
+ * `documents` comes back even when it does not exist, so the caller's own
+ * "folder not found" names the place a person would expect.
+ */
+export function defaultLibrary(found: {
+  registered: readonly RegisteredWorkspace[];
+  documents: string;
+  documentsExists: boolean;
+  folders: readonly string[];
+}): string {
+  const active = found.registered.find((w) => w.active);
+  if (active) return active.root;
+  if (found.documentsExists || found.folders.length === 0) return found.documents;
+  if (found.folders.length === 1) return found.folders[0];
+  throw new LibraryError(
+    `ProPresenter has ${found.folders.length} workspaces and no folder was named. Pass the one to read: ${found.folders.join(", ")}`
+  );
 }
 
 /**
