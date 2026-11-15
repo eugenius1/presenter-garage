@@ -112,9 +112,7 @@ class Converter {
 
   private field(field: protobuf.Field, v: Json): Json {
     field.resolve();
-    if (field.map) {
-      return isObject(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, this.value(field, x)])) : {};
-    }
+    // No field of the schema is a protobuf map, so a list is the only container.
     if (field.repeated) return Array.isArray(v) ? v.map((x) => this.value(field, x)) : [];
     return this.value(field, v);
   }

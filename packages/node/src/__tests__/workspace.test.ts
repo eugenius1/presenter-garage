@@ -32,6 +32,8 @@ import {
 import {
   defaultLibrary,
   folderWorkspaces,
+  folderWorkspacesDir,
+  workspacesDir,
   isInWorkspace,
   registeredWorkspaces,
   WORKSPACE_READ_ONLY,
@@ -169,6 +171,13 @@ describe("a workspace as a library", () => {
     expect((await readFoundFile(inWorkspace("Libraries", "Default", "Céleste.pro"))).bytes.length).toBeGreaterThan(0);
   });
 
+  it("reports a database it cannot read as a problem to act on, not a crash", async () => {
+    // Appended to, as ProPresenter's write-ahead log is, so the list is read again.
+    fs.writeFileSync(store(), "no longer a database");
+    await expect(findPresentations(roots)).rejects.toThrow(LibraryError);
+    await expect(findPresentations(roots)).rejects.toThrow(store());
+  });
+
   it("still reads the real files a workspace holds", async () => {
     fs.mkdirSync(inWorkspace("Media", "Assets"), { recursive: true });
     fs.writeFileSync(inWorkspace("Media", "Assets", "loop.mov"), "not a film");
@@ -251,6 +260,13 @@ describe("the library read when none is named", () => {
     fs.writeFileSync(path.join(dir, "notes.txt"), "");
     expect(await folderWorkspaces(dir)).toEqual([path.join(dir, "Main"), path.join(dir, "Youth")]);
     expect(await folderWorkspaces(path.join(tmp, "nowhere"))).toEqual([]);
+  });
+
+  it("looks for both kinds of workspace side by side in ProPresenter's own support folder", () => {
+    expect(path.basename(workspacesDir())).toBe("Workspaces");
+    expect(["UserWorkspaces", "LocalWorkspaces"]).toContain(path.basename(folderWorkspacesDir()));
+    expect(path.dirname(folderWorkspacesDir())).toBe(path.dirname(workspacesDir()));
+    expect(path.dirname(workspacesDir()).endsWith(path.join("RenewedVision", "ProPresenter"))).toBe(true);
   });
 
   it("is the workspace ProPresenter 22 has open, whatever else exists", () => {

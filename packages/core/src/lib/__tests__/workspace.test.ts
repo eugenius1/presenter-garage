@@ -142,6 +142,40 @@ describe("a presentation from a workspace", () => {
     expect(presentationFromWorkspace(withNew).unmapped).toEqual(["rv.data.Cue.per_cue_thing", "rv.data.Presentation.shiny_new_thing"]);
   });
 
+  it("names a oneof choice the schema does not have, and passes over an unset one", () => {
+    const { message, unmapped } = presentationFromWorkspace({
+      ...PRESENTATION,
+      background: { is_enabled: true, Fill: { __tag: "hologram", hologram: {} } },
+    });
+    expect(unmapped).toEqual(["rv.data.Background.Fill.hologram"]);
+    expect(message.background.is_enabled).toBe(true);
+    // `SlideShow: { __tag: null }` in the fixture is a oneof nothing was chosen for.
+    expect(presentationFromWorkspace(PRESENTATION).unmapped).toEqual([]);
+  });
+
+  it("names a placement that is not a group rather than guessing where its cues go", () => {
+    const stray = { ...placement("x", "X", []), meta: { uuid: "x", Kind: { __tag: "section", section: {} } } };
+    const { message, unmapped } = presentationFromWorkspace({
+      ...PRESENTATION,
+      cue_group_placements: [stray, placement("g-verse", "Verse", ["c-1"])],
+    });
+    expect(unmapped).toEqual(["rv.data.Presentation.cue_group_placements.section"]);
+    expect(message.cue_groups).toHaveLength(1);
+    // Every cue is still there: the stray placement cost the order, not the slides.
+    expect(message.cues).toHaveLength(3);
+  });
+
+  it("reads a list that is not a list as empty, and a placement of a cue that is gone as no slide", () => {
+    const { message } = presentationFromWorkspace({
+      ...PRESENTATION,
+      arrangements: { not: "a list" },
+      cue_group_placements: [placement("g-verse", "Verse", ["c-1", "c-deleted"])],
+    });
+    expect(message.arrangements).toEqual([]);
+    expect(message.cues.map((c: any) => c.name)).toEqual(["One", "Three", "Two"]);
+    expect(message.cue_groups[0].cue_identifiers.map((id: any) => id.string)).toEqual(["c-1", "c-deleted"]);
+  });
+
   it("keeps a cue no group places, after the ones that are placed", () => {
     const { message } = presentationFromWorkspace({
       ...PRESENTATION,
@@ -244,6 +278,57 @@ describe("a playlist document from a workspace", () => {
       playlists: [treeNode("playlist", "A", {}), treeNode("playlist", "B", {})],
     });
     expect(rawChildren(message.root_node).map((p: any) => p.name)).toEqual(["A", "B"]);
+  });
+
+  it("keeps the live-video playlist, and says so if there is ever more than one", () => {
+    const live = (name: string) => treeNode("playlist", name, { LinkData: { __tag: null } });
+    const one = playlistDocumentFromWorkspace({ ...PLAYLISTS, type: 2, live_video_playlist_nodes: [live("Live Video")] });
+    expect(one.unmapped).toEqual([]);
+    expect(one.message.live_video_playlist.name).toBe("Live Video");
+
+    const two = playlistDocumentFromWorkspace({ ...PLAYLISTS, type: 2, live_video_playlist_nodes: [live("A"), live("B")] });
+    expect(two.message.live_video_playlist.name).toBe("A");
+    expect(two.unmapped).toEqual(["rv.data.PlaylistDocument.live_video_playlist_nodes[1+]"]);
+  });
+
+  it("reads nothing at all as an empty document rather than throwing", () => {
+    const { message, unmapped } = playlistDocumentFromWorkspace(null);
+    expect(unmapped).toEqual([]);
+    expect(rawChildren(message.root_node)).toEqual([]);
+  });
+
+  it("leaves a url that is already there alone", () => {
+    const { message } = playlistDocumentFromWorkspace({
+      type: 2,
+      playlists: [
+        treeNode("group", "", {}, [
+          treeNode("playlist", "Loops", {}, [
+            treeNode("item", "Loop", {
+              ItemType: {
+                __tag: "cue",
+                cue: {
+                  actions: [
+                    {
+                      ActionTypeData: {
+                        __tag: "media",
+                        media: {
+                          element: {
+                            url: localUrl("Media/kept.mov"),
+                            TypeProperties: { __tag: "video", video: { file: { local_url: localUrl("Media/other.mov") } } },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            }),
+          ]),
+        ]),
+      ],
+    });
+    const element = rawItems(rawChildren(message.root_node)[0])[0].cue.actions[0].media.element;
+    expect(element.url.local.path).toBe("Media/kept.mov");
   });
 
   it("puts back the url a media element no longer carries", () => {
