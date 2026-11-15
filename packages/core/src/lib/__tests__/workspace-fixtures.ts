@@ -46,6 +46,26 @@ function valueOf(field: protobuf.Field, v: Json): Json {
   return toWorkspace(resolved as protobuf.Type, v);
 }
 
+/**
+ * A node of a playlist tree as a snapshot holds one, written out by hand:
+ * `kind` is `group`, `playlist` or `item`, and `data` what that kind carries.
+ */
+export const treeNode = (kind: string, name: string, data: unknown, children: unknown[] = []) => ({
+  id: `${name}@1`,
+  parent: null,
+  index: 0,
+  fractional_index: "80",
+  meta: { uuid: `u-${name}`, name, Kind: { __tag: kind, [kind]: data } },
+  children,
+});
+
+/** A file's URL as a snapshot holds one, relative to the workspace (`root: 10` is `ROOT_SHOW`). */
+export const localUrl = (file: string, absolute = `file:///ws/${file}`) => ({
+  platform: 1,
+  Storage: { __tag: "absolute_string", absolute_string: absolute },
+  RelativeFilePath: { __tag: "local", local: { root: 10, path: file } },
+});
+
 let nextId = 0;
 const node = (parent: string | null, index: number, meta: Json, children: (id: string) => Json[]) => {
   const id = `${nextId++}@1`;

@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { LoroDoc } from "loro-crdt/base64";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildLibrary, decodeMediaDocument } from "@presenter-garage/core/lib/model";
@@ -34,6 +33,8 @@ import {
   defaultLibrary,
   folderWorkspaces,
   folderWorkspacesDir,
+  openDatabase,
+  staleNotes,
   workspacesDir,
   isInWorkspace,
   registeredWorkspaces,
@@ -299,6 +300,16 @@ describe("the library read when none is named", () => {
     expect(path.dirname(workspacesDir()).endsWith(path.join("RenewedVision", "ProPresenter"))).toBe(true);
   });
 
+  it("says which folder is a copy ProPresenter no longer updates, unless its workspace is read too", () => {
+    const upgraded: RegisteredWorkspace = { ...registered(true), copiedFrom: DOCUMENTS };
+    const [note] = staleNotes([DOCUMENTS], [upgraded]);
+    expect(note).toContain(DOCUMENTS);
+    expect(note).toContain("/ws/v22");
+    expect(staleNotes([DOCUMENTS, "/ws/v22"], [upgraded])).toEqual([]);
+    expect(staleNotes(["/somewhere/else"], [upgraded])).toEqual([]);
+    expect(staleNotes([DOCUMENTS], [registered(true)])).toEqual([]);
+  });
+
   it("is the workspace ProPresenter 22 has open, whatever else exists", () => {
     expect(
       defaultLibrary({ registered: [registered(true)], documents: DOCUMENTS, documentsExists: true, folders: ["/a"] })
@@ -374,10 +385,7 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
   }, 300_000);
 
   it("leaves out only what is new in version 22", async () => {
-    // Immutable, as the reader opens it: read-only alone leaves `-shm` and `-wal` files behind.
-    const url = pathToFileURL(path.join(REAL_WORKSPACE!, "DocumentStore", "workspace-v1.sqlite3"));
-    url.searchParams.set("immutable", "1");
-    const db = new sqlite!.DatabaseSync(url, { readOnly: true });
+    const db = await openDatabase(storeOf(REAL_WORKSPACE!));
     const rows = db.prepare("SELECT snapshot FROM workspace_streams WHERE kind = 'Presentation' AND scope = 0").all();
     db.close();
     const unmapped = new Set<string>();

@@ -2,7 +2,10 @@ import { constants as fsConstants } from "node:fs";
 import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
-import { workspaceAt, workspaceOf, type Workspace } from "./workspace";
+import { isInside, LibraryError, type FoundFile, type FoundTheme } from "./paths";
+import { documentAt, workspaceAt, workspaceOf } from "./workspace";
+
+export { isInside, LibraryError, type FoundFile, type FoundTheme };
 
 /**
  * The folders the server may read, and nothing outside them.
@@ -31,13 +34,6 @@ export const MAX_WALK_FILES = 20_000;
 /** The same stop for a root with few presentations under a huge tree, which never reaches the file count. */
 export const MAX_WALK_DIRS = 50_000;
 
-export class LibraryError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "LibraryError";
-  }
-}
-
 /** Resolve the configured roots, refusing any that is not a readable folder. */
 export async function openRoots(dirs: readonly string[]): Promise<string[]> {
   if (dirs.length === 0) throw new LibraryError("No library folder configured.");
@@ -57,11 +53,6 @@ export async function openRoots(dirs: readonly string[]): Promise<string[]> {
     await workspaceAt(real);
   }
   return roots;
-}
-
-export function isInside(root: string, target: string): boolean {
-  const rel = path.relative(root, target);
-  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
 
 /**
@@ -93,24 +84,15 @@ export async function resolveInRoots(roots: readonly string[], p: string): Promi
   );
 }
 
-/** The workspace among the roots that a path is inside, if any. */
-async function workspaceIn(roots: readonly string[], p: string): Promise<Workspace | undefined> {
-  for (const root of roots) {
-    if (!isInside(root, p)) continue;
-    const workspace = await workspaceAt(root);
-    if (workspace) return workspace;
-  }
-  return undefined;
-}
-
 /**
  * A document of a workspace, or a folder of them, by the path it had in the
  * old layout. There is no file to `realpath`, and nothing to follow out of
  * the root either: the path is only ever a key into the workspace's own list.
+ * Only a workspace that is one of the roots answers.
  */
 async function resolveInWorkspace(roots: readonly string[], p: string): Promise<string | undefined> {
-  const workspace = await workspaceIn(roots, p);
-  if (!workspace) return undefined;
+  const workspace = await workspaceOf(p);
+  if (!workspace || !roots.includes(workspace.root)) return undefined;
   // The document's own spelling, since a path arrives in whatever case and
   // accent composition the caller had.
   return (await workspace.find(p))?.path ?? ((await workspace.hasFolder(p)) ? p : undefined);
@@ -124,13 +106,6 @@ async function resolveInWorkspace(roots: readonly string[], p: string): Promise<
  */
 export async function isUnmoved(p: string): Promise<boolean> {
   return (await fs.realpath(p).catch(() => undefined)) === p;
-}
-
-export interface FoundFile {
-  bytes: Uint8Array;
-  /** From the handle the bytes were read through, so they describe the same file. */
-  size: number;
-  modified: Date;
 }
 
 /** Compared as BigInts: an inode past 2^53 loses precision as a number, and two files could then match. */
@@ -160,8 +135,8 @@ async function isSameFile(file: string, handle: FileHandle): Promise<boolean> {
  * a library one unreadable file is a finding about that file, not a crash.
  */
 export async function readFoundFile(file: string): Promise<FoundFile> {
-  const workspace = await workspaceOf(file);
-  if (await workspace?.find(file)) return workspace!.read(file);
+  const stored = await documentAt(file);
+  if (stored) return stored.workspace.read(stored.document);
   let handle;
   try {
     handle = await fs.open(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
@@ -186,8 +161,8 @@ export async function readFoundFile(file: string): Promise<FoundFile> {
  * symlink since the walk.
  */
 export async function statFoundFile(file: string): Promise<{ size: number; modified: Date } | undefined> {
-  const workspace = await workspaceOf(file);
-  if (await workspace?.find(file)) return workspace!.stat(file);
+  const stored = await documentAt(file);
+  if (stored) return stored.workspace.stat(stored.document);
   const stat = await fs.lstat(file).catch(() => undefined);
   return stat?.isFile() ? { size: stat.size, modified: stat.mtime } : undefined;
 }
@@ -281,7 +256,7 @@ function showFolders(roots: readonly string[]): string[] {
 async function findShowFile(roots: readonly string[], ...segments: string[]): Promise<string | undefined> {
   for (const folder of showFolders(roots)) {
     const candidate = path.join(folder, ...segments);
-    if (await (await workspaceOf(candidate))?.find(candidate)) return candidate;
+    if (await documentAt(candidate)) return candidate;
     const stat = await fs.stat(candidate).catch(() => undefined);
     if (stat?.isFile()) return candidate;
   }
@@ -296,12 +271,6 @@ export function findMediaBin(roots: readonly string[]): Promise<string | undefin
 /** The presentation playlists, `Playlists/Library` inside the ProPresenter folder. */
 export function findPlaylists(roots: readonly string[]): Promise<string | undefined> {
   return findShowFile(roots, "Playlists", "Library");
-}
-
-export interface FoundTheme {
-  /** The theme's folder name, which is the name ProPresenter shows. */
-  name: string;
-  file: string;
 }
 
 /**

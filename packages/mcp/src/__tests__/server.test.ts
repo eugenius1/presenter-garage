@@ -3,11 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import fsp from "node:fs/promises";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   ElicitRequestSchema,
-  type ClientCapabilities,
   type ElicitRequest,
   type ElicitResult,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -25,7 +23,7 @@ import { decodePresentation, encodePresentation, slidesInOrder } from "@presente
 import { syntheticPresentationFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { findPresentations, openRoots, readFoundFile, readLibraryFile, resolveInRoots } from "@presenter-garage/node/library";
 import { parseArgs } from "../args";
-import { createServer, type ServerOptions } from "../server";
+import { connect } from "./connect";
 import { applyPlan, planSlideEdits, PlanStore } from "../edits";
 import { auditMediaBin } from "../tools";
 
@@ -35,20 +33,6 @@ import { auditMediaBin } from "../tools";
  * schemas, the argument parsing and the error wrapping are all exercised, not
  * just the functions behind them.
  */
-
-/** A server over the given folders, and a client talking to it over an in-memory pipe. */
-async function connect(roots: string[], options: ServerOptions = {}, capabilities: ClientCapabilities = {}) {
-  const server = createServer(await openRoots(roots), options);
-  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "test", version: "0" }, { capabilities });
-  await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
-  const call = async (name: string, args: Record<string, unknown> = {}) => {
-    const result = await client.callTool({ name, arguments: args });
-    const text = (result.content as { type: string; text: string }[])[0].text;
-    return { isError: !!result.isError, text, json: () => JSON.parse(text) };
-  };
-  return { client, call };
-}
 
 /**
  * What this machine lets the fixtures do, probed once before any test is

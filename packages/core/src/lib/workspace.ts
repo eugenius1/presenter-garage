@@ -17,8 +17,11 @@ import { messageType, type RawDoc } from "./decode";
  * `packages/node`'s to deal with. The format itself is written up in
  * docs/propresenter-22-workspaces.md.
  *
- * Read-only by intent. A message built here has been through a lossy step
- * (`unmapped` says how lossy), so it must never be the source of a write.
+ * Read-only by intent. A message built here has been through a lossy step,
+ * so it must never be the source of a write. `unmapped` says how lossy, for
+ * the tests that hold the conversion to a real workspace and for whoever
+ * next has to work out what a new ProPresenter added; nothing shows it to a
+ * person yet.
  */
 
 /** A value as `LoroDoc.toJSON()` gives it. */

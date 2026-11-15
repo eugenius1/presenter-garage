@@ -6,9 +6,9 @@ import { openRoots } from "@presenter-garage/node/library";
 import {
   defaultLibrary,
   folderWorkspaces,
-  isInWorkspace,
   registeredWorkspaces,
-  type RegisteredWorkspace,
+  staleNotes,
+  workspaceAt,
 } from "@presenter-garage/node/workspace";
 import { defaultBackupDir, openBackupDir } from "@presenter-garage/node/write";
 import { parseArgs } from "./args";
@@ -23,24 +23,6 @@ import { createServer } from "./server";
  * where there is none, `~/Documents/ProPresenter` or the one workspace
  * ProPresenter 20 or 21 made elsewhere. `defaultLibrary` has the order.
  */
-
-/**
- * What to say about a folder ProPresenter 22 made a workspace from.
- *
- * The upgrade copies the folder and never touches it again, so it goes on
- * reading perfectly as the library of the day of the upgrade. Nothing in the
- * folder says so; only the registry does.
- */
-function staleNotes(roots: readonly string[], workspaces: readonly RegisteredWorkspace[]): string[] {
-  return workspaces
-    .filter((w) => w.copiedFrom && roots.includes(path.resolve(w.copiedFrom)) && !roots.includes(w.root))
-    .map(
-      (w) =>
-        `${w.copiedFrom} is the folder ProPresenter 22 made the workspace "${w.name}" from. ` +
-        `ProPresenter no longer reads or updates it, so it shows the library as it was before the upgrade. ` +
-        `The current one is ${w.root}.`
-    );
-}
 
 async function main() {
   const { folders, readOnly, backupDir } = parseArgs(process.argv.slice(2));
@@ -69,8 +51,7 @@ async function main() {
   // One workspace among the roots turns editing off for all of them: the
   // tools are offered or not as a set, and a set that fails on some paths is
   // worse than one that is plainly absent.
-  let hasWorkspace = false;
-  for (const root of roots) hasWorkspace ||= await isInWorkspace(root);
+  const hasWorkspace = (await Promise.all(roots.map(workspaceAt))).some(Boolean);
   if (hasWorkspace) console.error("Editing is off: a ProPresenter 22 workspace is read-only here.");
   if (!readOnly && !hasWorkspace) {
     try {

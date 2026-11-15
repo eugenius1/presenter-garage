@@ -9,7 +9,7 @@ import {
   themeFromWorkspace,
   type Converted,
 } from "@presenter-garage/core/lib/workspace";
-import { isInside, LibraryError, type FoundFile, type FoundTheme } from "./library";
+import { isInside, LibraryError, type FoundFile, type FoundTheme } from "./paths";
 
 /**
  * A ProPresenter 22 workspace on disk, read as though it were the folder of
@@ -38,13 +38,15 @@ const STORE = path.join("DocumentStore", "workspace-v1.sqlite3");
 const REGISTRY = "registry-v1.sqlite3";
 
 /** What the database holds for one document, without its snapshot. */
-interface StoredDocument {
+export interface StoredDocument {
   /** Absolute, in the old layout. Not a file on disk. */
   path: string;
   kind: string;
   id: Uint8Array;
   /** Of the snapshot; what a conversion is cached under. */
   sha256: string;
+  /** Of the snapshot as stored. The file it stands for would be another size, known only by making it. */
+  size: number;
   modified: Date;
   /** False for a document of a Cloud workspace that has not been downloaded to this computer. */
   available: boolean;
@@ -55,7 +57,15 @@ interface StoredDocument {
  * database's own key is lower-case too, and a playlist written on Windows
  * records its entries with backslashes wherever it is read.
  */
-const keyOf = (p: string) => p.normalize("NFC").toLowerCase().replaceAll("\\", "/").replaceAll(path.sep, "/");
+const keyOf = (p: string) => p.normalize("NFC").toLowerCase().replaceAll("\\", "/");
+
+/**
+ * How much converted content a workspace keeps to hand. Enough for the whole
+ * of a large library, whose conversions come to a third or so of its
+ * snapshots, so a second search does not convert it again; a stop for one
+ * that would otherwise sit in an idle server's memory without limit.
+ */
+const MAX_CONVERTED_BYTES = 128 * 1024 * 1024;
 
 const FIXED_PATHS: Record<string, string> = {
   PlaylistLibrary: path.join("Playlists", "Library"),
@@ -87,8 +97,9 @@ type Database = import("node:sqlite").DatabaseSync;
  * Open a database for reading only.
  *
  * `node:sqlite` is loaded when first needed, not imported: it does not exist
- * before Node 22.5, and a server started on an older Node must still read a
- * folder of `.pro` files.
+ * before Node 22.5 and needs a flag until 22.13, which is the version asked
+ * for, and a server started on an older Node must still read a folder of
+ * `.pro` files.
  *
  * Read-only is not enough to leave the folder alone. The databases are in
  * WAL mode, and SQLite opening one read-only still creates the `-shm` and
@@ -109,7 +120,7 @@ type Database = import("node:sqlite").DatabaseSync;
  * an immutable reader a page mid-change; that surfaces as an error or is put
  * right by the next read, since the list is refreshed when the log appears.
  */
-async function openDatabase(file: string): Promise<Database> {
+export async function openDatabase(file: string): Promise<Database> {
   let sqlite: typeof import("node:sqlite");
   try {
     sqlite = await import("node:sqlite");
@@ -150,8 +161,13 @@ export class Workspace {
   private documents = new Map<string, StoredDocument>();
   private folders = new Set<string>();
   private stamp = "";
-  /** Converted bytes by snapshot hash, so a search does not convert a document twice. */
+  private refreshing: Promise<void> | undefined;
+  /**
+   * Converted bytes by snapshot hash, least recently read first, so a search
+   * does not convert a document twice. Bounded by `MAX_CONVERTED_BYTES`.
+   */
   private converted = new Map<string, Uint8Array>();
+  private convertedBytes = 0;
 
   readonly root: string;
 
@@ -167,14 +183,24 @@ export class Workspace {
    * Read the list of documents again if the database changed since it was
    * last read. ProPresenter saves as it goes, and a server that listed the
    * library once at start-up would answer from this morning's.
+   *
+   * Callers arriving while one read is under way share it: a listing asks
+   * about two hundred documents at once, and each would otherwise find the
+   * list out of date and read it again.
    */
-  private async refresh(): Promise<void> {
+  private refresh(): Promise<void> {
+    this.refreshing ??= this.readList().finally(() => (this.refreshing = undefined));
+    return this.refreshing;
+  }
+
+  private async readList(): Promise<void> {
     const stamp = await stampOf(this.store);
     if (stamp === this.stamp) return;
     const rows = await withDatabase(this.store, (db) =>
       db
         .prepare(
-          "SELECT document_id, kind, core_path, sha256, availability, updated_at_ms FROM workspace_streams WHERE scope = 0"
+          "SELECT document_id, kind, core_path, sha256, byte_count, availability, updated_at_ms " +
+            "FROM workspace_streams WHERE scope = 0"
         )
         .all()
     );
@@ -188,7 +214,8 @@ export class Workspace {
         path: full,
         kind: String(row.kind),
         id: row.document_id as Uint8Array,
-        sha256: row.sha256 ? Buffer.from(row.sha256 as Uint8Array).toString("hex") : "",
+        sha256: hex(row.sha256),
+        size: Number(row.byte_count),
         modified: new Date(Number(row.updated_at_ms)),
         available: Number(row.availability) === 0,
       });
@@ -196,8 +223,6 @@ export class Workspace {
         folders.add(keyOf(dir));
       }
     }
-    const current = new Set([...documents.values()].map((d) => d.sha256));
-    for (const sha of this.converted.keys()) if (!current.has(sha)) this.converted.delete(sha);
     this.documents = documents;
     this.folders = folders;
     this.stamp = stamp;
@@ -232,38 +257,62 @@ export class Workspace {
     }));
   }
 
-  async stat(file: string): Promise<{ size: number; modified: Date } | undefined> {
-    const document = await this.find(file);
-    if (!document?.available) return undefined;
-    // The size of the file this stands for is only known by making it.
-    return { size: (await this.read(document.path)).size, modified: document.modified };
+  /**
+   * A document's size and date without reading it, or nothing for one not
+   * downloaded. The size is the stored snapshot's: a listing of two hundred
+   * songs must not convert two hundred songs to say how big each is.
+   */
+  stat(document: StoredDocument): { size: number; modified: Date } | undefined {
+    return document.available ? { size: document.size, modified: document.modified } : undefined;
   }
 
   /**
    * The bytes the document's file would have held in the old layout.
    *
-   * The snapshot is checked against the hash the list was read with, so a
-   * document ProPresenter saved in between is read again rather than cached
-   * under the wrong hash.
+   * Cached under the hash stored beside the snapshot that was converted, not
+   * the one the list was read with, so a document ProPresenter saved in
+   * between is never kept under the hash of its earlier self.
    */
-  async read(file: string): Promise<FoundFile> {
-    const document = await this.find(file);
-    if (!document) throw new LibraryError(`Not found in the workspace: ${file}`);
+  async read(document: StoredDocument): Promise<FoundFile> {
+    const file = document.path;
     if (!document.available) {
       throw new LibraryError(`${file}: not downloaded to this computer yet. Open the workspace in ProPresenter to sync it.`);
     }
-    let bytes = this.converted.get(document.sha256);
+    let bytes = this.recall(document.sha256);
     if (!bytes) {
       const row = await withDatabase(this.store, (db) =>
-        db.prepare("SELECT snapshot FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
+        db.prepare("SELECT snapshot, sha256 FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
       );
       if (!row?.snapshot) throw new LibraryError(`Could not read ${file}: it is no longer in the workspace`);
-      bytes = convertSnapshot(document.kind, row.snapshot as Uint8Array, file);
-      this.converted.set(document.sha256, bytes);
+      const sha = hex(row.sha256);
+      bytes = this.recall(sha) ?? this.remember(sha, convertSnapshot(document.kind, row.snapshot as Uint8Array, file));
     }
-    return { bytes, size: bytes.length, modified: document.modified };
+    return { bytes, size: bytes.length, modified: document.modified, converted: true };
+  }
+
+  private recall(sha: string): Uint8Array | undefined {
+    const bytes = this.converted.get(sha);
+    if (bytes) {
+      // Moved to the end, where the most recently read are.
+      this.converted.delete(sha);
+      this.converted.set(sha, bytes);
+    }
+    return bytes;
+  }
+
+  private remember(sha: string, bytes: Uint8Array): Uint8Array {
+    this.converted.set(sha, bytes);
+    this.convertedBytes += bytes.length;
+    for (const [oldest, held] of this.converted) {
+      if (this.convertedBytes <= MAX_CONVERTED_BYTES || oldest === sha) break;
+      this.converted.delete(oldest);
+      this.convertedBytes -= held.length;
+    }
+    return bytes;
   }
 }
+
+const hex = (bytes: unknown) => (bytes ? Buffer.from(bytes as Uint8Array).toString("hex") : "");
 
 /** A snapshot, as the bytes of the old file of that kind. */
 function convertSnapshot(kind: string, snapshot: Uint8Array, file: string): Uint8Array {
@@ -311,6 +360,13 @@ export async function workspaceOf(p: string): Promise<Workspace | undefined> {
     }
   }
   return undefined;
+}
+
+/** The document a path names in the workspace it is inside, with that workspace, if there is one. */
+export async function documentAt(p: string): Promise<{ workspace: Workspace; document: StoredDocument } | undefined> {
+  const workspace = await workspaceOf(p);
+  const document = await workspace?.find(p);
+  return workspace && document ? { workspace, document } : undefined;
 }
 
 /**
@@ -387,6 +443,25 @@ export async function folderWorkspaces(dir: string = folderWorkspacesDir()): Pro
     if (holds.some(Boolean)) found.push(folder);
   }
   return found.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * What to say about each root that is a folder ProPresenter 22 made a
+ * workspace from, unless that workspace is being read too.
+ *
+ * The upgrade copies the folder and never touches it again, so it goes on
+ * reading perfectly as the library of the day of the upgrade. Nothing in the
+ * folder says so; only the registry does.
+ */
+export function staleNotes(roots: readonly string[], registered: readonly RegisteredWorkspace[]): string[] {
+  return registered
+    .filter((w) => w.copiedFrom && roots.includes(path.resolve(w.copiedFrom)) && !roots.includes(w.root))
+    .map(
+      (w) =>
+        `${w.copiedFrom} is the folder ProPresenter 22 made the workspace "${w.name}" from. ` +
+        `ProPresenter no longer reads or updates it, so it shows the library as it was before the upgrade. ` +
+        `The current one is ${w.root}.`
+    );
 }
 
 /**

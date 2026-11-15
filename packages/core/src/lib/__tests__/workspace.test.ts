@@ -12,7 +12,7 @@ import {
   syntheticTextPresentation,
   textLines,
 } from "./synthetic";
-import { workspacePlaylists, workspacePresentation } from "./workspace-fixtures";
+import { localUrl, treeNode, workspacePlaylists, workspacePresentation } from "./workspace-fixtures";
 
 /**
  * A ProPresenter 22 workspace's documents, read back into the old messages.
@@ -205,21 +205,6 @@ describe("a presentation from a workspace", () => {
     expect(unmapped).toEqual([]);
     expect(textLines(encodePresentation(message))).toEqual(textLines(bytes));
   });
-});
-
-const localUrl = (file: string) => ({
-  platform: 1,
-  Storage: { __tag: "absolute_string", absolute_string: `file:///ws/${file}` },
-  RelativeFilePath: { __tag: "local", local: { root: 10, path: file } },
-});
-
-const treeNode = (kind: string, name: string, data: unknown, children: unknown[] = []) => ({
-  id: `${name}@1`,
-  parent: null,
-  index: 0,
-  fractional_index: "80",
-  meta: { uuid: `u-${name}`, name, Kind: { __tag: kind, [kind]: data } },
-  children,
 });
 
 const PLAYLISTS = {

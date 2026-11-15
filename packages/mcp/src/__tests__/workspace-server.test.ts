@@ -2,14 +2,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SYNTHETIC, syntheticMediaFile, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
-import { workspacePlaylists, workspacePresentation } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
-import { openRoots } from "@presenter-garage/node/library";
+import {
+  localUrl,
+  treeNode,
+  workspacePlaylists,
+  workspacePresentation,
+} from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
 import { createWorkspace, putDocument, sqlite } from "@presenter-garage/node/__tests__/workspace-db";
 import { WORKSPACE_READ_ONLY } from "@presenter-garage/node/workspace";
-import { createServer, type ServerOptions } from "../server";
+import { callTool, connect } from "./connect";
 
 /**
  * The server pointed at a ProPresenter 22 workspace, end to end: the same
@@ -21,47 +24,24 @@ let tmp: string;
 let workspace: string;
 let client: Client;
 
-async function connect(options: ServerOptions = {}) {
-  const server = createServer(await openRoots([workspace]), options);
-  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const connected = new Client({ name: "test", version: "0" });
-  await Promise.all([server.connect(serverSide), connected.connect(clientSide)]);
-  return connected;
-}
-
-async function call(name: string, args: Record<string, unknown> = {}) {
-  const result = await client.callTool({ name, arguments: args });
-  const text = (result.content as { type: string; text: string }[])[0].text;
-  return { isError: !!result.isError, text, json: () => JSON.parse(text) };
-}
-
-const node = (kind: string, name: string, data: unknown, children: unknown[] = []) => ({
-  id: `${name}@1`,
-  parent: null,
-  index: 0,
-  fractional_index: "80",
-  meta: { uuid: `u-${name}`, name, Kind: { __tag: kind, [kind]: data } },
-  children,
-});
+const call = (name: string, args: Record<string, unknown> = {}) => callTool(client, name, args);
 
 /** One service, whose one song is recorded the way ProPresenter records it: relative to the workspace. */
 const PLAYLISTS = {
   type: 1,
   live_video_playlist_nodes: [],
   playlists: [
-    node("group", "PLAYLIST", {}, [
-      node("playlist", "Sunday", { LinkData: { __tag: null } }, [
-        node("item", "Amazing Grace", {
+    treeNode("group", "PLAYLIST", {}, [
+      treeNode("playlist", "Sunday", { LinkData: { __tag: null } }, [
+        treeNode("item", "Amazing Grace", {
           is_hidden: false,
           ItemType: {
             __tag: "presentation",
             presentation: {
               arrangement_name: "",
-              document_path: {
-                platform: 1,
-                Storage: { __tag: "absolute_string", absolute_string: "file:///somewhere/else/Amazing%20Grace.pro" },
-                RelativeFilePath: { __tag: "local", local: { root: 10, path: "Libraries/Default/Amazing Grace.pro" } },
-              },
+              // Recorded twice, as ProPresenter does: the absolute half names
+              // wherever the library was before the upgrade.
+              document_path: localUrl("Libraries/Default/Amazing Grace.pro", "file:///somewhere/else/Amazing%20Grace.pro"),
             },
           },
         }),
@@ -81,7 +61,7 @@ beforeAll(async () => {
   putDocument(workspace, "Presentation", "Chants/Sainte Cène", workspacePresentation(syntheticTextPresentation("Sainte Cène")));
   putDocument(workspace, "PlaylistMedia", null, workspacePlaylists(syntheticMediaFile()));
   putDocument(workspace, "PlaylistLibrary", null, PLAYLISTS);
-  client = await connect();
+  ({ client } = await connect([workspace]));
 });
 
 afterAll(async () => {
@@ -147,7 +127,10 @@ suite("a ProPresenter 22 workspace through the server", () => {
   });
 
   it("passes on what it was told about the folder it reads", async () => {
-    const noted = await connect({ readOnly: true, notes: ["This folder is a copy ProPresenter no longer updates."] });
+    const { client: noted } = await connect([workspace], {
+      readOnly: true,
+      notes: ["This folder is a copy ProPresenter no longer updates."],
+    });
     expect(noted.getInstructions()).toContain("Important: This folder is a copy ProPresenter no longer updates.");
     await noted.close();
   });
