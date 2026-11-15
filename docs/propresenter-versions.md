@@ -6,6 +6,24 @@ procedure is the
 skill. Each run adds its own entry here, under the version it checked, newest
 version first.
 
+## 22.0.1
+
+**2026-11-15, macOS.** A library upgraded from 20.0.1, compared before and
+after; nothing opened in the app beyond the upgrade itself (#51).
+
+- The workspace is no longer a folder of files but a SQLite database of Loro
+  snapshots, in a new place. Written up in
+  [propresenter-22-workspaces.md](propresenter-22-workspaces.md).
+- All 474 presentations read the same from the new workspace as from the old
+  folder: every slide, group and line. So did the media bin and the playlists.
+- The MCP server read the old folder by default, which the upgrade leaves in
+  place and never updates. It now reads the active workspace, and says so
+  when pointed at a folder a workspace was made from.
+- A presentation no longer records when it was last shown. Filtering by use
+  is refused for a workspace rather than answered wrongly.
+- Read-only: the edit tools are not offered for a workspace.
+- Not checked: a Cloud workspace, Windows, the web app.
+
 ## 21.4.2
 
 **2026-09-11, Windows.** Export safety gate over a real library; not opened

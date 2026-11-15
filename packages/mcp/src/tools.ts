@@ -52,6 +52,7 @@ import {
   resolveInRoots,
   statFoundFile,
 } from "@presenter-garage/node/library";
+import { isInWorkspace } from "@presenter-garage/node/workspace";
 
 /**
  * What each tool returns, as plain data.
@@ -81,6 +82,18 @@ const { t, f } = createI18n("en");
 function explain(problem: ReadProblem, detail = ""): string {
   const problems = t.tools.presentations.problems;
   return problem === "unreadable" ? f(problems.unreadable, { reason: detail }) : problems[problem];
+}
+
+/**
+ * Whether writing a file back would keep everything in it.
+ *
+ * A document of a ProPresenter 22 workspace is always `lossy`, whatever the
+ * gate says of the bytes: they are a conversion of the document, made here,
+ * so of course they round-trip. What the answer is for is whether the thing
+ * can be written, and that one cannot.
+ */
+async function fidelityOf(file: string, measure: () => Fidelity): Promise<Fidelity> {
+  return (await isInWorkspace(file)) ? "lossy" : measure();
 }
 
 export function open(file: string, bytes: Uint8Array) {
@@ -219,6 +232,18 @@ export async function listPresentations(
     };
   }
 
+  // A v22 workspace does not keep these dates in the presentation, and
+  // nowhere else they might be has been found. Answering from their absence
+  // would report every song as never shown.
+  for (const file of named) {
+    if (await isInWorkspace(file)) {
+      throw new LibraryError(
+        "A ProPresenter 22 workspace does not record in a presentation when it was last shown, " +
+          "so presentations cannot be filtered or sorted by use. List them without `notUsedSince`, `usedSince` or `sort`."
+      );
+    }
+  }
+
   const { dated, unreadable } = await readDates(named);
   const matching = dated.filter(
     ({ usedAt }) => (before === undefined || usedAt < before) && (since === undefined || usedAt >= since)
@@ -281,7 +306,7 @@ export async function readPresentationFile(roots: readonly string[], file: strin
     fileModified: modified.toISOString(),
     ...readDetails(raw),
     slideCount: doc.slideCount,
-    fidelity: checkPresentationFidelity(bytes).fidelity,
+    fidelity: await fidelityOf(real, () => checkPresentationFidelity(bytes).fidelity),
     emptyTextBoxes,
     slides,
   };
@@ -415,7 +440,7 @@ export async function checkPresentations(
     list({
       path: file,
       name: report.name,
-      fidelity: report.error ? undefined : checkPresentationFidelity(bytes).fidelity,
+      fidelity: report.error ? undefined : await fidelityOf(file, () => checkPresentationFidelity(bytes).fidelity),
       error: report.error && explain(report.error, report.errorDetail),
       issues: report.issues,
     });
@@ -480,7 +505,7 @@ export async function readMediaBin(roots: readonly string[], file?: string) {
     path: real,
     appVersion: library.appVersion,
     platform: library.platform,
-    fidelity: loaded.fidelity,
+    fidelity: await fidelityOf(real, () => loaded.fidelity),
     itemCount: library.items.length,
     playlists: library.playlists.map((playlist) => ({
       path: playlist.path,
@@ -636,7 +661,7 @@ export async function readPlaylists(roots: readonly string[], file?: string) {
   return {
     path: real,
     ...applicationInfo(decoded.application_info),
-    fidelity: checkFidelity(bytes).fidelity,
+    fidelity: await fidelityOf(real, () => checkFidelity(bytes).fidelity),
     playlists: playlistTree(decoded.root_node, showFolder, [], []),
   };
 }
@@ -786,7 +811,7 @@ export async function previewStyle(
   return {
     path: real,
     style: slideStyle.name,
-    fidelity: checkPresentationFidelity(bytes).fidelity,
+    fidelity: await fidelityOf(real, () => checkPresentationFidelity(bytes).fidelity),
     restyled,
     leftAlone: plan.length - restyled,
     slides: plan.map((slide) => ({

@@ -60,6 +60,16 @@ the schema via `Root.fromJSON()` instead of parsing schema text at runtime.
 A media-bin file is one `rv.data.PlaylistDocument` with `type = TYPE_MEDIA`,
 holding a recursive `Playlist` tree.
 
+**ProPresenter 22 keeps no such files.** A workspace is one SQLite database
+of Loro CRDT snapshots, described in
+[docs/propresenter-22-workspaces.md](docs/propresenter-22-workspaces.md). A
+snapshot holds the same message under the same field names, reshaped in a few
+regular ways, so `packages/core/src/lib/workspace.ts` turns one back into the
+protobuf message and nothing downstream knows the difference.
+`packages/node/src/workspace.ts` reads the database and gives each document
+the path its file used to have. Only the MCP server reads a workspace so far,
+and nothing writes to one.
+
 ## Three things worth knowing
 
 These each cost a debugging session to find, and each one shapes the code.
@@ -159,6 +169,20 @@ cleanly when none is present, so CI stays green without them. They work by decod
 mutating a clone (moving an item, renaming a playlist, mirroring an image,
 disabling an effect) and asserting the diff reports exactly that change and
 nothing else.
+
+A ProPresenter 22 workspace has its own pair, for the one test that proves
+its documents read the same as the files they replaced:
+
+```bash
+PP_WORKSPACE_DIR=/path/to/Workspaces/<uuid> \
+PP_LEGACY_LIBRARY_DIR=/path/to/old/ProPresenter/Libraries npm test
+```
+
+`PP_WORKSPACE_DIR` is a workspace folder, or any folder holding a copy of its
+`DocumentStore/workspace-v1.sqlite3`; `PP_LEGACY_LIBRARY_DIR` is the
+`Libraries` folder it was upgraded from, which the upgrade leaves in place.
+Copy the database with its `-wal` and `-shm` files while ProPresenter is
+closed, or the copy can miss what was saved last.
 
 `packages/core/scripts/make-mutated-sample.mjs` generates a plausibly-edited copy of a real
 file, which is handy for exercising the diff UI without waiting for two genuine
@@ -437,7 +461,10 @@ deployed site under `apps/`, one version between all four:
   and bundle what they use.
 - **`node`** (`@presenter-garage/node`, private): the library on disk, for
   whatever runs under Node — `library.ts` to find and read files without
-  leaving the configured folders, `write.ts` to back them up and replace them.
+  leaving the configured folders, `write.ts` to back them up and replace them,
+  `workspace.ts` to read a ProPresenter 22 workspace as though it were those
+  files. Its one dependency, `loro-crdt`, is imported from its `base64` build,
+  which carries the WebAssembly inline so the server stays one file.
   Kept out of `mcp` so a command line can share the one write path rather
   than grow a second.
 - **`web`** (`@presenter-garage/web`, private): the installable browser

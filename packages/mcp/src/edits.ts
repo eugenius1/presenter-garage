@@ -13,6 +13,7 @@ import {
 } from "@presenter-garage/core/lib/fixes";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
 import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
+import { isInWorkspace, WORKSPACE_READ_ONLY } from "@presenter-garage/node/workspace";
 import {
   openBackupDir,
   replaceWithBackup,
@@ -121,6 +122,9 @@ export async function planSlideEdits(
     let real = resolved.get(p);
     if (real === undefined) {
       real = await resolveInRoots(roots, p);
+      // Refused before a plan exists, so nobody reads and approves lines
+      // that could never be written.
+      if (await isInWorkspace(real)) throw new LibraryError(WORKSPACE_READ_ONLY);
       // Only a presentation: a playlist, media bin or theme in the same
       // folders is not something this path was built to write.
       if (!isPresentationFile(path.basename(real))) throw new LibraryError(`Not a presentation (.pro) file: ${p}`);
