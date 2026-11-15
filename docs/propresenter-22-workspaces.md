@@ -134,6 +134,16 @@ change its documents. What differs:
 - on a computer that has everything synced, every row has its snapshot.
   A row with `availability = 1` and no snapshot has still not been seen.
 
+### The helpers
+
+Two helper processes outlive ProPresenter on both systems: *ProPresenter
+Helper (Workspaces)* and its child *(Snapshots)*. They make media thumbnails.
+The Workspaces helper holds `MediaStore/` open; neither holds the document
+store or the registry, so they do not stand between a reader and the
+documents. On macOS launchd keeps them alive, as
+`com.renewedvision.propresenter.workspaces-helper`, and one that is killed
+comes straight back.
+
 ## What a snapshot holds
 
 Each snapshot starts with the bytes `loro` and the open-source
