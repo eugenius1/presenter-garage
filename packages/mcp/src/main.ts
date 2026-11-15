@@ -26,7 +26,12 @@ import { createServer } from "./server";
 
 async function main() {
   const { folders, readOnly, backupDir } = parseArgs(process.argv.slice(2));
-  const workspaces = await registeredWorkspaces();
+  const isFolder = (dir: string) => fs.stat(dir).then((s) => s.isDirectory(), () => false);
+  // Only the ones that are here: the registry also keeps a workspace whose
+  // folder has gone, and a default that does not exist reads nothing.
+  const registered = await registeredWorkspaces();
+  const here = await Promise.all(registered.map((w) => isFolder(w.root)));
+  const workspaces = registered.filter((_, i) => here[i]);
   const documents = path.join(os.homedir(), "Documents", "ProPresenter");
   const dirs =
     folders.length > 0
@@ -35,7 +40,7 @@ async function main() {
           defaultLibrary({
             registered: workspaces,
             documents,
-            documentsExists: await fs.stat(documents).then((s) => s.isDirectory(), () => false),
+            documentsExists: await isFolder(documents),
             folders: await folderWorkspaces(),
           }),
         ];

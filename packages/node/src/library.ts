@@ -3,7 +3,7 @@ import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 import { isInside, LibraryError, type FoundFile, type FoundTheme } from "./paths";
-import { documentAt, workspaceAt, workspaceOf } from "./workspace";
+import { documentAt, workspaceAt, workspaceOf, workspacesIn } from "./workspace";
 
 export { isInside, LibraryError, type FoundFile, type FoundTheme };
 
@@ -50,7 +50,15 @@ export async function openRoots(dirs: readonly string[]): Promise<string[]> {
     }
     roots.push(real);
     // Recognised now, so a path handed out later is known to be a document's.
-    await workspaceAt(real);
+    if (await workspaceAt(real)) continue;
+    // The folder of workspaces is not one, and would read as an empty library
+    // with nothing to say the folder inside it was meant.
+    const inside = await workspacesIn(real);
+    if (inside.length > 0) {
+      throw new LibraryError(
+        `${dir} holds ProPresenter's workspaces and is not one itself. Give the workspace to read: ${inside.join(", ")}`
+      );
+    }
   }
   return roots;
 }

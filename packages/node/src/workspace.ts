@@ -133,7 +133,14 @@ export async function openDatabase(file: string): Promise<Database> {
     if (await fs.stat(`${file}-wal`).catch(() => undefined)) return new sqlite.DatabaseSync(file, { readOnly: true });
     const url = pathToFileURL(file);
     url.searchParams.set("immutable", "1");
-    return new sqlite.DatabaseSync(url, { readOnly: true });
+    try {
+      return new sqlite.DatabaseSync(url, { readOnly: true });
+    } catch {
+      // Node takes a URL here only from 22.15. Before that the choice is
+      // between leaving two empty files beside the database and not reading
+      // the workspace at all, and a library that will not open helps nobody.
+      return new sqlite.DatabaseSync(file, { readOnly: true });
+    }
   } catch (e) {
     throw new LibraryError(`Could not open ${file}: ${(e as Error).message}`);
   }
@@ -243,8 +250,12 @@ export class Workspace {
   /** The old-layout paths of every document of a kind at or under `dir`, in a stable order. */
   async list(kind: string, dir: string = this.root): Promise<string[]> {
     await this.refresh();
+    // Compared as keys, as the folder was when it was resolved: it arrives in
+    // whatever case and accent composition the caller typed.
+    const under = `${keyOf(dir)}/`;
+    const all = keyOf(dir) === keyOf(this.root);
     return [...this.documents.values()]
-      .filter((d) => d.kind === kind && isInside(dir, d.path))
+      .filter((d) => d.kind === kind && (all || keyOf(d.path).startsWith(under)))
       .map((d) => d.path)
       .sort((a, b) => a.localeCompare(b));
   }
@@ -258,12 +269,14 @@ export class Workspace {
   }
 
   /**
-   * A document's size and date without reading it, or nothing for one not
-   * downloaded. The size is the stored snapshot's: a listing of two hundred
-   * songs must not convert two hundred songs to say how big each is.
+   * A document's size and date without reading it. The size is the stored
+   * snapshot's: a listing of two hundred songs must not convert two hundred
+   * songs to say how big each is. One not downloaded yet has no size but is
+   * still a song the workspace holds, so it is listed, and reading it says
+   * why it cannot be read.
    */
-  stat(document: StoredDocument): { size: number; modified: Date } | undefined {
-    return document.available ? { size: document.size, modified: document.modified } : undefined;
+  stat(document: StoredDocument): { size: number; modified: Date } {
+    return { size: document.size, modified: document.modified };
   }
 
   /**
@@ -278,14 +291,17 @@ export class Workspace {
     if (!document.available) {
       throw new LibraryError(`${file}: not downloaded to this computer yet. Open the workspace in ProPresenter to sync it.`);
     }
-    let bytes = this.recall(document.sha256);
+    let bytes = document.sha256 ? this.recall(document.sha256) : undefined;
     if (!bytes) {
       const row = await withDatabase(this.store, (db) =>
         db.prepare("SELECT snapshot, sha256 FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
       );
       if (!row?.snapshot) throw new LibraryError(`Could not read ${file}: it is no longer in the workspace`);
       const sha = hex(row.sha256);
-      bytes = this.recall(sha) ?? this.remember(sha, convertSnapshot(document.kind, row.snapshot as Uint8Array, file));
+      // A snapshot stored with no hash has nothing to be remembered under:
+      // one entry would answer for every such document.
+      const convert = () => convertSnapshot(document.kind, row.snapshot as Uint8Array, file);
+      bytes = sha ? (this.recall(sha) ?? this.remember(sha, convert())) : convert();
     }
     return { bytes, size: bytes.length, modified: document.modified, converted: true };
   }
@@ -345,6 +361,22 @@ export function workspaceAt(root: string): Promise<Workspace | undefined> {
     workspaces.set(root, found);
   }
   return found;
+}
+
+/**
+ * The workspaces directly inside a folder: what `Workspaces` itself holds.
+ * That folder is the one ProPresenter's own paths and this project's README
+ * name, and one level above anything that can be read.
+ */
+export async function workspacesIn(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const found: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const folder = path.join(dir, entry.name);
+    if ((await fs.stat(path.join(folder, STORE)).catch(() => undefined))?.isFile()) found.push(folder);
+  }
+  return found.sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -454,8 +486,10 @@ export async function folderWorkspaces(dir: string = folderWorkspacesDir()): Pro
  * folder says so; only the registry does.
  */
 export function staleNotes(roots: readonly string[], registered: readonly RegisteredWorkspace[]): string[] {
+  // A root is read as the ProPresenter folder and as the folder above it.
+  const read = new Set(roots.flatMap((root) => [root, path.join(root, "ProPresenter")]));
   return registered
-    .filter((w) => w.copiedFrom && roots.includes(path.resolve(w.copiedFrom)) && !roots.includes(w.root))
+    .filter((w) => w.copiedFrom && read.has(path.resolve(w.copiedFrom)) && !roots.includes(w.root))
     .map(
       (w) =>
         `${w.copiedFrom} is the folder ProPresenter 22 made the workspace "${w.name}" from. ` +

@@ -97,6 +97,34 @@ describe("a workspace as a library", () => {
     expect((await findPresentations([folder])).files.map((f) => path.basename(f))).toEqual(["Amazing Grace.pro", "Céleste.pro"]);
   });
 
+  it("lists what is under a folder however the folder was spelled", async () => {
+    for (const spelling of ["libraries/default", "LIBRARIES\\DEFAULT", "Libraries/Default".normalize("NFD")]) {
+      const folder = await resolveFolder(roots, spelling);
+      expect((await findPresentations([folder])).files.map((f) => path.basename(f))).toEqual([
+        "Amazing Grace.pro",
+        "Céleste.pro",
+      ]);
+    }
+    // A folder is not a prefix of its neighbour's name.
+    put("Presentation", "Default Extra/Other", workspacePresentation(syntheticTextPresentation("Other")));
+    expect((await findPresentations([await resolveFolder(roots, "Libraries/Default")])).files).toHaveLength(2);
+  });
+
+  it("reads documents stored with no hash each as itself", async () => {
+    const db = new sqlite!.DatabaseSync(store());
+    db.exec("UPDATE workspace_streams SET sha256 = NULL WHERE kind = 'Presentation'");
+    db.close();
+    const name = async (file: string) => openPresentation((await readFoundFile(file)).bytes).doc?.name;
+    expect(await name(inWorkspace("Libraries", "Default", "Amazing Grace.pro"))).toBe("Amazing Grace");
+    expect(await name(inWorkspace("Libraries", "Chants", "Gloire.pro"))).toBe("Gloire");
+  });
+
+  it("refuses the folder of workspaces, naming the ones inside it", async () => {
+    await expect(openRoots([path.dirname(workspace)])).rejects.toThrow(workspace);
+    // A folder that merely has folders in it is still a library like any other.
+    expect(await openRoots([tmp])).toEqual([tmp]);
+  });
+
   it("reads a presentation as the bytes its file would have held", async () => {
     const { bytes, size, modified } = await readFoundFile(inWorkspace("Libraries", "Default", "Amazing Grace.pro"));
     expect(size).toBe(bytes.length);
@@ -157,7 +185,8 @@ describe("a workspace as a library", () => {
     put("Presentation", "Default/Elsewhere", null);
     const file = inWorkspace("Libraries", "Default", "Elsewhere.pro");
     expect((await findPresentations(roots)).files).toContain(file);
-    expect(await statFoundFile(file)).toBeUndefined();
+    // Listed, with nothing of it here to measure, so a listing still names it.
+    expect(await statFoundFile(file)).toEqual({ size: 0, modified: new Date(MODIFIED) });
     await expect(readFoundFile(file)).rejects.toThrow("not downloaded");
   });
 
@@ -305,6 +334,8 @@ describe("the library read when none is named", () => {
     const [note] = staleNotes([DOCUMENTS], [upgraded]);
     expect(note).toContain(DOCUMENTS);
     expect(note).toContain("/ws/v22");
+    // The folder above is read as holding it, so it is the same stale library.
+    expect(staleNotes([path.dirname(DOCUMENTS)], [upgraded])).toHaveLength(1);
     expect(staleNotes([DOCUMENTS, "/ws/v22"], [upgraded])).toEqual([]);
     expect(staleNotes(["/somewhere/else"], [upgraded])).toEqual([]);
     expect(staleNotes([DOCUMENTS], [registered(true)])).toEqual([]);
