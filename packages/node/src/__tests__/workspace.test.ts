@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { LoroDoc } from "loro-crdt/base64";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildLibrary, decodeMediaDocument } from "@presenter-garage/core/lib/model";
@@ -178,6 +179,35 @@ describe("a workspace as a library", () => {
     await expect(findPresentations(roots)).rejects.toThrow(store());
   });
 
+  it("leaves no file behind in a workspace ProPresenter has closed", async () => {
+    // A database in WAL mode, closed cleanly: just the one file, as ProPresenter leaves it.
+    const db = new sqlite!.DatabaseSync(store());
+    db.exec("PRAGMA journal_mode = WAL");
+    db.close();
+    const before = fs.readdirSync(path.dirname(store()));
+    expect(before).toEqual(["workspace-v1.sqlite3"]);
+
+    expect((await findPresentations(roots)).files).toHaveLength(3);
+    await readFoundFile(inWorkspace("Libraries", "Chants", "Gloire.pro"));
+    expect(fs.readdirSync(path.dirname(store()))).toEqual(before);
+  });
+
+  it("reads beside ProPresenter while it has the database open", async () => {
+    const running = new sqlite!.DatabaseSync(store());
+    running.exec("PRAGMA journal_mode = WAL");
+    running.exec("UPDATE workspace_streams SET core_path = 'Default/Renamed' WHERE core_path = 'Default/Amazing Grace'");
+    // The rename is in the log, not yet in the database file.
+    expect(fs.statSync(`${store()}-wal`).size).toBeGreaterThan(0);
+    expect((await findPresentations(roots)).files).toContain(inWorkspace("Libraries", "Default", "Renamed.pro"));
+    running.close();
+  });
+
+  it("finds a document by a path written with backslashes", async () => {
+    expect(await resolveInRoots(roots, "Libraries\\Default\\Amazing Grace.pro")).toBe(
+      inWorkspace("Libraries", "Default", "Amazing Grace.pro")
+    );
+  });
+
   it("still reads the real files a workspace holds", async () => {
     fs.mkdirSync(inWorkspace("Media", "Assets"), { recursive: true });
     fs.writeFileSync(inWorkspace("Media", "Assets", "loop.mov"), "not a film");
@@ -304,6 +334,24 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
     const { files } = await findPresentations(real);
     expect(files.length).toBeGreaterThan(0);
 
+    // Matched by the presentation's own uuid, which the upgrade keeps. Paths
+    // do not survive being carried between machines: a zip made on Windows
+    // and opened on a Mac turned every accented name into something else.
+    const legacy = new Map<string, Uint8Array>();
+    for (const file of (await findPresentations(await openRoots([REAL_LEGACY!]))).files) {
+      const bytes = fs.readFileSync(file);
+      const uuid = openPresentation(bytes).raw?.uuid?.string;
+      if (uuid) legacy.set(uuid.toLowerCase(), bytes);
+    }
+
+    // A workspace that has been used since is no longer what it was made
+    // from. The upgrade stamps every document within minutes of the others,
+    // so one saved well after the middle of them was edited later.
+    const saved = new Map<string, number>();
+    for (const file of files) saved.set(file, (await statFoundFile(file))!.modified.getTime());
+    const times = [...saved.values()].sort((x, y) => x - y);
+    const editedAfter = times[Math.floor(times.length / 2)] + 10 * 60 * 1000;
+
     const shape = (bytes: Uint8Array) => {
       const doc = readPresentation(decodePresentation(bytes));
       return [doc.slideCount, doc.textBoxes.map((b) => [b.slideIndex, b.boxIndex, b.groupName, b.lines.map((l) => l.text)])];
@@ -311,18 +359,23 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
     const different: string[] = [];
     let compared = 0;
     for (const file of files) {
-      const legacy = path.join(REAL_LEGACY!, path.relative(path.join(real[0], "Libraries"), file));
-      if (!fs.existsSync(legacy)) continue;
-      compared++;
+      if (saved.get(file)! > editedAfter) continue;
       const converted = (await readFoundFile(file)).bytes;
-      if (JSON.stringify(shape(converted)) !== JSON.stringify(shape(fs.readFileSync(legacy)))) different.push(file);
+      const before = legacy.get(String(decodePresentation(converted).uuid?.string).toLowerCase());
+      if (!before) continue;
+      compared++;
+      if (JSON.stringify(shape(converted)) !== JSON.stringify(shape(before))) different.push(file);
     }
-    expect(compared).toBeGreaterThan(0);
+    // Nearly all of them: a library is not rebuilt in the days after an upgrade.
+    expect(compared).toBeGreaterThan(files.length * 0.9);
     expect(different).toEqual([]);
-  }, 120_000);
+  }, 300_000);
 
   it("leaves out only what is new in version 22", async () => {
-    const db = new sqlite!.DatabaseSync(path.join(REAL_WORKSPACE!, "DocumentStore", "workspace-v1.sqlite3"), { readOnly: true });
+    // Immutable, as the reader opens it: read-only alone leaves `-shm` and `-wal` files behind.
+    const url = pathToFileURL(path.join(REAL_WORKSPACE!, "DocumentStore", "workspace-v1.sqlite3"));
+    url.searchParams.set("immutable", "1");
+    const db = new sqlite!.DatabaseSync(url, { readOnly: true });
     const rows = db.prepare("SELECT snapshot FROM workspace_streams WHERE kind = 'Presentation' AND scope = 0").all();
     db.close();
     const unmapped = new Set<string>();

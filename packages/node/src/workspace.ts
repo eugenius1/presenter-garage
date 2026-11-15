@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { LoroDoc } from "loro-crdt/base64";
 import {
   playlistDocumentFromWorkspace,
@@ -49,8 +50,12 @@ interface StoredDocument {
   available: boolean;
 }
 
-/** One spelling for a path however it was composed or cased; the database's own key is lower-case too. */
-const keyOf = (p: string) => p.normalize("NFC").toLowerCase();
+/**
+ * One spelling for a path however it was composed, cased or separated. The
+ * database's own key is lower-case too, and a playlist written on Windows
+ * records its entries with backslashes wherever it is read.
+ */
+const keyOf = (p: string) => p.normalize("NFC").toLowerCase().replaceAll("\\", "/").replaceAll(path.sep, "/");
 
 const FIXED_PATHS: Record<string, string> = {
   PlaylistLibrary: path.join("Playlists", "Library"),
@@ -84,6 +89,18 @@ type Database = import("node:sqlite").DatabaseSync;
  * `node:sqlite` is loaded when first needed, not imported: it does not exist
  * before Node 22.5, and a server started on an older Node must still read a
  * folder of `.pro` files.
+ *
+ * Read-only is not enough to leave the folder alone. The databases are in
+ * WAL mode, and SQLite opening one read-only still creates the `-shm` and
+ * `-wal` files beside it if they are not there, which they are not whenever
+ * ProPresenter is closed: found by reading a copy and seeing two new files
+ * in it. So with no write-ahead log the database is opened `immutable`,
+ * which creates nothing and takes no lock, and is correct because without a
+ * log the file is the whole database. With a log, ProPresenter is running
+ * and has made both files itself, and an ordinary read-only connection reads
+ * beside it. ProPresenter starting between the check and the open could give
+ * an immutable reader a page mid-change; that surfaces as an error or is put
+ * right by the next read, since the list is refreshed when the log appears.
  */
 async function openDatabase(file: string): Promise<Database> {
   let sqlite: typeof import("node:sqlite");
@@ -95,7 +112,10 @@ async function openDatabase(file: string): Promise<Database> {
     );
   }
   try {
-    return new sqlite.DatabaseSync(file, { readOnly: true });
+    if (await fs.stat(`${file}-wal`).catch(() => undefined)) return new sqlite.DatabaseSync(file, { readOnly: true });
+    const url = pathToFileURL(file);
+    url.searchParams.set("immutable", "1");
+    return new sqlite.DatabaseSync(url, { readOnly: true });
   } catch (e) {
     throw new LibraryError(`Could not open ${file}: ${(e as Error).message}`);
   }
@@ -316,9 +336,8 @@ export interface RegisteredWorkspace {
 /**
  * Where ProPresenter 22 keeps its workspaces and the registry of them.
  *
- * Seen on macOS. The Windows path follows where ProPresenter has kept its
- * support files there since version 7 and has not been checked against a
- * real installation.
+ * Seen on both: `~/Library/Application Support` on macOS and `%APPDATA%`
+ * (`AppData\Roaming`) on Windows, then `RenewedVision/ProPresenter/Workspaces`.
  */
 export function workspacesDir(): string {
   return path.join(supportDir(), "Workspaces");
@@ -346,8 +365,8 @@ export function folderWorkspacesDir(): string {
  * The workspaces ProPresenter 20 or 21 made, each a folder in the old
  * layout. Told from anything else kept there by holding `Libraries` or
  * `Playlists`. Which one ProPresenter has open is recorded only in its
- * preferences, which are a property list on macOS and the registry on
- * Windows, so it is not known here.
+ * preferences -- a property list on macOS, `PathSettings.proPaths` beside
+ * this folder on Windows -- and is not read here.
  */
 export async function folderWorkspaces(dir: string = folderWorkspacesDir()): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);

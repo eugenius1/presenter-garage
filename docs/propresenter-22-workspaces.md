@@ -3,10 +3,9 @@
 ProPresenter 22 added Cloud workspaces, and with them a new on-disk format
 for **every** workspace, local ones included. Renewed Vision does not document
 it. This is what it was found to be, by upgrading a real library from 20.0.1
-to 22.0.1 on macOS and comparing the disk before and after
+to 22.0.1 on macOS and comparing the disk before and after, and then checked
+against a Cloud workspace on Windows
 ([#51](https://github.com/eugenius1/presenter-garage/issues/51)).
-
-Not yet examined: a Cloud workspace, and Windows.
 
 Workspaces themselves are older than this. ProPresenter 20 introduced them,
 and from then a new workspace is made outside Documents, under
@@ -24,7 +23,8 @@ On first launch a one-time dialog offers **Upgrade Workspace**. Choosing it:
   readable copy of the library as it was that day;
 - makes a new workspace at
   `~/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<uuid>/`
-  and copies the media into it;
+  on macOS, `%APPDATA%\RenewedVision\ProPresenter\Workspaces\<uuid>\` on
+  Windows, and copies the media into it;
 - converts every document into the new format.
 
 The `userWorkspaces` preference in `com.renewedvision.propresenter` still
@@ -51,7 +51,8 @@ Workspaces/
     ├── Thumbnails/
     ├── Libraries/                   folders only
     ├── Playlists/                   empty
-    └── Themes/                      theme assets only
+    ├── Themes/                      theme assets only
+    └── imprint.cloud                Cloud workspaces only
 ```
 
 There are no `.pro` files, and no `Playlists/Library`, `Playlists/Media` or
@@ -74,6 +75,11 @@ CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
 `meta` holds `active_local_uuid`, and `copied_from:<uuid>` naming the old
 folder a workspace was made from. There are also
 `cloud_workspace_organizations` and `trashed_workspaces`.
+
+Both databases are in WAL mode. While ProPresenter runs there is a `-wal`
+and a `-shm` file beside each; closed, there is neither. **Opening one
+read-only is not enough to leave the folder untouched:** SQLite creates both
+files if they are missing. Open it `immutable` when there is no `-wal`.
 
 ### The document store
 
@@ -103,6 +109,21 @@ folder a workspace was made from. There are also
 
 Some kinds have a second row with `scope = 1`. For `PlaylistLibrary` it holds
 which playlist folders are expanded on this computer, and nothing else.
+
+A workspace that has been in use for a while also has `presentation_search`,
+an FTS5 index of each presentation's name, text, notes and CCLI fields.
+
+### A Cloud workspace
+
+Is the same store. Converting a workspace to Cloud does not move it or
+change its documents. What differs:
+
+- its row in the registry has a `cloud_uuid`, and a row in
+  `cloud_workspace_organizations`. `availability` stays `local`;
+- `imprint.cloud` in the workspace folder, JSON listing each presentation
+  and theme by document id with its path and whether it is `uploaded`;
+- on a computer that has everything synced, every row has its snapshot.
+  A row with `availability = 1` and no snapshot has still not been seen.
 
 ## What a snapshot holds
 
@@ -146,9 +167,11 @@ message its old file decoded to.
 
 ## How it was checked
 
-All 474 presentations of the library were read from the new workspace and
-from the old folder, and compared: every slide, its group, and every line of
-every text box matched. So did the media bin's playlists and items, and the
+Two libraries, each read from its new workspace and from the folder it was
+upgraded from, and compared presentation by presentation: 474 on macOS in a
+local workspace, and 1,227 on Windows in a Cloud workspace that had been in
+use for a week. Every slide, its group, and every line of every text box
+matched, leaving aside the 41 Windows presentations edited since the upgrade. So did the media bin's playlists and items, and the
 presentation playlists. The differences that remain are ProPresenter's own:
 names stored in composed rather than decomposed Unicode, media paths moved
 into the workspace, and some effect defaults rewritten.
@@ -158,6 +181,8 @@ The comparison is a test, skipped without a library to run it on: see
 
 ## What is not done
 
+- **A Cloud document that is not downloaded.** Handled as the schema
+  suggests, never met.
 - **Writing.** A workspace is read-only here. Its database is held open by
   ProPresenter and, for a Cloud workspace, synced to other computers, so the
   four write guards in [AGENTS.md](../AGENTS.md) need a design of their own.
