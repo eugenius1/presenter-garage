@@ -357,7 +357,7 @@ export const fr: Dictionary = {
         moved:
           "ce fichier n’est plus là où il était, ou il est désormais atteint par un lien symbolique",
         backupFailed:
-          "une sauvegarde n’a pas pu être faite et vérifiée : rien n’a donc été écrit",
+          "une sauvegarde n’a pas pu être faite et vérifiée : ce fichier n’a donc pas été écrit",
         readBackFailed:
           "le fichier sur le disque ne contient pas ce qui a été écrit ; restaurez-le depuis la sauvegarde",
         attributeRanges:
