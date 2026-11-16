@@ -322,6 +322,18 @@ async function applyPlanNow(
   // The first run's folder; each file's own `backup` says where its copy is.
   let backupFolder: string | undefined;
 
+  /**
+   * A step that refuses by throwing -- ProPresenter open, a workspace that
+   * cannot be written, a cancelled call -- refuses the whole call only while
+   * nothing has been written yet. Once something has, throwing would tell
+   * the person nothing was written and lose where its backup went, so the
+   * refusal becomes these files' outcome instead and the rest is reported.
+   */
+  const refuseOrRecord = (e: unknown, files: ApplyResult["files"]) => {
+    if (!inWorkspaces.some((file) => file.written)) throw e;
+    for (const file of files) Object.assign(file, { written: false, reason: "writeFailed", detail: (e as Error).message });
+  };
+
   // Workspaces first: one ProPresenter has open refuses the whole call, and
   // a refusal is clearest when nothing at all has been written.
   const byWorkspace = groupBy(
@@ -329,20 +341,31 @@ async function applyPlanNow(
     (file) => file.workspace!.root
   );
   for (const [root, group] of byWorkspace) {
-    const workspace = await workspaceAt(root);
-    if (!workspace) throw new LibraryError(`${root} is no longer a ProPresenter workspace, so nothing was written.`);
-    stopIfCancelled(signal);
     const chosen = group.map(choose);
-    const run = await writeWorkspaceEdits(
-      workspace,
-      roots,
-      await openBackupDir(backupDir, roots),
-      group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] })),
-      { signal }
-    );
-    backupFolder ??= run.backupFolder;
-    // One outcome per replacement, in the order given.
-    run.outcomes.forEach((outcome, i) => inWorkspaces.push({ ...outcome, name: group[i].name, lines: chosen[i].length }));
+    const outcomes: ApplyResult["files"] = group.map((file, i) => ({
+      path: file.path,
+      name: file.name,
+      lines: chosen[i].length,
+      written: false,
+    }));
+    try {
+      const workspace = await workspaceAt(root);
+      if (!workspace) throw new LibraryError(`${root} is no longer a ProPresenter workspace, so nothing in it was written.`);
+      stopIfCancelled(signal);
+      const run = await writeWorkspaceEdits(
+        workspace,
+        roots,
+        await openBackupDir(backupDir, roots),
+        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] })),
+        { signal }
+      );
+      backupFolder ??= run.backupFolder;
+      // One outcome per replacement, in the order given.
+      run.outcomes.forEach((outcome, i) => Object.assign(outcomes[i], outcome));
+    } catch (e) {
+      refuseOrRecord(e, outcomes);
+    }
+    inWorkspaces.push(...outcomes);
   }
 
   const onDisk = plan.files.filter((file) => !file.workspace);
@@ -372,14 +395,19 @@ async function applyPlanNow(
     .map(({ path: p, bytes }) => ({ path: p, original: originals.get(p)!, updated: bytes! }));
 
   if (replacements.length > 0) {
-    // And once more at the last moment before anything on disk changes.
-    stopIfCancelled(signal);
-    // And inside, once the backups are made, right before the first original
-    // changes: backing up takes time, and the client can give up during it.
-    const run = await replaceWithBackup(roots, await openBackupDir(backupDir, roots), replacements, { signal });
-    backupFolder ??= run.backupFolder;
-    const byPath = new Map(run.outcomes.map((outcome) => [outcome.path, outcome]));
-    for (const file of onDiskFiles) Object.assign(file, byPath.get(file.path));
+    try {
+      // And once more at the last moment before anything on disk changes.
+      stopIfCancelled(signal);
+      // And inside, once the backups are made, right before the first original
+      // changes: backing up takes time, and the client can give up during it.
+      const run = await replaceWithBackup(roots, await openBackupDir(backupDir, roots), replacements, { signal });
+      backupFolder ??= run.backupFolder;
+      const byPath = new Map(run.outcomes.map((outcome) => [outcome.path, outcome]));
+      for (const file of onDiskFiles) Object.assign(file, byPath.get(file.path));
+    } catch (e) {
+      const waiting = new Set(replacements.map((r) => r.path));
+      refuseOrRecord(e, onDiskFiles.filter((file) => waiting.has(file.path)));
+    }
   }
 
   return {

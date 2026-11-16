@@ -11,7 +11,9 @@ import {
   workspacePlaylists,
   workspacePresentation,
 } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
-import { createWorkspace, putDocument, sqlite } from "@presenter-garage/node/__tests__/workspace-db";
+import { createWorkspace, putDocument, sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
+import { openRoots } from "@presenter-garage/node/library";
+import { applyPlan, planSlideEdits, PlanStore } from "../edits";
 import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
 import { CLOUD_REFUSED } from "@presenter-garage/node/workspace-write";
 import { callTool, connect } from "./connect";
@@ -191,5 +193,36 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     expect(refused.text).toBe(CLOUD_REFUSED);
     await client.close();
     fs.rmSync(cloudDir, { recursive: true, force: true });
+  });
+});
+
+suite("a plan across two workspaces", () => {
+  it("reports what it wrote when a later workspace is refused, rather than saying nothing was", async () => {
+    const dirs = [0, 1].map(() => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-two-workspaces-"))));
+    const workspaces = dirs.map((dir) => createWritableWorkspace(dir));
+    for (const root of workspaces) putPresentation(root, "Song", presentationRoot());
+    const roots = await openRoots(workspaces);
+    const store = new PlanStore();
+    const planned = await planSlideEdits(
+      roots,
+      store,
+      roots.map((root) => ({ path: path.join(root, "Libraries", "Default", "Song.pro"), boxIndex: 6, lineIndex: 0, text: "Que ton nom" }))
+    );
+    const plan = store.take(planned.planId)!;
+    // ProPresenter has the second workspace open.
+    const open = new sqlite!.DatabaseSync(storeOf(roots[1]));
+    open.prepare("SELECT count(*) FROM workspace_streams").get();
+    try {
+      const result = await applyPlan(roots, plan, new Set([1, 2]), path.join(dirs[0], "Backups"));
+      expect(result.backupFolder).toBeDefined();
+      expect(result.files.map((file) => [file.written, file.reason])).toEqual([
+        [true, undefined],
+        [false, "writeFailed"],
+      ]);
+      expect(result.files[1].detail).toMatch(/Quit ProPresenter/);
+    } finally {
+      open.close();
+      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
