@@ -318,7 +318,8 @@ async function applyPlanNow(
   // client can give up while an earlier apply is still writing.
   stopIfCancelled(signal);
   const choose = (file: PlannedFile) => file.lines.filter(({ n }) => ticked.has(n)).map(({ fix }) => fix);
-  const files: ApplyResult["files"] = [];
+  const inWorkspaces: ApplyResult["files"] = [];
+  // The first run's folder; each file's own `backup` says where its copy is.
   let backupFolder: string | undefined;
 
   // Workspaces first: one ProPresenter has open refuses the whole call, and
@@ -331,15 +332,17 @@ async function applyPlanNow(
     const workspace = await workspaceAt(root);
     if (!workspace) throw new LibraryError(`${root} is no longer a ProPresenter workspace, so nothing was written.`);
     stopIfCancelled(signal);
+    const chosen = group.map(choose);
     const run = await writeWorkspaceEdits(
       workspace,
       roots,
       await openBackupDir(backupDir, roots),
-      group.map((file) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: choose(file) })),
+      group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] })),
       { signal }
     );
     backupFolder ??= run.backupFolder;
-    run.outcomes.forEach((outcome, i) => files.push({ ...outcome, name: group[i].name, lines: choose(group[i]).length }));
+    // One outcome per replacement, in the order given.
+    run.outcomes.forEach((outcome, i) => inWorkspaces.push({ ...outcome, name: group[i].name, lines: chosen[i].length }));
   }
 
   const onDisk = plan.files.filter((file) => !file.workspace);
@@ -357,7 +360,7 @@ async function applyPlanNow(
     }
   );
 
-  const fileOutcomes: ApplyResult["files"] = fixed.map(({ path: p, lines, reason }) => ({
+  const onDiskFiles: ApplyResult["files"] = fixed.map(({ path: p, lines, reason }) => ({
     path: p,
     name: planned.get(p)!.name,
     lines,
@@ -376,13 +379,12 @@ async function applyPlanNow(
     const run = await replaceWithBackup(roots, await openBackupDir(backupDir, roots), replacements, { signal });
     backupFolder ??= run.backupFolder;
     const byPath = new Map(run.outcomes.map((outcome) => [outcome.path, outcome]));
-    for (const file of fileOutcomes) Object.assign(file, byPath.get(file.path));
+    for (const file of onDiskFiles) Object.assign(file, byPath.get(file.path));
   }
-  files.push(...fileOutcomes);
 
   return {
     backupFolder,
-    files: files.map((file) =>
+    files: [...inWorkspaces, ...onDiskFiles].map((file) =>
       file.reason ? { ...file, detail: [refusals[file.reason], file.detail].filter(Boolean).join(": ") } : file
     ),
   };

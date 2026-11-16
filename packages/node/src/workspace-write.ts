@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { isContainer, LoroDoc, LoroMap, type Container } from "loro-crdt/base64";
+import { isContainer, LoroDoc, LoroList, LoroMap, LoroMovableList, type Container } from "loro-crdt/base64";
 import { FixError, type FixRefusal, type LineFix } from "@presenter-garage/core/lib/fixes";
 import { encodePresentation } from "@presenter-garage/core/lib/presentation";
-import { presentationFromWorkspace } from "@presenter-garage/core/lib/workspace";
+import { isObject, presentationFromWorkspace } from "@presenter-garage/core/lib/workspace";
 import {
   AttributeRangeError,
   checkWorkspaceEdit,
@@ -17,7 +17,7 @@ import {
   type WorkspaceEdit,
 } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError } from "./paths";
-import { backupPath, errorDetail, runFolder, sha256, writeBackups, type WriteOutcome } from "./write";
+import { backupPath, errorDetail, runFolder, same, sha256, writeBackups, type WriteOutcome } from "./write";
 import { hex, isOwnPath, openDatabase, REGISTRY, type StoredDocument, type Workspace } from "./workspace";
 
 /**
@@ -45,7 +45,7 @@ import { hex, isOwnPath, openDatabase, REGISTRY, type StoredDocument, type Works
 
 /** The formats this has been checked against: the registry's `schema_version`, and the store's `user_version`. */
 export const VERIFIED_SCHEMA_VERSION = "22.9.0";
-export const VERIFIED_USER_VERSION = 9;
+const VERIFIED_USER_VERSION = 9;
 
 export const PROPRESENTER_OPEN =
   "ProPresenter has this workspace open, so nothing was written: a change made under it is lost the next " +
@@ -122,13 +122,13 @@ export function gate(row: Row): { root: unknown; version: Map<string, number> } 
     const version = doc.version().toJSON();
     // Compared encoded, which puts the peers in order: a Map gives them in
     // whatever order it holds them, which differs between two imports.
-    const encoded = Buffer.from(encodeVersionVector(version));
-    const same =
+    const encoded = encodeVersionVector(version);
+    const roundTrips =
       stableJson(json) === stableJson(again.toJSON()) &&
-      encoded.equals(Buffer.from(encodeVersionVector(again.version().toJSON()))) &&
+      same(encoded, encodeVersionVector(again.version().toJSON())) &&
       heads(doc) === heads(again) &&
-      encoded.equals(Buffer.from(row.version_vector ?? []));
-    if (!same) throw new FixError("lossy");
+      same(encoded, row.version_vector ?? new Uint8Array());
+    if (!roundTrips) throw new FixError("lossy");
     return { root: json.root, version };
   } catch (e) {
     throw e instanceof FixError ? e : new FixError("lossy");
@@ -266,17 +266,25 @@ interface Ready {
   edit: WorkspaceEdit;
 }
 
-/** Carried by a check that fails once the transaction has begun, with the presentation it failed on. */
-class Abandon extends Error {
-  readonly index: number;
+/** Why a presentation failed once the transaction had begun, which rolls back the run. */
+class WriteFailed extends Error {
   readonly reason: WorkspaceRefusal;
+  readonly detail?: string;
 
-  constructor(index: number, reason: WorkspaceRefusal, detail?: string) {
+  constructor(reason: WorkspaceRefusal, detail?: string) {
     super(detail ?? reason);
-    this.index = index;
     this.reason = reason;
+    this.detail = detail;
   }
 }
+
+/** A failure in the steps that edit and write, as the reason it is reported under. */
+const failure = (e: unknown, fallback: WorkspaceRefusal = "verifyFailed") =>
+  e instanceof WriteFailed
+    ? e
+    : e instanceof FixError
+      ? new WriteFailed(e.reason)
+      : new WriteFailed(fallback, errorDetail(e));
 
 /**
  * Write each presentation's chosen lines into the workspace, in one
@@ -304,7 +312,7 @@ export async function writeWorkspaceEdits(
   const db = await lockStore(workspace.store);
   let backupFolder: string | undefined;
   let committed = false;
-  const written = new Map<number, Uint8Array>();
+  const written: { item: Ready; snapshot: Uint8Array }[] = [];
   try {
     const ready: Ready[] = [];
     for (const [index, replacement] of replacements.entries()) {
@@ -319,10 +327,10 @@ export async function writeWorkspaceEdits(
     // Guard 2, inside the lock, so these are the rows that get replaced.
     try {
       const folder = (backupFolder = await runFolder(backupDir, now));
-      const files = ready.flatMap(({ index, replacement, row }) => {
+      const files = ready.flatMap(({ index, replacement, row, root }) => {
         const copy = backupPath(folder, roots, replacement.path);
         outcomes[index].backup = copy;
-        return backupOf(copy, row);
+        return backupOf(copy, row, root);
       });
       await writeBackups(backupDir, files);
     } catch (e) {
@@ -335,15 +343,13 @@ export async function writeWorkspaceEdits(
       );
     }
 
+    let current: Ready | undefined;
     try {
-      for (const item of ready) written.set(item.index, writeOne(db, item, hooks));
+      for (current of ready) written.push({ item: current, snapshot: writeOne(db, current, hooks) });
     } catch (e) {
-      const failed = e instanceof Abandon ? e : undefined;
-      for (const { index } of ready) {
-        outcomes[index].reason = index === failed?.index ? failed.reason : "rolledBack";
-        if (index === failed?.index && failed.message !== failed.reason) outcomes[index].detail = failed.message;
-        else if (!failed) outcomes[index].detail = errorDetail(e);
-      }
+      const { reason, detail } = failure(e);
+      for (const { index } of ready) outcomes[index].reason = "rolledBack";
+      Object.assign(outcomes[current!.index], { reason, detail });
       return { backupFolder, outcomes };
     }
     db.exec("COMMIT");
@@ -364,7 +370,7 @@ export async function writeWorkspaceEdits(
   }
 
   // Once more, from a connection of its own, as the next reader will see it.
-  await readBack(workspace.store, replacements, written, outcomes);
+  await readBack(workspace.store, written, outcomes);
   return { backupFolder, outcomes };
 }
 
@@ -389,26 +395,18 @@ function prepare(db: Database, index: number, replacement: WorkspaceReplacement)
  * (bytes as hex), and the `.pro` file the conversion gives, for a person to
  * read. Together they are enough to put the row back as it was.
  */
-function backupOf(copy: string, row: Row): { path: string; bytes: Uint8Array }[] {
+function backupOf(copy: string, row: Row, root: unknown): { path: string; bytes: Uint8Array }[] {
   const columns = Object.fromEntries(
     Object.entries(row)
       .filter(([column]) => column !== "snapshot")
       .map(([column, value]) => [column, ArrayBuffer.isView(value) ? hex(value) : value])
   );
   const bytes = (text: string) => new TextEncoder().encode(text);
-  const files = [
+  return [
     { path: `${copy}.loro`, bytes: row.snapshot },
     { path: `${copy}.row.json`, bytes: bytes(`${JSON.stringify(columns, (_k, v) => (typeof v === "bigint" ? String(v) : v), 2)}\n`) },
+    { path: copy, bytes: encodePresentation(presentationFromWorkspace(root).message) },
   ];
-  const doc = new LoroDoc();
-  try {
-    doc.import(row.snapshot);
-    const { message } = presentationFromWorkspace((doc.toJSON() as { root?: unknown }).root);
-    files.push({ path: copy, bytes: encodePresentation(message) });
-  } finally {
-    doc.free();
-  }
-  return files;
 }
 
 /** A peer id nobody has used in this document: random, and never one already in its version vector. */
@@ -425,11 +423,7 @@ function containerAt(doc: LoroDoc, path: readonly LoroKey[]): Container | undefi
   let at: Container = doc.getMap("root");
   for (const key of path) {
     const next: unknown =
-      at.kind() === "Map"
-        ? (at as LoroMap).get(String(key))
-        : at.kind() === "List" || at.kind() === "MovableList"
-          ? (at as unknown as { get(i: number): unknown }).get(Number(key))
-          : undefined;
+      at instanceof LoroMap ? at.get(String(key)) : at instanceof LoroMovableList || at instanceof LoroList ? at.get(Number(key)) : undefined;
     if (!isContainer(next)) return undefined;
     at = next;
   }
@@ -449,26 +443,24 @@ function editDocument(doc: LoroDoc, boxes: readonly BoxEdit[]): void {
     for (const { index, start, end } of box.ranges) {
       const attribute = containerAt(doc, [...box.path, "attributes", "custom_attributes", index]);
       const range = attribute instanceof LoroMap ? attribute.get("range") : undefined;
-      if (!(attribute instanceof LoroMap) || isContainer(range) || typeof range !== "object" || range === null) {
-        throw new FixError("lossy");
-      }
-      attribute.set("range", { ...(range as object), start, end });
+      // A plain value, as ProPresenter keeps a range: replaced, never a container written into.
+      if (!(attribute instanceof LoroMap) || !isObject(range) || isContainer(range)) throw new FixError("lossy");
+      attribute.set("range", { ...range, start, end });
     }
   }
 }
 
-/** The new snapshot, decoded afresh, is exactly the plan; throws `Abandon` if not. */
+/** The new snapshot, decoded afresh, is exactly the plan; throws `WriteFailed` if not. */
 function checkSnapshot(item: Ready, snapshot: Uint8Array, peer: bigint): Uint8Array {
   const doc = new LoroDoc();
   try {
     doc.import(snapshot);
     const version = doc.version().toJSON();
-    if (!onlyPeerAdded(item.version, version, String(peer))) throw new Abandon(item.index, "verifyFailed", "version vector");
+    if (!onlyPeerAdded(item.version, version, String(peer))) throw new WriteFailed("verifyFailed", "version vector");
     checkWorkspaceEdit(item.root, (doc.toJSON() as { root?: unknown }).root, item.edit, item.replacement.fixes);
     return encodeVersionVector(version);
   } catch (e) {
-    if (e instanceof Abandon) throw e;
-    throw new Abandon(item.index, e instanceof FixError ? e.reason : "verifyFailed");
+    throw failure(e);
   } finally {
     doc.free();
   }
@@ -488,7 +480,7 @@ function writeOne(db: Database, item: Ready, hooks: WriteHooks | undefined): Uin
     doc.commit({ message: "Presenter Garage: slide text" });
     snapshot = doc.export({ mode: "snapshot" });
   } catch (e) {
-    throw new Abandon(item.index, e instanceof FixError ? e.reason : "verifyFailed", (e as Error).message);
+    throw failure(e);
   } finally {
     doc.free();
   }
@@ -502,18 +494,20 @@ function writeOne(db: Database, item: Ready, hooks: WriteHooks | undefined): Uin
         "WHERE document_id = ? AND scope = 0 AND sha256 = ?"
     )
     .run(snapshot, digest, snapshot.length, versionVector, Date.now(), documentId, item.row.sha256).changes;
-  if (Number(changed) !== 1) throw new Abandon(item.index, "stale");
+  if (Number(changed) !== 1) throw new WriteFailed("stale");
   hooks?.afterUpdate?.(db, documentId);
 
   // Read back on the same connection, before anything is committed.
   const back = db.prepare(SELECT_ROW).get(documentId) as Row | undefined;
-  const same =
+  const asWritten =
     back &&
-    Buffer.from(back.snapshot).equals(Buffer.from(snapshot)) &&
-    Buffer.from(back.sha256).equals(digest) &&
+    same(back.snapshot, snapshot) &&
+    same(back.sha256, digest) &&
     Number(back.byte_count) === snapshot.length &&
-    Buffer.from(back.version_vector).equals(Buffer.from(versionVector));
-  if (!same) throw new Abandon(item.index, "readBackFailed");
+    same(back.version_vector, versionVector);
+  if (!asWritten) throw new WriteFailed("readBackFailed");
+  // And checked again as the row now holds it, as guard 4 says, though the
+  // bytes are the ones just checked: cheap beside the cost of being wrong.
   checkSnapshot(item, back.snapshot, peer);
   return snapshot;
 }
@@ -525,21 +519,19 @@ function writeOne(db: Database, item: Ready, hooks: WriteHooks | undefined): Uin
  */
 async function readBack(
   store: string,
-  replacements: readonly WorkspaceReplacement[],
-  written: ReadonlyMap<number, Uint8Array>,
+  written: readonly { item: Ready; snapshot: Uint8Array }[],
   outcomes: WorkspaceOutcome[]
 ): Promise<void> {
-  if (written.size === 0) return;
+  if (written.length === 0) return;
   let db: Database | undefined;
   try {
     db = await openDatabase(store);
-    for (const [index, snapshot] of written) {
-      const row = db.prepare(SELECT_ROW).get(replacements[index].documentId) as Row | undefined;
-      const ok = row && Buffer.from(row.snapshot).equals(Buffer.from(snapshot)) && hex(row.sha256) === sha256(snapshot);
-      if (!ok) outcomes[index].reason = "readBackFailed";
+    for (const { item, snapshot } of written) {
+      const row = db.prepare(SELECT_ROW).get(item.replacement.documentId) as Row | undefined;
+      if (!row || !same(row.snapshot, snapshot) || hex(row.sha256) !== sha256(snapshot)) outcomes[item.index].reason = "readBackFailed";
     }
   } catch (e) {
-    for (const index of written.keys()) Object.assign(outcomes[index], { reason: "readBackFailed", detail: errorDetail(e) });
+    for (const { item } of written) Object.assign(outcomes[item.index], { reason: "readBackFailed", detail: errorDetail(e) });
   } finally {
     db?.close();
   }

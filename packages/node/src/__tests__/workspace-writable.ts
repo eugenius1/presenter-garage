@@ -2,12 +2,10 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { LoroDoc, LoroMap, LoroMovableList } from "loro-crdt/base64";
-import { planLineEdits } from "@presenter-garage/core/lib/fixes";
-import { readPresentation } from "@presenter-garage/core/lib/presentation";
+import { decodeRtf, extractLines } from "@presenter-garage/core/lib/rtf";
 import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { workspacePresentation } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
-import { presentationFromWorkspace } from "@presenter-garage/core/lib/workspace";
-import { encodeVersionVector, planWorkspaceEdit, valueAt } from "@presenter-garage/core/lib/workspace-edit";
+import { encodeVersionVector } from "@presenter-garage/core/lib/workspace-edit";
 import { REGISTRY } from "../workspace";
 import { VERIFIED_SCHEMA_VERSION } from "../workspace-write";
 import { sqlite, storeOf } from "./workspace-db";
@@ -73,21 +71,26 @@ function snapshotOf(root: Json): { snapshot: Uint8Array; vv: Uint8Array } {
 /** The synthetic presentation as a workspace document, with an All Caps range on each line of every box, as most real boxes have. */
 export function presentationRoot(ranges?: (lines: string[]) => { start: number; end: number }[]): Json {
   const root = workspacePresentation(syntheticTextPresentation());
-  const { message } = presentationFromWorkspace(root);
-  const doc = readPresentation(message);
-  for (const box of doc.textBoxes) {
-    // Any change finds the box's map; the change itself is thrown away.
-    const lines = box.lines.map((l) => l.text);
-    const fix = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 0, text: `${lines[0]}!` }]);
-    const text = valueAt(root, planWorkspaceEdit(root, fix).boxes[0].path);
+  // Every text element, found by what it holds rather than by the walk the
+  // code under test makes, so a wrong walk there cannot hide in the fixture.
+  const texts: Json[] = [];
+  const visit = (value: Json): void => {
+    if (!value || typeof value !== "object" || ArrayBuffer.isView(value)) return;
+    if (ArrayBuffer.isView(value.rtf_data)) texts.push(value);
+    else Object.values(value).forEach(visit);
+  };
+  visit(root.cues);
+  for (const text of texts) {
+    const lines = extractLines(decodeRtf(text.rtf_data)).map((line) => line.text);
     let at = 0;
-    const perLine = lines.map((t) => {
-      const range = { start: at, end: at + t.length };
-      at += t.length + 1;
-      return range;
-    });
+    const perLine = () =>
+      lines.map((t) => {
+        const range = { start: at, end: at + t.length };
+        at += t.length + 1;
+        return range;
+      });
     text.attributes = {
-      custom_attributes: (ranges?.(lines) ?? perLine).map((range) => ({
+      custom_attributes: (ranges ? ranges(lines) : perLine()).map((range) => ({
         Attribute: { __tag: "capitalization", capitalization: 1 },
         range,
       })),

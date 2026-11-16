@@ -1,7 +1,7 @@
 import { FixError, spliceBoxes, verifyLines, type LineFix } from "./fixes";
 import { readPresentation, textBoxAddresses, type PresentationDoc, type TextBoxAddress } from "./presentation";
 import { decodeRtf, encodeRtf } from "./rtf";
-import { presentationFromWorkspace } from "./workspace";
+import { isObject, presentationFromWorkspace } from "./workspace";
 
 /**
  * Writing slide text into a ProPresenter 22 workspace document: the parts
@@ -27,7 +27,7 @@ type Json = any;
 export type LoroKey = string | number;
 
 /** One attribute range as it should be once the text moves. */
-export interface RangeMove {
+interface RangeMove {
   /** Position in the box's `attributes.custom_attributes`. */
   index: number;
   start: number;
@@ -63,9 +63,6 @@ export class AttributeRangeError extends Error {
     this.boxIndex = boxIndex;
   }
 }
-
-const isObject = (v: unknown): v is Record<string, Json> =>
-  typeof v === "object" && v !== null && !Array.isArray(v) && !ArrayBuffer.isView(v);
 
 /**
  * The keys that reach a field of the message in the snapshot's JSON. A field
@@ -142,42 +139,26 @@ export function moveRanges(
   after: readonly (string | null)[],
   ranges: readonly { start: number; end: number }[]
 ): { start: number; end: number }[] {
-  const oldStart: number[] = [];
-  const newStart: number[] = [];
-  const newEnd: number[] = [];
+  // Each line's old start and end, to where they go.
+  const starts = new Map<number, number>();
+  const ends = new Map<number, number>();
   let was = 0;
   let now = 0;
   for (const [i, text] of before.entries()) {
-    oldStart.push(was);
-    was += text.length + 1;
     const next = after[i];
     // A removed line takes no room, so both its ends land where the next line now starts.
-    newStart.push(now);
-    newEnd.push(now + (next?.length ?? 0));
+    starts.set(was, now);
+    ends.set(was + text.length, now + (next?.length ?? 0));
+    was += text.length + 1;
     if (next !== null) now += next.length + 1;
   }
 
-  const startOf = (p: number) => oldStart.indexOf(p);
-  const endOf = (p: number) => before.findIndex((text, i) => oldStart[i] + text.length === p);
   // A start is matched to a line's start first, an end to a line's end, so
   // a range over an empty line keeps both its ends on that line.
-  const moveStart = (p: number) => {
-    const s = startOf(p);
-    if (s >= 0) return newStart[s];
-    const e = endOf(p);
-    if (e >= 0) return newEnd[e];
-    throw new AttributeRangeError(boxIndex);
-  };
-  const moveEnd = (p: number) => {
-    const e = endOf(p);
-    if (e >= 0) return newEnd[e];
-    const s = startOf(p);
-    if (s >= 0) return newStart[s];
-    throw new AttributeRangeError(boxIndex);
-  };
   return ranges.map(({ start, end }) => {
-    if (!(start <= end)) throw new AttributeRangeError(boxIndex);
-    return { start: moveStart(start), end: moveEnd(end) };
+    const moved = { start: starts.get(start) ?? ends.get(start), end: ends.get(end) ?? starts.get(end) };
+    if (!(start <= end) || moved.start === undefined || moved.end === undefined) throw new AttributeRangeError(boxIndex);
+    return moved as { start: number; end: number };
   });
 }
 
@@ -219,17 +200,18 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): Worksp
       throw new FixError("lossy");
     }
 
-    const mine = fixes.filter((fix) => fix.boxIndex === boxIndex);
-    const byLine = new Map(mine.map((fix) => [fix.lineIndex, fix.after]));
+    const byLine = new Map(fixes.filter((fix) => fix.boxIndex === boxIndex).map((fix) => [fix.lineIndex, fix.after]));
     const lines = box.lines.map((line) => line.text);
-    const after = lines.map((textOf, i) => (byLine.has(i) ? byLine.get(i)! : textOf));
+    const after = lines.map((was, i) => (byLine.has(i) ? byLine.get(i)! : was));
     const attributes: Json[] = Array.isArray(text.attributes?.custom_attributes) ? text.attributes.custom_attributes : [];
-    const present = attributes.map((a, index) => ({ index, range: rangeOf(a) })).filter((a) => a.range);
-    const moved = moveRanges(boxIndex, lines, after, present.map((a) => a.range!));
-    const ranges = present
-      .map(({ index, range }, i) => ({ index, start: moved[i].start, end: moved[i].end, was: range! }))
-      .filter((r) => r.start !== r.was.start || r.end !== r.was.end)
-      .map(({ index, start, end }) => ({ index, start, end }));
+    const present = attributes.flatMap((attribute, index) => {
+      const range = rangeOf(attribute);
+      return range ? [{ index, range }] : [];
+    });
+    const moved = moveRanges(boxIndex, lines, after, present.map((p) => p.range));
+    const ranges: RangeMove[] = present.flatMap(({ index, range }, i) =>
+      moved[i].start !== range.start || moved[i].end !== range.end ? [{ index, ...moved[i] }] : []
+    );
 
     boxes.push({ boxIndex, path, rtf: encodeRtf(rtf), ranges });
   }

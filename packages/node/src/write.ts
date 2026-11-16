@@ -194,7 +194,7 @@ async function writeNew(file: string, bytes: Uint8Array, mode: number): Promise<
   }
 }
 
-const same = (a: Uint8Array, b: Uint8Array) => Buffer.compare(a, b) === 0;
+export const same = (a: Uint8Array, b: Uint8Array) => Buffer.compare(a, b) === 0;
 
 /**
  * Flush a folder's entries, so a file just created or renamed in it survives

@@ -36,7 +36,7 @@ export interface Converted {
   unmapped: string[];
 }
 
-const isObject = (v: unknown): v is Record<string, Json> =>
+export const isObject = (v: unknown): v is Record<string, Json> =>
   typeof v === "object" && v !== null && !Array.isArray(v) && !ArrayBuffer.isView(v);
 
 /** `isEnabled` and `is_enabled` are one field; the snapshots use both spellings. */
