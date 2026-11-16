@@ -347,7 +347,7 @@ export const en = {
         readBackFailed: "the file on disk does not hold what was written; restore it from the backup",
         attributeRanges:
           "a text box has formatting over part of a line, which cannot be moved with the text, so nothing was written",
-        rolledBack: "another presentation in the same change could not be written, so none were",
+        rolledBack: "another presentation in the same workspace could not be written, so none in it were",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
       editRefusals: {

@@ -173,6 +173,12 @@ export async function readForPlanning(
   } finally {
     db.close();
   }
+  // And again once read, as `Workspace.withStore` does: SQLite opens by path
+  // and gives nothing back to check, so a store swapped for a link in between
+  // is caught on this side.
+  if (!(await isOwnPath(workspace.store))) {
+    throw new LibraryError(`Could not read ${workspace.store}: it is reached through a symlink`);
+  }
   if (!row?.snapshot) throw new LibraryError(`Could not read ${document.path}: it is no longer in the workspace`);
   let root;
   try {
@@ -242,8 +248,8 @@ export interface WorkspaceReplacement {
  *
  * - `attributeRanges`: a box's character ranges do not fall on its lines, so
  *   they cannot be moved with the text.
- * - `rolledBack`: this one was fine, but another in the same run was not,
- *   and a run is written whole or not at all.
+ * - `rolledBack`: this one was fine, but another in the same workspace was
+ *   not, and a workspace's run is written whole or not at all.
  */
 export type WorkspaceRefusal = FixRefusal | "attributeRanges" | "rolledBack" | "backupFailed" | "readBackFailed";
 
@@ -319,6 +325,13 @@ export async function writeWorkspaceEdits(
   let committed = false;
   const written: { item: Ready; snapshot: Uint8Array }[] = [];
   try {
+    // Again now it is open: a store swapped for a link between the check
+    // above and the open would have the run write somewhere else. What is
+    // left is a link swapped in and out again around the open, the same
+    // window `Workspace.withStore` leaves the read path.
+    if (!(await isOwnPath(workspace.store))) {
+      throw new LibraryError(`Could not open ${workspace.store}: it is reached through a symlink`);
+    }
     const ready: Ready[] = [];
     for (const [index, replacement] of replacements.entries()) {
       if (replacement.fixes.length === 0) continue;

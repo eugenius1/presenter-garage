@@ -363,7 +363,7 @@ export const fr: Dictionary = {
         attributeRanges:
           "une zone de texte porte une mise en forme sur une partie de ligne, qui ne peut pas suivre le texte : rien n’a donc été écrit",
         rolledBack:
-          "une autre présentation de la même modification n’a pas pu être écrite : aucune ne l’a donc été",
+          "une autre présentation du même espace de travail n’a pas pu être écrite : aucune n’y a donc été écrite",
       },
       editRefusals: {
         noSuchLine: "il n’y a pas de zone de texte ou de ligne à cette adresse",
