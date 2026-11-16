@@ -73,11 +73,21 @@ const FIXED_PATHS: Record<string, string> = {
   PlaylistAudio: path.join("Playlists", "Audio"),
 };
 
-/** Where a document's file was in the old layout, or nothing for a kind no tool reads. */
+/**
+ * Where a document's file was in the old layout, or nothing for a kind no
+ * tool reads.
+ *
+ * Nothing, too, for a path that is not plainly a name inside a folder. The
+ * path is a string out of a database, and one reading `../../private/Secret`
+ * would otherwise be handed out as a file beside the workspace: a listing
+ * would name it, nothing in the workspace would answer to it, and the read
+ * would fall through to whatever is on disk there.
+ */
 function legacyPath(kind: string, corePath: string | null): string | undefined {
   if (FIXED_PATHS[kind]) return FIXED_PATHS[kind];
   if (!corePath) return undefined;
   const segments = corePath.split("/");
+  if (segments.some((s) => s === "" || s === "." || s === ".." || s.includes("\\") || s.includes("\0"))) return undefined;
   if (kind === "Presentation") return `${path.join("Libraries", ...segments)}.pro`;
   if (kind === "Theme") return path.join("Themes", ...segments);
   return undefined;
@@ -187,6 +197,28 @@ export class Workspace {
   }
 
   /**
+   * Read from the document database, having checked it is the workspace's own.
+   *
+   * A root is the limit of what may be read, and a `DocumentStore` that is a
+   * symlink would make another workspace's songs appear under this root's
+   * paths. SQLite opens by path and hands back nothing to check afterwards,
+   * as `readFoundFile` checks its handle, so the path is checked on both
+   * sides of the read: what is left is a link swapped in and out again
+   * around each of those calls.
+   */
+  private async withStore<T>(fn: (db: Database) => T): Promise<T> {
+    const refuse = async () => {
+      if (!(await isOwnPath(this.store))) {
+        throw new LibraryError(`Could not read ${this.store}: it is reached through a symlink`);
+      }
+    };
+    await refuse();
+    const result = await withDatabase(this.store, fn);
+    await refuse();
+    return result;
+  }
+
+  /**
    * Read the list of documents again if the database changed since it was
    * last read. ProPresenter saves as it goes, and a server that listed the
    * library once at start-up would answer from this morning's.
@@ -203,7 +235,7 @@ export class Workspace {
   private async readList(): Promise<void> {
     const stamp = await stampOf(this.store);
     if (stamp === this.stamp) return;
-    const rows = await withDatabase(this.store, (db) =>
+    const rows = await this.withStore((db) =>
       db
         .prepare(
           "SELECT document_id, kind, core_path, sha256, byte_count, availability, updated_at_ms " +
@@ -217,6 +249,8 @@ export class Workspace {
       const relative = legacyPath(String(row.kind), row.core_path as string | null);
       if (!relative) continue;
       const full = path.join(this.root, relative);
+      // Held to the root here as well, whatever the check above let through.
+      if (!isInside(this.root, full) || full === this.root) continue;
       documents.set(keyOf(full), {
         path: full,
         kind: String(row.kind),
@@ -293,7 +327,7 @@ export class Workspace {
     }
     let bytes = document.sha256 ? this.recall(document.sha256) : undefined;
     if (!bytes) {
-      const row = await withDatabase(this.store, (db) =>
+      const row = await this.withStore((db) =>
         db.prepare("SELECT snapshot, sha256 FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
       );
       if (!row?.snapshot) throw new LibraryError(`Could not read ${file}: it is no longer in the workspace`);
@@ -328,6 +362,9 @@ export class Workspace {
   }
 }
 
+/** Whether a path is its own real path: no part of it, the last included, is a symlink. */
+const isOwnPath = async (p: string) => (await fs.realpath(p).catch(() => undefined)) === p;
+
 const hex = (bytes: unknown) => (bytes ? Buffer.from(bytes as Uint8Array).toString("hex") : "");
 
 /** A snapshot, as the bytes of the old file of that kind. */
@@ -354,9 +391,10 @@ const workspaces = new Map<string, Promise<Workspace | undefined>>();
 export function workspaceAt(root: string): Promise<Workspace | undefined> {
   let found = workspaces.get(root);
   if (!found) {
-    found = fs
-      .stat(path.join(root, STORE))
-      .then((stat) => (stat.isFile() ? new Workspace(root) : undefined))
+    const store = path.join(root, STORE);
+    // Not a workspace if its database is reached through a link: see `withStore`.
+    found = Promise.all([fs.stat(store), isOwnPath(store)])
+      .then(([stat, own]) => (stat.isFile() && own ? new Workspace(root) : undefined))
       .catch(() => undefined);
     workspaces.set(root, found);
   }

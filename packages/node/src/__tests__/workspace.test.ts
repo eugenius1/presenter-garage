@@ -54,6 +54,19 @@ let tmp: string;
 let workspace: string;
 let roots: string[];
 
+/** Windows refuses to make a symlink without a privilege most accounts lack. */
+const canSymlink = (() => {
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), "pp-workspace-probe-"));
+  try {
+    fs.symlinkSync(probe, path.join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 const store = () => storeOf(workspace);
 const put = (kind: string, corePath: string | null, root: Record<string, unknown> | null, scope = 0) =>
   putDocument(workspace, kind, corePath, root, scope);
@@ -123,6 +136,40 @@ describe("a workspace as a library", () => {
     await expect(openRoots([path.dirname(workspace)])).rejects.toThrow(workspace);
     // A folder that merely has folders in it is still a library like any other.
     expect(await openRoots([tmp])).toEqual([tmp]);
+  });
+
+  it("does not hand out a document whose stored path leaves the workspace", async () => {
+    const outside = path.join(tmp, "Secret.pro");
+    fs.writeFileSync(outside, syntheticTextPresentation("Secret"));
+    for (const corePath of ["../../../Secret", "Default/../../../../Secret", "Default//Hidden", "Default\\..\\Hidden", "."]) {
+      put("Presentation", corePath, workspacePresentation(syntheticTextPresentation("Escaped")));
+    }
+    const { files } = await findPresentations(roots);
+    expect(files).toHaveLength(3);
+    for (const file of files) expect(file.startsWith(workspace + path.sep)).toBe(true);
+    // Nothing answers to it by name either, so the file on disk there is not read as the workspace's.
+    await expect(resolveInRoots(roots, outside)).rejects.toThrow("Outside the configured library folders");
+  });
+
+  it.skipIf(!canSymlink)("is not a workspace if its database is reached through a link", async () => {
+    const elsewhere = path.join(tmp, "Elsewhere");
+    fs.renameSync(path.join(workspace, "DocumentStore"), elsewhere);
+    fs.symlinkSync(elsewhere, path.join(workspace, "DocumentStore"));
+    const linked = path.join(tmp, "Workspaces", "linked");
+    fs.mkdirSync(linked);
+    fs.symlinkSync(elsewhere, path.join(linked, "DocumentStore"));
+    expect((await findPresentations(await openRoots([linked]))).files).toEqual([]);
+    expect(await isInWorkspace(path.join(linked, "Libraries", "Default", "Céleste.pro"))).toBe(false);
+  });
+
+  it.skipIf(!canSymlink)("stops reading a workspace whose database is swapped for a link", async () => {
+    expect((await findPresentations(roots)).files).toHaveLength(3);
+    const elsewhere = path.join(tmp, "Elsewhere");
+    fs.renameSync(path.join(workspace, "DocumentStore"), elsewhere);
+    fs.symlinkSync(elsewhere, path.join(workspace, "DocumentStore"));
+    // Changed, so the list is read again rather than answered from memory.
+    put("Presentation", "Default/Planted", workspacePresentation(syntheticTextPresentation("Planted")));
+    await expect(findPresentations(roots)).rejects.toThrow("symlink");
   });
 
   it("reads a presentation as the bytes its file would have held", async () => {
@@ -209,7 +256,10 @@ describe("a workspace as a library", () => {
     await expect(findPresentations(roots)).rejects.toThrow(store());
   });
 
-  it("leaves no file behind in a workspace ProPresenter has closed", async () => {
+  // Before Node 22.15 the database cannot be opened immutable, and the reader
+  // accepts leaving the two files rather than not reading at all.
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  it.skipIf(major < 22 || (major === 22 && minor < 15))("leaves no file behind in a workspace ProPresenter has closed", async () => {
     // A database in WAL mode, closed cleanly: just the one file, as ProPresenter leaves it.
     const db = new sqlite!.DatabaseSync(store());
     db.exec("PRAGMA journal_mode = WAL");
@@ -310,7 +360,8 @@ describe("the library read when none is named", () => {
     cloud: false,
     schemaVersion: "22.9.0",
   });
-  const DOCUMENTS = "/home/Documents/ProPresenter";
+  // Resolved, as `staleNotes` resolves the folder it is told of: on Windows that adds a drive.
+  const DOCUMENTS = path.resolve("/home/Documents/ProPresenter");
 
   it("finds the workspaces ProPresenter 20 and 21 made, and nothing else kept beside them", async () => {
     const dir = path.join(tmp, "UserWorkspaces");
