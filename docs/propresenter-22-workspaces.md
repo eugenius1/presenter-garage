@@ -205,11 +205,12 @@ The comparison is a test, skipped without a library to run it on: see
 
 - **A Cloud document that is not downloaded.** Handled as the schema
   suggests, never met.
-- **Writing.** A workspace is read-only here. Its database is held open by
-  ProPresenter and, for a Cloud workspace, synced to other computers, so the
-  four write guards in [AGENTS.md](../AGENTS.md) need a design of their own.
-  What was found out about writing to one, and that design, are in
-  [propresenter-22-writing.md](propresenter-22-writing.md).
+- **Writing anything but slide text.** Slide text is written into a local
+  workspace while ProPresenter is closed, as
+  [propresenter-22-writing.md](propresenter-22-writing.md) describes.
+  Nothing else is: playlists, the media bin and restyling stay read-only.
+- **Writing to a Cloud workspace.** Refused until it has been tried
+  ([#55](https://github.com/eugenius1/presenter-garage/issues/55)).
 - **The web app.** A browser picking a v22 workspace folder finds no `.pro`
   files. Only the MCP server reads one so far.
 - **When a song was last shown.** See *Dates* above.

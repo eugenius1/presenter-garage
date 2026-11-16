@@ -1,15 +1,21 @@
 # Writing to a ProPresenter 22 workspace
 
-Nothing here writes to a workspace yet. This is what was found out about
-doing it, and the design those findings lead to
-([#52](https://github.com/eugenius1/presenter-garage/issues/52)). The format
-itself is in [propresenter-22-workspaces.md](propresenter-22-workspaces.md).
+The MCP server writes slide text into a **local** ProPresenter 22 workspace,
+while **ProPresenter is closed**. This is what was found out about doing that
+and how it is done ([#52](https://github.com/eugenius1/presenter-garage/issues/52)).
+The format itself is in [propresenter-22-workspaces.md](propresenter-22-workspaces.md),
+and the four write guards every writing surface keeps are in
+[AGENTS.md](../AGENTS.md).
 
 Everything below was found on ProPresenter 22.0.1 on macOS, on a local
 workspace of 474 presentations (518 documents), first on copies of its
 database and then, once ProPresenter had to be driven, on the workspace
 itself with a copy to restore from. Nothing has been tried on a Cloud
-workspace or on Windows.
+workspace or on Windows. The code that does the writing has been run against
+databases built in the tests and against copies of that workspace's
+database, not yet against ProPresenter itself: the experiments that showed
+ProPresenter accepting an outside edit were made by hand, with scripts doing
+the same steps.
 
 ## What the experiments showed
 
@@ -100,9 +106,10 @@ out from under them: after four characters were added to the middle line of a
 three-line box, the last four characters of the box were no longer in
 capitals. ProPresenter rewrites the ranges when it edits text itself.
 
-So an edit to a workspace has to move these ranges with the text. The same
-field exists in a `.pro` file, where `applyFixes()` does not touch it either;
-whether ProPresenter 7 shows the same drift there has not been checked.
+So an edit to a workspace moves these ranges with the text. The same field
+exists in a `.pro` file, where `applyFixes()` does not touch it; whether
+ProPresenter 7 shows the same drift there has not been checked, and is
+[#56](https://github.com/eugenius1/presenter-garage/issues/56).
 
 ### Two computers and one text box
 
@@ -118,61 +125,122 @@ here on a real document. `rtf_data` is one value in a map, so:
 ProPresenter uses one peer id per computer, the `peer_id` in
 `media-manager.toml`.
 
-## The design
+## How it is written
 
-One sentence: with ProPresenter closed and the store locked, change the
-document as a single Loro change by a new peer, and replace its row in a
-transaction that is rolled back unless the row reads back as promised.
+One sentence: with the store locked, change the document as a single Loro
+change by a new peer, and replace its row in a transaction that is rolled
+back unless the row reads back as promised.
 
-A plan is made as now, by reading through the conversion to the old message.
-It records the `sha256` of the row it was made from. Applying it, for every
-presentation in the plan:
+The pure half is `packages/core/src/lib/workspace-edit.ts`, which needs
+neither SQLite nor Loro; the half that does is
+`packages/node/src/workspace-write.ts`. The MCP server's `plan_slide_edits`
+and `apply_slide_edits` (`packages/mcp/src/edits.ts`) are the only callers.
 
-1. **Lock.** Open the store for writing, `locking_mode = EXCLUSIVE`, no
-   waiting, `BEGIN IMMEDIATE`. Refused means something has the workspace
-   open: nothing is written and the person is told to quit ProPresenter. The
-   lock is held to the end of the run.
-2. **Compare and swap.** The row's `sha256` must be the plan's, and must be
-   the hash of the snapshot it sits beside.
-3. **Gate.** See guard 1.
-4. **Back up.** See guard 2.
-5. **Edit** the Loro document, never the conversion: a new random peer id,
-   never reused; `rtf_data` set to the bytes `applyEdits()` gives for that
-   box; each `custom_attributes` range moved by the change in length of the
-   lines before its ends; one commit. Only values are set. No container is
-   ever created, which ProPresenter's own messages say a writer must never do
-   under a key that holds one.
-6. **Check** the new snapshot. See guard 4.
-7. **Write** `snapshot`, `sha256`, `byte_count`, `version_vector` and
-   `updated_at_ms`, `WHERE sha256 =` the plan's. Nothing else: no receipt,
-   not the search index, not the media cache, not `last_shared_*`.
-8. **Read the row back** on the same connection and check it again before
-   `COMMIT`. Anything wrong is a `ROLLBACK`, and the store is as it was.
+### Planning
 
-All the presentations of a run go in the one transaction.
+A plan is made as for a `.pro` file, from the document converted to the old
+message (`readForPlanning()`), so the person sees the same slides, boxes and
+lines `read_presentation` shows. It records the row's `sha256`, not a hash
+of the conversion. Everything applying would refuse for the document as it
+stands is refused here too, before anybody reads a line: a Cloud or
+unverified workspace, a document that fails the gate, and a box whose ranges
+cannot be moved.
+
+### Applying
+
+`writeWorkspaceEdits()`, for every presentation of the run:
+
+1. **Lock.** The store is opened for writing with `busy_timeout = 0` and
+   `locking_mode = EXCLUSIVE`, then `BEGIN IMMEDIATE`. Refused means
+   something has the workspace open: nothing is written and the person is
+   told to quit ProPresenter (`PROPRESENTER_OPEN`). The lock is held to the
+   end of the run, so ProPresenter cannot open the store meanwhile either.
+2. **Compare and swap.** The row's `sha256` must still be the plan's. One
+   that is not is left alone as `stale`, and the rest go ahead.
+3. **Gate** (guard 1, below), on the row as read now.
+4. **Plan in the document's terms** (`planWorkspaceEdit()`): the edited
+   boxes' new RTF, from the same `spliceBoxes()` the `.pro` path uses; the
+   map in the Loro document that holds each box, found by the same walk that
+   numbers the boxes (`textBoxAddresses()`) and proved by holding exactly the
+   RTF the plan read; and where each attribute range moves.
+5. **Back up** (guard 2, below), every row about to change, before any does.
+6. **Edit** the Loro document, never the conversion: a new random 63-bit
+   peer id that the document has never seen, `rtf_data` set on the text
+   element's map, each moved range set as a new value on its attribute's
+   map, and one commit with a timestamp, as ProPresenter's own carry. Only
+   values are set, in containers that are already there; no container is
+   ever created, which ProPresenter's own messages say a writer must never
+   do under a key that holds one. A range is set from JavaScript integers,
+   which Loro stores as its 64-bit integer type. That ProPresenter wrote its
+   own the same way, rather than as floating point, has not been checked
+   byte for byte: only that both read back as the same whole numbers.
+7. **Check** the new snapshot (guard 4, below).
+8. **Write** `snapshot`, `sha256`, `byte_count`, `version_vector` (as
+   `encodeVersionVector()` writes it) and `updated_at_ms`,
+   `WHERE sha256 =` the plan's. Nothing else: no receipt, not the search
+   index, not the media cache, not `last_shared_*`.
+9. **Read the row back** on the same connection and check it again.
+
+All the presentations of a run are in the one transaction. A presentation
+refused before the backup is left out and the others written, as a `.pro`
+file refused would be; past the backup, one that fails rolls the whole run
+back, the others reported as `rolledBack`. After `COMMIT` the connection is
+closed, which folds the `-wal` into the database, and the store is opened
+again read-only to check each row once more.
+
+### Moving the attribute ranges
+
+`moveRanges()`. Each end of a range has to sit on the start or the end of a
+line as the box reads now, counted in the box's characters with a line
+break as one. Characters are counted as JavaScript counts them, in UTF-16
+code units. For the accented French and English of the library tried that
+is the count ProPresenter's ranges use; a character outside the Basic
+Multilingual Plane, an emoji say, counts two here and has not been tried
+there. It goes to the same place on that line
+once the lines change length, so a range over one line stays over that
+line, and one over the whole box still covers the whole box. A removed
+line's range becomes empty, at the place the line was.
+
+An end anywhere else -- inside a line, or past the text -- cannot be moved
+without guessing what it was meant to cover, so that box is refused
+(`attributeRanges`). In the library tried that is 55 of the 6,713 boxes that
+carry ranges, nearly all of them lines that start with a tab the All Caps
+range leaves out. Making the rule cover them is possible, since an end
+inside a line that the edit does not touch could simply move with the lines
+before it, but it has not been needed yet.
 
 ### The four guards
 
 | Guard | How it is kept |
 | --- | --- |
-| 1. The fidelity gate passes on that document | At apply time, on the row as read then: the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; our encoding of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row; every text box the person was shown is found in the Loro document holding exactly the RTF the plan was made from; every `custom_attributes` range of an edited box falls on the lines as we read them. And on the workspace: `schema_version` in the registry and `user_version` of the store are ones this has been checked against (`22.9.0` and `9`). Anything else refuses that document |
-| 2. A backup exists before anything changes | The rows about to change are written to the backup folder before the first `UPDATE`: the snapshot as stored, the other columns beside it, and the `.pro` file the conversion gives, for a person to read. Each is read back and compared, and the run stops if one cannot be made. They are made inside the lock, so they are the rows that get replaced |
-| 3. A person saw every line and chose it | Unchanged: a plan id, and one tick box per line through MCP elicitation |
-| 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must differ from the old document in the chosen boxes' `rtf_data` and ranges and in nothing else, its version vector must be the old one plus our one peer, and read through the conversion every line of every box must be what was promised, by the same `verify` the `.pro` path uses. The row, before `COMMIT`. And the store reopened read-only after it. A mismatch before `COMMIT` rolls back; one after it puts the backed-up rows back and says so |
+| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with its ranges on its lines. Anything else refuses that document |
+| 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made the run is rolled back and nothing is written |
+| 3. A person saw every line and chose it | Unchanged: `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. The confirmation says to quit ProPresenter first |
+| 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data` and ranges and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), and every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too). The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
+
+One place this differs from the design the experiments led to: that design
+had a mismatch found after `COMMIT` put the backed-up rows back. It is
+reported instead (`readBackFailed`), with the backup's path, and nothing is
+put back automatically. Putting a row back is a write of its own, which
+wants the lock and a person choosing it as much as the first did, and the
+`.pro` path answers the same case the same way. It would take a disk that
+loses a committed write to happen at all.
 
 ### ProPresenter open, ProPresenter closed
 
-Closed is the only case that writes. Open is refused at step 1, by the lock
-and not by looking for a process. Reading stays as it is, beside a running
-ProPresenter.
+Closed is the only case that writes. Open is refused at the lock, not by
+looking for a process, so it works the same on any system and whatever the
+process is called. Reading stays as it is, beside a running ProPresenter.
 
 What is left is ProPresenter starting during a run: it waits on the lock or
 fails to open the store, for the fraction of a second a run takes.
 
 ### A Cloud workspace
 
-Refused, as now, until it has been tried: a workspace with a `cloud_uuid` in
-the registry or an `imprint.cloud` in its folder is not written to.
+Refused (`CLOUD_REFUSED`), at plan time and at apply time, until it has been
+tried: a workspace with a `cloud_uuid` in the registry or an
+`imprint.cloud` in its folder is not written to. That work is
+[#55](https://github.com/eugenius1/presenter-garage/issues/55).
 
 What is known says it should work. ProPresenter sends the server the
 operations between `last_shared_version_vector` and the document's version
@@ -186,6 +254,27 @@ edit waiting to go up. What has to be seen on the Windows computer first:
   rules above one whole box replaces the other, so guard 4 holds only until
   the next sync, and the person has to be told so before they choose.
 
+### What has been verified, and what has not
+
+- **Against ProPresenter 22.0.1 on macOS, by hand:** that it opens a
+  snapshot written by our Loro and shows the edit; which bookkeeping it
+  checks; that an edit survives a restart and later edits in the app; that
+  an edit made while it runs is lost; that the exclusive lock is refused
+  while it runs and granted once it has quit; and that unmoved ranges drift.
+  The steps were the ones the code takes, run from experiment scripts.
+- **Against the code itself:** the tests in
+  `packages/node/src/__tests__/workspace-write.test.ts` and
+  `packages/core/src/lib/__tests__/workspace-edit.test.ts`, on databases
+  built in the test, and the same write against a copy of the real
+  workspace's database. The gate passes on all 474 of its presentations.
+- **Not yet:** ProPresenter 22 opening a workspace written by this code,
+  rather than by the experiment scripts, and showing the edit with its
+  ranges moved. That check, on a copy of a workspace, is owed before this is
+  relied on.
+- **Not at all:** Windows; a Cloud workspace; a ProPresenter release other
+  than 22.0.1. Another `schema_version` or `user_version` is refused until
+  it has been checked.
+
 ### What it does not do
 
 - Write with ProPresenter open, on any system.
@@ -193,3 +282,5 @@ edit waiting to go up. What has to be seen on the Windows computer first:
 - Anything but slide text: playlists, the media bin, restyling.
 - Restore from a backup on request. Putting a row back is a write, and wants
   the same lock and the same person choosing it.
+- Write from the web app, which cannot read a workspace yet
+  ([#54](https://github.com/eugenius1/presenter-garage/issues/54)).

@@ -99,11 +99,15 @@ Give the server that folder and it reads it like any other.
 **ProPresenter 22** changed the format as well. A workspace is now a database
 under `Library/Application Support/RenewedVision/ProPresenter/Workspaces`, and
 the folder it was upgraded from is left behind as it was that day. The server
-reads a workspace too, for reading only: editing is off for one. Started with
+reads a workspace too, and edits slide text in one kept on this computer, as
+long as **ProPresenter is closed**: it refuses to write while ProPresenter
+has the workspace open, because ProPresenter would save over the change. A
+ProPresenter Cloud workspace is read but not written to yet. Started with
 no folder it reads the workspace ProPresenter has open; pointed at the old
 folder it reads that, and tells the assistant it is out of date and where the
 current one is. Details are in
-[docs/propresenter-22-workspaces.md](docs/propresenter-22-workspaces.md).
+[docs/propresenter-22-workspaces.md](docs/propresenter-22-workspaces.md) and
+[docs/propresenter-22-writing.md](docs/propresenter-22-writing.md).
 
 Unlike the app, what it reads does not stay on the machine. The server itself
 makes no network connection, but every answer it gives — slide text, notes,
