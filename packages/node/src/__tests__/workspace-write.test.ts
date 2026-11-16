@@ -266,7 +266,7 @@ suite("writing slide text into a workspace", () => {
     const before = rows();
     const controller = new AbortController();
     controller.abort();
-    await expect(write([edit], { signal: controller.signal })).rejects.toThrow(/cancelled before anything changed/);
+    await expect(write([edit], { signal: controller.signal })).rejects.toThrow(/cancelled before anything in this workspace changed/);
     expect(rows()).toEqual(before);
   });
 });

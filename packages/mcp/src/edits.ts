@@ -331,7 +331,10 @@ async function applyPlanNow(
    */
   const refuseOrRecord = (e: unknown, files: ApplyResult["files"]) => {
     if (!inWorkspaces.some((file) => file.written)) throw e;
-    for (const file of files) Object.assign(file, { written: false, reason: "writeFailed", detail: (e as Error).message });
+    // A cancellation's own words say nothing at all was written, which is
+    // no longer so; they are said of these files alone.
+    const detail = signal?.aborted ? "the call was cancelled before these were written" : (e as Error).message;
+    for (const file of files) Object.assign(file, { written: false, reason: "writeFailed", detail });
   };
 
   // Workspaces first: one ProPresenter has open refuses the whole call, and

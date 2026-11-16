@@ -220,6 +220,9 @@ suite("a plan across two workspaces", () => {
         [false, "writeFailed"],
       ]);
       expect(result.files[1].detail).toMatch(/Quit ProPresenter/);
+      // Said of the workspace it stopped, not of the whole call.
+      expect(result.files[1].detail).toMatch(/nothing in it was written/);
+      expect(result.files[1].detail).not.toMatch(/nothing was written/);
     } finally {
       open.close();
       for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });

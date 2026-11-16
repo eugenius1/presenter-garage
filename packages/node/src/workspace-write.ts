@@ -48,7 +48,7 @@ export const VERIFIED_SCHEMA_VERSION = "22.9.0";
 const VERIFIED_USER_VERSION = 9;
 
 export const PROPRESENTER_OPEN =
-  "ProPresenter has this workspace open, so nothing was written: a change made under it is lost the next " +
+  "ProPresenter has this workspace open, so nothing in it was written: a change made under it is lost the next " +
   "time it saves the presentation. Quit ProPresenter, then plan and apply the edits again.";
 
 export const CLOUD_REFUSED =
@@ -358,7 +358,7 @@ export async function writeWorkspaceEdits(
     }
     if (signal?.aborted) {
       throw new LibraryError(
-        `The call was cancelled before anything changed, so nothing was written. Its backups are in ${backupFolder}.`
+        `The call was cancelled before anything in this workspace changed, so nothing in it was written. Its backups are in ${backupFolder}.`
       );
     }
 
