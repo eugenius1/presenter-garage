@@ -8,7 +8,6 @@ import {
   folderWorkspaces,
   registeredWorkspaces,
   staleNotes,
-  workspaceAt,
 } from "@presenter-garage/node/workspace";
 import { defaultBackupDir, openBackupDir } from "@presenter-garage/node/write";
 import { parseArgs } from "./args";
@@ -53,12 +52,7 @@ async function main() {
   // backup, no write, but nothing stops a model reading the library.
   // stdout is the protocol channel; anything for a person goes to stderr.
   let backups: string | undefined;
-  // One workspace among the roots turns editing off for all of them: the
-  // tools are offered or not as a set, and a set that fails on some paths is
-  // worse than one that is plainly absent.
-  const hasWorkspace = (await Promise.all(roots.map(workspaceAt))).some(Boolean);
-  if (hasWorkspace) console.error("Editing is off: a ProPresenter 22 workspace is read-only here.");
-  if (!readOnly && !hasWorkspace) {
+  if (!readOnly) {
     try {
       backups = await openBackupDir(backupDir ?? defaultBackupDir(), roots);
     } catch (e) {

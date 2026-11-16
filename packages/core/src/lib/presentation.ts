@@ -186,6 +186,10 @@ interface TextBoxSite {
   groupName?: string;
   /** The message holding the payload, so a caller can replace it. */
   text: { rtf_data: Uint8Array };
+  /** Where it sits: the cue, and the positions of its action and element there. */
+  cue: any;
+  actionIndex: number;
+  elementIndex: number;
 }
 
 /**
@@ -204,9 +208,9 @@ function eachTextBox(doc: RawDoc, visit: (site: TextBoxSite) => void): number {
   slides.forEach(({ cue, groupName }, slideIndex) => {
     const cueName: string = cue.name ?? "";
 
-    for (const action of cue.actions ?? []) {
+    for (const [actionIndex, action] of (cue.actions ?? []).entries()) {
       const elements = action.slide?.presentation?.base_slide?.elements ?? [];
-      for (const wrapper of elements) {
+      for (const [elementIndex, wrapper] of elements.entries()) {
         const text = wrapper?.element?.text;
         // `ArrayBuffer.isView` rather than `instanceof Uint8Array`: the array
         // protobuf.js hands back can come from a different realm than the one
@@ -220,12 +224,45 @@ function eachTextBox(doc: RawDoc, visit: (site: TextBoxSite) => void): number {
           cueName,
           groupName,
           text: text as { rtf_data: Uint8Array },
+          cue,
+          actionIndex,
+          elementIndex,
         });
       }
     }
   });
 
   return slides.length;
+}
+
+/** Where a text box sits in its presentation, by the same walk that numbers it. */
+export interface TextBoxAddress {
+  boxIndex: number;
+  /** The cue's uuid, as the message carries it. */
+  cueUuid: string | undefined;
+  /** In the cue's `actions`. */
+  actionIndex: number;
+  /** In that action's `slide.presentation.base_slide.elements`. */
+  elementIndex: number;
+}
+
+/**
+ * Every text box's place in the message, in `boxIndex` order. For a writer
+ * that edits something other than the message -- a ProPresenter 22 workspace
+ * edits the Loro document the message was converted from -- and so has to
+ * find the same box there by where it is.
+ */
+export function textBoxAddresses(doc: RawDoc): TextBoxAddress[] {
+  const out: TextBoxAddress[] = [];
+  eachTextBox(doc, (site) =>
+    out.push({
+      boxIndex: site.boxIndex,
+      cueUuid: site.cue.uuid?.string,
+      actionIndex: site.actionIndex,
+      elementIndex: site.elementIndex,
+    })
+  );
+  return out;
 }
 
 /** One slide as ProPresenter numbers it. */

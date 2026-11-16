@@ -360,6 +360,10 @@ export const fr: Dictionary = {
           "une sauvegarde n’a pas pu être faite et vérifiée : rien n’a donc été écrit",
         readBackFailed:
           "le fichier sur le disque ne contient pas ce qui a été écrit ; restaurez-le depuis la sauvegarde",
+        attributeRanges:
+          "une zone de texte porte une mise en forme sur une partie de ligne, qui ne peut pas suivre le texte : rien n’a donc été écrit",
+        rolledBack:
+          "une autre présentation de la même modification n’a pas pu être écrite : aucune ne l’a donc été",
       },
       editRefusals: {
         noSuchLine: "il n’y a pas de zone de texte ou de ligne à cette adresse",
