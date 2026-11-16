@@ -185,6 +185,18 @@ suite("writing slide text into a workspace", () => {
     expect((await write([edit])).outcomes[0].written).toBe(true);
   });
 
+  it("does not take the lock for a presentation with no line left ticked", async () => {
+    const edit = await plan("Song", (doc) => [{ boxIndex: threeLines(doc).boxIndex, lineIndex: 0, text: "Que ton nom" }]);
+    const other = new sqlite!.DatabaseSync(storeOf(root));
+    other.prepare("SELECT count(*) FROM workspace_streams").get();
+    try {
+      const run = await write([{ ...edit, fixes: [] }]);
+      expect(run.outcomes[0]).toMatchObject({ written: false, reason: "unchanged" });
+    } finally {
+      other.close();
+    }
+  });
+
   it("leaves a presentation alone that changed since the plan, and writes the rest", async () => {
     const stale = await plan("Song", (doc) => [{ boxIndex: threeLines(doc).boxIndex, lineIndex: 0, text: "Que ton nom" }]);
     const fresh = await plan("Other", (doc) => [{ boxIndex: threeLines(doc).boxIndex, lineIndex: 0, text: "Que ton nom" }]);
@@ -275,7 +287,8 @@ suite("which workspaces are written to", () => {
       () => "",
       (e: Error) => e.message
     );
-    const applying = await write([{ path: document.path, documentId: document.id, sha256: "", fixes: [] }]).then(
+    // Refused before any line is looked at, so a stand-in line will do.
+    const applying = await write([{ path: document.path, documentId: document.id, sha256: "", fixes: [{} as LineFix] }]).then(
       () => "",
       (e: Error) => e.message
     );
@@ -320,7 +333,8 @@ suite("which workspaces are written to", () => {
  */
 const REAL_WORKSPACE = process.env.PP_WORKSPACE_DIR;
 
-describe.skipIf(!REAL_WORKSPACE || !sqlite)("writing into a copy of a real workspace", () => {
+// `backup` is Node 22.16 and later; the copy is made with it so the source is only ever read.
+describe.skipIf(!REAL_WORKSPACE || !sqlite?.backup)("writing into a copy of a real workspace", () => {
   beforeEach(async () => {
     tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-workspace-write-real-")));
     backups = path.join(tmp, "Backups");

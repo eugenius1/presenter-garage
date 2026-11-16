@@ -206,24 +206,24 @@ function checkStoreVersion(db: Database): void {
  */
 async function lockStore(store: string): Promise<Database> {
   const { DatabaseSync } = await import("node:sqlite");
-  const db = new DatabaseSync(store);
+  let db: Database | undefined;
+  let locked = false;
   try {
+    db = new DatabaseSync(store);
     db.exec("PRAGMA busy_timeout = 0");
     db.exec("PRAGMA locking_mode = EXCLUSIVE");
     db.exec("BEGIN IMMEDIATE");
+    locked = true;
+    checkStoreVersion(db);
+    return db;
   } catch (e) {
-    db.close();
-    if (/locked|busy/i.test((e as Error).message)) throw new LibraryError(PROPRESENTER_OPEN);
+    // Closed whatever went wrong, so a refused run never keeps the store
+    // from ProPresenter; closing also ends the transaction, if one began.
+    db?.close();
+    if (e instanceof LibraryError) throw e;
+    if (!locked && /locked|busy/i.test((e as Error).message)) throw new LibraryError(PROPRESENTER_OPEN);
     throw new LibraryError(`Could not open ${store} for writing: ${(e as Error).message}`);
   }
-  try {
-    checkStoreVersion(db);
-  } catch (e) {
-    db.exec("ROLLBACK");
-    db.close();
-    throw e;
-  }
-  return db;
 }
 
 /** One presentation to change: the document, the row it was planned against, and the lines chosen. */
@@ -302,8 +302,13 @@ export async function writeWorkspaceEdits(
   replacements: readonly WorkspaceReplacement[],
   { now = new Date(), signal, hooks }: { now?: Date; signal?: AbortSignal; hooks?: WriteHooks } = {}
 ): Promise<{ backupFolder?: string; outcomes: WorkspaceOutcome[] }> {
-  const outcomes: WorkspaceOutcome[] = replacements.map((r) => ({ path: r.path, written: false }));
-  if (replacements.length === 0) return { outcomes };
+  // A presentation with no line left ticked has nothing to write, and must
+  // not make the run take the lock: with ProPresenter open, that would refuse
+  // a call that was never going to change anything.
+  const outcomes: WorkspaceOutcome[] = replacements.map((r) =>
+    r.fixes.length === 0 ? { path: r.path, written: false, reason: "unchanged" } : { path: r.path, written: false }
+  );
+  if (replacements.every((r) => r.fixes.length === 0)) return { outcomes };
 
   await checkWritableWorkspace(workspace);
   if (!(await isOwnPath(workspace.store))) {
@@ -316,6 +321,7 @@ export async function writeWorkspaceEdits(
   try {
     const ready: Ready[] = [];
     for (const [index, replacement] of replacements.entries()) {
+      if (replacement.fixes.length === 0) continue;
       try {
         ready.push(prepare(db, index, replacement));
       } catch (e) {
@@ -376,7 +382,7 @@ export async function writeWorkspaceEdits(
 
 function refusalOf(e: unknown): Pick<WorkspaceOutcome, "reason" | "detail"> {
   if (e instanceof FixError) return { reason: e.reason };
-  if (e instanceof AttributeRangeError) return { reason: "attributeRanges", detail: `text box ${e.boxIndex + 1}` };
+  if (e instanceof AttributeRangeError) return { reason: "attributeRanges", detail: `box ${e.boxIndex}` };
   return { reason: "unreadable", detail: (e as Error).message };
 }
 
