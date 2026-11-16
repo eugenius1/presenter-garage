@@ -129,6 +129,19 @@ describe("moveRanges", () => {
     ]);
   });
 
+  it("keeps ranges within the text when the last line goes", () => {
+    // Refused when planning, since a last line has no break to take with it;
+    // held here anyway, so the ranges never depend on that refusal.
+    const after = [lines[0], lines[1], null];
+    expect(moveRanges(0, lines, after, [...perLine, { start: 0, end: 42 }])).toEqual([
+      { start: 0, end: 12 },
+      { start: 13, end: 28 },
+      { start: 28, end: 28 },
+      { start: 0, end: 28 },
+    ]);
+    expect(moveRanges(0, ["only"], [null], [{ start: 0, end: 4 }])).toEqual([{ start: 0, end: 0 }]);
+  });
+
   it("keeps both ends of a range over an empty line on that line once it has text", () => {
     expect(moveRanges(0, ["a", "", "b"], ["a", "new", "b"], [{ start: 2, end: 2 }, { start: 3, end: 4 }])).toEqual([
       { start: 2, end: 5 },

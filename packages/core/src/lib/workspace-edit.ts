@@ -152,11 +152,16 @@ export function moveRanges(
     was += text.length + 1;
     if (next !== null) now += next.length + 1;
   }
+  // `now` counts a break after the last kept line that is not there. A
+  // removed line with no kept line after it has nowhere to land but the end
+  // of the text, and would otherwise land one past it.
+  const length = Math.max(now - 1, 0);
+  const place = (p: number | undefined) => (p === undefined ? undefined : Math.min(p, length));
 
   // A start is matched to a line's start first, an end to a line's end, so
   // a range over an empty line keeps both its ends on that line.
   return ranges.map(({ start, end }) => {
-    const moved = { start: starts.get(start) ?? ends.get(start), end: ends.get(end) ?? starts.get(end) };
+    const moved = { start: place(starts.get(start) ?? ends.get(start)), end: place(ends.get(end) ?? starts.get(end)) };
     if (!(start <= end) || moved.start === undefined || moved.end === undefined) throw new AttributeRangeError(boxIndex);
     return moved as { start: number; end: number };
   });
