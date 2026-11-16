@@ -6,6 +6,41 @@ procedure is the
 skill. Each run adds its own entry here, under the version it checked, newest
 version first.
 
+## 22.0.1
+
+**2026-11-15, macOS.** A library upgraded from 20.0.1, compared before and
+after; nothing opened in the app beyond the upgrade itself (#51).
+
+- The workspace is no longer a folder of files but a SQLite database of [Loro](https://loro.dev)
+  snapshots, in a new place. Written up in
+  [propresenter-22-workspaces.md](propresenter-22-workspaces.md).
+- All 474 presentations read the same from the new workspace as from the old
+  folder: every slide, group and line. So did the media bin and the playlists.
+- The MCP server read the old folder by default, which the upgrade leaves in
+  place and never updates. It now reads the active workspace, and says so
+  when pointed at a folder a workspace was made from.
+- A presentation no longer records when it was last shown. Filtering by use
+  is refused for a workspace rather than answered wrongly.
+- Read-only: the edit tools are not offered for a workspace.
+- With ProPresenter quit, the server read the live workspace and the
+  database and its write-ahead log were byte for byte as before. Only the
+  `-shm` index was rebuilt, as it is by whatever opens the database next.
+- Not checked: the web app.
+
+**2026-11-15, Windows.** A Cloud workspace that had been in use for a week,
+with the folder it was upgraded from; files only, not opened in the app (#51).
+
+- The same store as a local workspace on macOS, under `%APPDATA%`. The
+  registry marks it Cloud; nothing about its documents differs.
+- All but the 41 presentations edited since the upgrade read the same from
+  the workspace as from the old folder, of 1,227. Every playlist entry
+  opened the presentation it names.
+- Opening the copy read-only, on a Mac, left `-shm` and `-wal` files in it:
+  ProPresenter on Windows had quit leaving neither, and SQLite makes both.
+  Fixed: it is opened immutable when there is no write-ahead log.
+- A playlist written on Windows records its entries with backslashes. Fixed:
+  a document is found by either separator.
+
 ## 21.4.2
 
 **2026-09-11, Windows.** Export safety gate over a real library; not opened

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isInside, isUnmoved, LibraryError, readFoundFile } from "./library";
+import { isInWorkspace, WORKSPACE_READ_ONLY } from "./workspace";
 
 /**
  * Writing presentations back over the files ProPresenter owns.
@@ -226,6 +227,9 @@ export async function replaceWithBackup(
   { now = new Date(), signal }: { now?: Date; signal?: AbortSignal } = {}
 ): Promise<WriteRun> {
   if (replacements.length === 0) return { outcomes: [] };
+  for (const r of replacements) {
+    if (await isInWorkspace(r.path)) throw new LibraryError(WORKSPACE_READ_ONLY);
+  }
 
   let backupFolder: string | undefined;
   const backups: string[] = [];

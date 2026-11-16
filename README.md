@@ -90,6 +90,21 @@ It reads nothing outside the folders you give it. The usual one is
 `Documents/ProPresenter`, which holds `Libraries` and `Playlists` on both macOS
 and Windows.
 
+The folder has moved twice since. **ProPresenter 20** introduced workspaces,
+and one made there is a folder of the same files somewhere else: under
+`Library/Application Support/RenewedVision/ProPresenter/UserWorkspaces` on
+macOS and `%appdata%\RenewedVision\ProPresenter\LocalWorkspaces` on Windows.
+Give the server that folder and it reads it like any other.
+
+**ProPresenter 22** changed the format as well. A workspace is now a database
+under `Library/Application Support/RenewedVision/ProPresenter/Workspaces`, and
+the folder it was upgraded from is left behind as it was that day. The server
+reads a workspace too, for reading only: editing is off for one. Started with
+no folder it reads the workspace ProPresenter has open; pointed at the old
+folder it reads that, and tells the assistant it is out of date and where the
+current one is. Details are in
+[docs/propresenter-22-workspaces.md](docs/propresenter-22-workspaces.md).
+
 Unlike the app, what it reads does not stay on the machine. The server itself
 makes no network connection, but every answer it gives — slide text, notes,
 file names, media-bin entries — goes into the conversation with your
@@ -130,8 +145,11 @@ claude mcp add presenter-garage -- npx -y presenter-garage-mcp ~/Documents/ProPr
 
 Other clients take the same command and arguments in their MCP settings:
 command `npx`, arguments `-y presenter-garage-mcp` followed by your folders.
-Pass one or more folders; with none, it reads `~/Documents/ProPresenter`. Add
-`--read-only` to turn editing off.
+Pass one or more folders; with none, it reads the workspace ProPresenter 22
+has open, else `~/Documents/ProPresenter`, else the one workspace ProPresenter
+20 or 21 made elsewhere. Add
+`--read-only` to turn editing off. Reading a ProPresenter 22 workspace needs
+Node 22.13 or later.
 
 To run it from a checkout instead, or to build the extension yourself
 (`npm run mcp:pack` writes it to `packages/mcp/dist/presenter-garage.mcpb`):

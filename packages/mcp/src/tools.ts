@@ -52,6 +52,7 @@ import {
   resolveInRoots,
   statFoundFile,
 } from "@presenter-garage/node/library";
+import { isInWorkspace } from "@presenter-garage/node/workspace";
 
 /**
  * What each tool returns, as plain data.
@@ -82,6 +83,17 @@ function explain(problem: ReadProblem, detail = ""): string {
   const problems = t.tools.presentations.problems;
   return problem === "unreadable" ? f(problems.unreadable, { reason: detail }) : problems[problem];
 }
+
+/**
+ * Whether writing a file back would keep everything in it.
+ *
+ * A document of a ProPresenter 22 workspace is always `lossy`, whatever the
+ * gate says of the bytes: they are a conversion of the document, made here,
+ * so of course they round-trip. What the answer is for is whether the thing
+ * can be written, and that one cannot. `converted` is the read's own word
+ * for it, on the `FoundFile` the bytes came in.
+ */
+const fidelityOf = (converted: true | undefined, measured: Fidelity): Fidelity => (converted ? "lossy" : measured);
 
 export function open(file: string, bytes: Uint8Array) {
   const opened = openPresentation(bytes);
@@ -219,6 +231,18 @@ export async function listPresentations(
     };
   }
 
+  // A v22 workspace does not keep these dates in the presentation, and
+  // nowhere else they might be has been found. Answering from their absence
+  // would report every song as never shown.
+  for (const file of named) {
+    if (await isInWorkspace(file)) {
+      throw new LibraryError(
+        "A ProPresenter 22 workspace does not record in a presentation when it was last shown, " +
+          "so presentations cannot be filtered or sorted by use. List them without `notUsedSince`, `usedSince` or `sort`."
+      );
+    }
+  }
+
   const { dated, unreadable } = await readDates(named);
   const matching = dated.filter(
     ({ usedAt }) => (before === undefined || usedAt < before) && (since === undefined || usedAt >= since)
@@ -254,7 +278,7 @@ export interface PresentationContent extends PresentationDetails {
 }
 
 export async function readPresentationFile(roots: readonly string[], file: string): Promise<PresentationContent> {
-  const { path: real, bytes, modified } = await readLibraryFile(roots, file);
+  const { path: real, bytes, modified, converted } = await readLibraryFile(roots, file);
   const { doc, raw } = open(file, bytes);
 
   // Every slide, not only those with words: a blank or image-only slide is
@@ -281,7 +305,7 @@ export async function readPresentationFile(roots: readonly string[], file: strin
     fileModified: modified.toISOString(),
     ...readDetails(raw),
     slideCount: doc.slideCount,
-    fidelity: checkPresentationFidelity(bytes).fidelity,
+    fidelity: fidelityOf(converted, checkPresentationFidelity(bytes).fidelity),
     emptyTextBoxes,
     slides,
   };
@@ -398,8 +422,9 @@ export async function checkPresentations(
 
   for (const file of files) {
     let bytes: Uint8Array;
+    let converted: true | undefined;
     try {
-      ({ bytes } = await readFoundFile(file));
+      ({ bytes, converted } = await readFoundFile(file));
     } catch (e) {
       // One file that will not open is a finding about that file, not a
       // reason to abandon the other eight hundred.
@@ -415,7 +440,7 @@ export async function checkPresentations(
     list({
       path: file,
       name: report.name,
-      fidelity: report.error ? undefined : checkPresentationFidelity(bytes).fidelity,
+      fidelity: report.error ? undefined : fidelityOf(converted, checkPresentationFidelity(bytes).fidelity),
       error: report.error && explain(report.error, report.errorDetail),
       issues: report.issues,
     });
@@ -440,9 +465,9 @@ async function loadPlaylistFile<T>(
 ) {
   const target = file ?? (await find(roots));
   if (!target) throw new LibraryError(missing);
-  const { path: real, bytes } = await readLibraryFile(roots, target);
+  const { path: real, bytes, converted } = await readLibraryFile(roots, target);
   try {
-    return { path: real, target, bytes, decoded: decode(path.basename(real), bytes) };
+    return { path: real, target, bytes, converted, decoded: decode(path.basename(real), bytes) };
   } catch (e) {
     if (e instanceof DecodeError) {
       throw new LibraryError(`${target}: not ${what} (${e.code}).`);
@@ -452,7 +477,7 @@ async function loadPlaylistFile<T>(
 }
 
 async function loadMediaBin(roots: readonly string[], file: string | undefined) {
-  const { path: real, decoded } = await loadPlaylistFile(
+  const { path: real, converted, decoded } = await loadPlaylistFile(
     roots,
     file,
     findMediaBin,
@@ -460,7 +485,7 @@ async function loadMediaBin(roots: readonly string[], file: string | undefined) 
     "a ProPresenter media bin",
     loadMediaBytes
   );
-  return { path: real, loaded: decoded };
+  return { path: real, converted, loaded: decoded };
 }
 
 function compactItem(item: MediaItem) {
@@ -474,13 +499,13 @@ function compactItem(item: MediaItem) {
 }
 
 export async function readMediaBin(roots: readonly string[], file?: string) {
-  const { path: real, loaded } = await loadMediaBin(roots, file);
+  const { path: real, converted, loaded } = await loadMediaBin(roots, file);
   const { library } = loaded;
   return {
     path: real,
     appVersion: library.appVersion,
     platform: library.platform,
-    fidelity: loaded.fidelity,
+    fidelity: fidelityOf(converted, loaded.fidelity),
     itemCount: library.items.length,
     playlists: library.playlists.map((playlist) => ({
       path: playlist.path,
@@ -618,7 +643,7 @@ function playlistTree(
  * give the absolute paths ProPresenter recorded instead.
  */
 export async function readPlaylists(roots: readonly string[], file?: string) {
-  const { path: real, target, bytes, decoded } = await loadPlaylistFile(
+  const { path: real, target, bytes, converted, decoded } = await loadPlaylistFile(
     roots,
     file,
     findPlaylists,
@@ -636,7 +661,7 @@ export async function readPlaylists(roots: readonly string[], file?: string) {
   return {
     path: real,
     ...applicationInfo(decoded.application_info),
-    fidelity: checkFidelity(bytes).fidelity,
+    fidelity: fidelityOf(converted, checkFidelity(bytes).fidelity),
     playlists: playlistTree(decoded.root_node, showFolder, [], []),
   };
 }
@@ -772,7 +797,7 @@ export async function previewStyle(
   roots: readonly string[],
   { path: file, theme, fromPresentation, style, ...options }: StyleSource & StyleOptions & { path: string }
 ): Promise<StylePreview> {
-  const { path: real, bytes } = await readLibraryFile(roots, file);
+  const { path: real, bytes, converted } = await readLibraryFile(roots, file);
   const { raw } = open(file, bytes);
   const slideStyle = await loadStyle(roots, { theme, fromPresentation, style });
 
@@ -786,7 +811,7 @@ export async function previewStyle(
   return {
     path: real,
     style: slideStyle.name,
-    fidelity: checkPresentationFidelity(bytes).fidelity,
+    fidelity: fidelityOf(converted, checkPresentationFidelity(bytes).fidelity),
     restyled,
     leftAlone: plan.length - restyled,
     slides: plan.map((slide) => ({

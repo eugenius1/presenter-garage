@@ -37,6 +37,12 @@ export interface ServerOptions {
   readOnly?: boolean;
   /** Where backups go before a file is changed. Defaults to `defaultBackupDir()`. */
   backupDir?: string;
+  /**
+   * Things a model must know before trusting what it reads, added to the
+   * server's instructions: that a folder is a copy ProPresenter no longer
+   * updates, say.
+   */
+  notes?: readonly string[];
 }
 
 /**
@@ -78,7 +84,8 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
         (options.readOnly
           ? "Nothing is written."
           : "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
-            "confirm every line before anything is written, and each file is backed up first."),
+            "confirm every line before anything is written, and each file is backed up first.") +
+        (options.notes?.length ? ` Important: ${options.notes.join(" ")}` : ""),
     }
   );
 
