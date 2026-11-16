@@ -50,6 +50,17 @@ separate machine or virtual machine. That has not been tried yet; record what
 works. On either platform, never point an older version at data a newer one
 has saved.
 
+Do not try to get a second copy of the data by starting ProPresenter with
+`HOME` or `CFFIXED_USER_HOME` set to another folder. 22.0.1 on macOS does use
+that folder, then stops at "Failed to install media manager launch agent"
+with only Retry and Quit, and never opens the workspace. The helper is
+registered for the real account, which is why a separate account is the way.
+
+More than one copy of the app can be installed, e.g. one in `/Applications`
+and another in `~/Applications`. Read each one's version
+(`defaults read <app>/Contents/Info CFBundleShortVersionString`) and launch
+the one you mean by its full path.
+
 Read the release notes (renewedvision.com/propresenter/release-notes) for
 anything touching files, the library, playlists, the media bin, themes,
 arrangements or workspaces. Report those to the user before you start.
@@ -72,12 +83,36 @@ Every later step works in `$SHOW`, not in a path assumed from these notes.
 
 Leave `Media` out. It is gigabytes, and nothing here touches it.
 
+### From version 22: the workspace
+
+A workspace upgraded by ProPresenter 22 is not in that folder, and the setting
+still names the old one. The documents are rows of one SQLite database, under
+`~/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<uuid>/`
+on macOS; `registry-v1.sqlite3` beside it says which workspace is active.
+[docs/propresenter-22-workspaces.md](../../../docs/propresenter-22-workspaces.md)
+has the layout.
+
+Quit ProPresenter first, then copy the database **with its `-wal`**, which on
+macOS holds megabytes the database file does not, and keep checksums:
+
+```bash
+W=~/Library/Application\ Support/RenewedVision/ProPresenter/Workspaces/<uuid>/DocumentStore
+B=~/Documents/ProPresenter-backup-$(date +%F)
+mkdir -p "$B" && cp -p "$W"/workspace-v1.sqlite3* "$W"/media-projection-cache-v1.json "$B"/
+(cd "$B" && shasum -a 256 workspace-v1.sqlite3 workspace-v1.sqlite3-wal media-projection-cache-v1.json > SHA256SUMS)
+(cd "$W" && shasum -a 256 -c "$B/SHA256SUMS")
+```
+
+Do the reading and experimenting on a copy of that folder, under the
+gitignored `private/`, wherever ProPresenter itself is not needed.
+
 ## 4. Run the suite against the installation
 
 Point `PP_LIBRARY_DIR` and `PP_MEDIA_FILE` at `$SHOW/Libraries` and
 `$SHOW/Playlists/Media`, as
 [CONTRIBUTING.md](../../../CONTRIBUTING.md#testing-against-real-files)
-describes, and run `npm test`.
+describes, and run `npm test`. For a version 22 workspace the variables are
+`PP_WORKSPACE_DIR` and `PP_LEGACY_LIBRARY_DIR`, in the same section.
 
 A test that fails here but passes in CI is a finding, not noise. It can also
 be a test that assumes something about real data. Find out which before
@@ -163,6 +198,32 @@ where the core writes `\u233 ?`. That is not part of the operation. Compare
 the words that `extractLines` gives, not the RTF bytes, and set the re-save
 noise aside before calling anything a difference.
 
+### In a version 22 workspace
+
+There is no file to save under a new name: a document is a row of the
+database, and ProPresenter has no way to open a workspace somewhere else. So
+a write can only be checked in the workspace itself. Agree that with the user
+each time, back up as in step 3, and restore as in step 8.
+
+What 22.0.1 on macOS does, which decides the order of everything:
+
+- **It reads the store when it starts and not again.** A row changed while it
+  runs is not shown, and is overwritten whole the next time ProPresenter
+  saves that presentation. Quit before any write, and relaunch to look.
+- **It saves as you go**, into the database, within seconds. There is no
+  switching away first, and no modification time to check: read the row.
+- **Opening a presentation is a save.** It records `selected_arrangement`. A
+  presentation you only looked at no longer matches the backup.
+- **Whether it is running can be asked of the database:** a connection with
+  `PRAGMA locking_mode = EXCLUSIVE` that then begins a transaction is refused
+  while ProPresenter has the store open. Its helper processes stay after it
+  quits and do not hold the store.
+- **Its own edit of a line rewrites the whole text element**, fonts, fills
+  and attribute ranges included, and re-serialises the RTF. Compare words.
+
+Look for a changed line three ways: on the slide, through toolbar Search,
+and after quitting and starting again.
+
 ### Replacing the playlist files
 
 ProPresenter keeps `Playlists/Library` and `Playlists/Media` in memory and
@@ -184,7 +245,17 @@ writes them when it quits. To replace them:
   end. Things that need it:
   - right-click menus such as a slide's Themes menu;
   - the launch sheet;
-  - a window that Stage Manager shows only as a thumbnail.
+  - a window that Stage Manager shows only as a thumbnail;
+  - on 22.0.1, choosing a song in the library, the library filter, the
+    search panel and typing in the slide editor. A background click on a
+    library row reports success and ProPresenter ignores it.
+
+  Call `app_release` before the first full-screen call, or it is refused
+  while app windows are held.
+- **Drive it from the main session.** A subagent's first full-screen
+  screenshot was aborted with "user interrupt", twice, where the same call
+  from the main session worked. A subagent can still do the reading and the
+  diffing.
 - **The launch sheet.** On an installation that is not activated,
   "Activate ProPresenter" appears at every launch. "Skip for Now" dismisses it
   and signs into nothing.
@@ -195,10 +266,28 @@ writes them when it quits. To replace them:
 - **Stage Manager's strip (macOS).** It catches clicks near the screen's left
   edge.
   If clicks there do nothing, move the window away from the edge.
+- **Stage Manager's thumbnails (macOS).** While another app is in front,
+  `app_screenshot` returns ProPresenter as a small tilted thumbnail in the
+  corner of an empty picture. `open -a <path to the app>` brings it back.
 - **Library rows.** Clicking a row's name can start a rename. Click the row's
   icon instead, and press Escape if a text cursor appears.
 - **The library filter.** It only takes typing when it already has focus.
-- **A locked screen.** A full-screen approval times out. Ask the user to
+  The reliable way to open a song: click the filter, select all, type part
+  of the name, click the first row once.
+- **Search.** Toolbar Search finds slide text. Opening a result with Return
+  once left the slide area empty (22.0.1); open the song from the filter
+  instead.
+- **Typing into a slide.** Edit in the toolbar, the slide in the editor's
+  left column, double-click the text on the canvas. Then move by keyboard:
+  cmd+Up for the start of the text, Down for a later line, cmd+Right for the
+  end of the line. Another app's overlay over a text box in edit mode, a
+  grammar checker's for one, makes a click there fail.
+- **Quitting.** ProPresenter asks "Are you sure you want to quit
+  ProPresenter?". From the background, `app_menu` and then `app_click` on OK
+  work. Confirm it has gone with `pgrep -f "ProPresenter.app/Contents/MacOS/ProPresenter"`.
+- **A locked screen.** A full-screen approval times out, and `app_screenshot`
+  fails with "macOS delivered no picture of this window". Check with
+  `ioreg -n Root -d1 | grep CGSSessionScreenIsLocked`, and ask the user to
   unlock it rather than retrying.
 - **A step that will not drive.** Ask the user to do just that step, and to
   say when it is done. Then confirm from the file's modification time that
@@ -212,6 +301,13 @@ writes them when it quits. To replace them:
 3. Move your test copies to `~/.Trash`, unless the user wants them kept for
    the next version.
 4. Relaunch, and confirm `diff -rq` against the backup is clean.
+
+For a version 22 workspace, with ProPresenter quit: delete
+`workspace-v1.sqlite3` and its `-wal` and `-shm`, copy the backed-up files in,
+and check them against `SHA256SUMS` **before** relaunching. After a relaunch
+the store will not match the backup again, because ProPresenter writes to the
+presentation it reopens and to its own settings document. Say in the record
+what you restored and what ProPresenter then changed.
 
 Add an entry to
 [docs/propresenter-versions.md](../../../docs/propresenter-versions.md) under
