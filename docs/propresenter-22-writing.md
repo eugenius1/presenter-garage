@@ -11,11 +11,11 @@ Everything below was found on ProPresenter 22.0.1 on macOS, on a local
 workspace of 474 presentations (518 documents), first on copies of its
 database and then, once ProPresenter had to be driven, on the workspace
 itself with a copy to restore from. Nothing has been tried on a Cloud
-workspace or on Windows. The code that does the writing has been run against
-databases built in the tests and against copies of that workspace's
-database, not yet against ProPresenter itself: the experiments that showed
-ProPresenter accepting an outside edit were made by hand, with scripts doing
-the same steps.
+workspace or on Windows. The code that does the writing was then run on the
+real workspace itself, with a backup to restore from: ProPresenter showed
+its edits with their ranges moved, found them by search, kept them through
+an edit of its own and a restart, and the write was refused while
+ProPresenter ran. See *What has been verified* below.
 
 ## What the experiments showed
 
@@ -262,15 +262,18 @@ edit waiting to go up. What has to be seen on the Windows computer first:
   an edit made while it runs is lost; that the exclusive lock is refused
   while it runs and granted once it has quit; and that unmoved ranges drift.
   The steps were the ones the code takes, run from experiment scripts.
-- **Against the code itself:** the tests in
+- **Against built and copied databases:** the tests in
   `packages/node/src/__tests__/workspace-write.test.ts` and
   `packages/core/src/lib/__tests__/workspace-edit.test.ts`, on databases
   built in the test, and the same write against a copy of the real
   workspace's database. The gate passes on all 474 of its presentations.
-- **Not yet:** ProPresenter 22 opening a workspace written by this code,
-  rather than by the experiment scripts, and showing the edit with its
-  ranges moved. That check, on a copy of a workspace, is owed before this is
-  relied on.
+- **Against ProPresenter 22.0.1 on macOS, by this code:** three marked
+  edits written through `plan_slide_edits`/`apply_slide_edits`'s own
+  functions into the real workspace, one of them a right-to-left Hebrew
+  line. ProPresenter showed each with its All Caps ranges moved, toolbar
+  Search found all three, an edit made in its editor to the same box kept
+  ours, both survived a restart, and a write tried while it ran was refused
+  at the lock. The store was restored from its backup afterwards.
 - **Not at all:** Windows; a Cloud workspace; a ProPresenter release other
   than 22.0.1. Another `schema_version` or `user_version` is refused until
   it has been checked.
