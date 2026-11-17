@@ -32,8 +32,10 @@ Any MCP client that starts a local server over stdio takes the same command:
 `npx`, then `-y presenter-garage-mcp` and one or more library folders. With
 no folder it reads the workspace ProPresenter 22 has open, or
 `~/Documents/ProPresenter` where there is none. Needs Node 20 or later, and
-Node 22.13 or later to read a ProPresenter 22 workspace, which is read-only;
-the package is one file with no dependencies.
+Node 22.13 or later to read a ProPresenter 22 workspace. Slide text in a
+ProPresenter 22 workspace is edited only while ProPresenter is closed, and a
+Cloud workspace is not written to yet. The package is one file with no
+dependencies.
 
 For Claude Desktop there is also a one-click extension (`.mcpb`): see the
 [main README](https://github.com/eugenius1/presenter-garage#claude-desktop).

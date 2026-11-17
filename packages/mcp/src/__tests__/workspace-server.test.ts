@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { ElicitRequestSchema, type ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
 import { SYNTHETIC, syntheticMediaFile, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import {
   localUrl,
@@ -10,14 +11,17 @@ import {
   workspacePlaylists,
   workspacePresentation,
 } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
-import { createWorkspace, putDocument, sqlite } from "@presenter-garage/node/__tests__/workspace-db";
-import { WORKSPACE_READ_ONLY } from "@presenter-garage/node/workspace";
+import { createWorkspace, putDocument, sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
+import { openRoots } from "@presenter-garage/node/library";
+import { applyPlan, planSlideEdits, PlanStore } from "../edits";
+import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
+import { CLOUD_REFUSED } from "@presenter-garage/node/workspace-write";
 import { callTool, connect } from "./connect";
 
 /**
  * The server pointed at a ProPresenter 22 workspace, end to end: the same
- * tools give the same answers as over a folder of files, and the ones that
- * would write say why they will not.
+ * tools give the same answers as over a folder of files, and slide text is
+ * written into the workspace's own database once the person confirms it.
  */
 
 let tmp: string;
@@ -118,12 +122,13 @@ suite("a ProPresenter 22 workspace through the server", () => {
     expect(refused.text).toContain("does not record");
   });
 
-  it("refuses to plan an edit, and says where to make it instead", async () => {
+  it("refuses to plan an edit in a workspace whose format it cannot check", async () => {
+    // This one has no registry beside it, so nothing says which format it is.
     const refused = await call("plan_slide_edits", {
       edits: [{ path: "Libraries/Default/Amazing Grace.pro", slideIndex: 0, boxIndex: 0, lineIndex: 0, text: "Changed" }],
     });
     expect(refused.isError).toBe(true);
-    expect(refused.text).toBe(WORKSPACE_READ_ONLY);
+    expect(refused.text).toMatch(/no registry-v1\.sqlite3 beside it/);
   });
 
   it("passes on what it was told about the folder it reads", async () => {
@@ -133,5 +138,94 @@ suite("a ProPresenter 22 workspace through the server", () => {
     });
     expect(noted.getInstructions()).toContain("Important: This folder is a copy ProPresenter no longer updates.");
     await noted.close();
+  });
+});
+
+suite("editing slide text in a ProPresenter 22 workspace through the server", () => {
+  let dir: string;
+  let root: string;
+  let editor: Client;
+  let asked: ElicitRequest[];
+  let edit: (name: string, args?: Record<string, unknown>) => ReturnType<typeof callTool>;
+
+  beforeAll(async () => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-workspace-edit-")));
+    root = createWritableWorkspace(dir);
+    putPresentation(root, "Song", presentationRoot());
+    asked = [];
+    ({ client: editor, call: edit } = await connect([root], { backupDir: path.join(dir, "Backups") }, { elicitation: { form: {} } }));
+    editor.setRequestHandler(ElicitRequestSchema, (request) => {
+      asked.push(request);
+      const { properties } = (request.params as { requestedSchema: { properties: Record<string, unknown> } }).requestedSchema;
+      return { action: "accept", content: Object.fromEntries(Object.keys(properties).map((k) => [k, true])) };
+    });
+  });
+
+  afterAll(async () => {
+    await editor?.close();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("plans, asks the person, writes, and reads back what was promised", async () => {
+    const song = "Libraries/Default/Song.pro";
+    const planned = (await edit("plan_slide_edits", { edits: [{ path: song, boxIndex: 6, lineIndex: 0, text: "Que ton nom" }] })).json();
+    expect(planned.files[0].lines[0]).toMatchObject({ before: "Que ton nom,", after: "Que ton nom" });
+
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    expect((asked[0].params as { message: string }).message).toContain("Quit ProPresenter first");
+    expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
+    expect(result.files[0].reason).toBeUndefined();
+    expect(fs.existsSync(`${result.files[0].backup}.loro`)).toBe(true);
+
+    const read = (await edit("read_presentation", { path: song })).json();
+    expect(read.slides[6].textBoxes[0].lines).toEqual(["Que ton nom", "pour toujours ,", "sois glorifie"]);
+  });
+
+  it("refuses a Cloud workspace before anybody is asked", async () => {
+    const cloudDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-workspace-cloud-")));
+    const cloud = createWritableWorkspace(cloudDir, { cloud: true });
+    putPresentation(cloud, "Song", presentationRoot());
+    const { client, call: cloudCall } = await connect([cloud], { backupDir: path.join(cloudDir, "Backups") });
+    const refused = await cloudCall("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 6, lineIndex: 0, text: "Que ton nom" }],
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toBe(CLOUD_REFUSED);
+    await client.close();
+    fs.rmSync(cloudDir, { recursive: true, force: true });
+  });
+});
+
+suite("a plan across two workspaces", () => {
+  it("reports what it wrote when a later workspace is refused, rather than saying nothing was", async () => {
+    const dirs = [0, 1].map(() => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-two-workspaces-"))));
+    const workspaces = dirs.map((dir) => createWritableWorkspace(dir));
+    for (const root of workspaces) putPresentation(root, "Song", presentationRoot());
+    const roots = await openRoots(workspaces);
+    const store = new PlanStore();
+    const planned = await planSlideEdits(
+      roots,
+      store,
+      roots.map((root) => ({ path: path.join(root, "Libraries", "Default", "Song.pro"), boxIndex: 6, lineIndex: 0, text: "Que ton nom" }))
+    );
+    const plan = store.take(planned.planId)!;
+    // ProPresenter has the second workspace open.
+    const open = new sqlite!.DatabaseSync(storeOf(roots[1]));
+    open.prepare("SELECT count(*) FROM workspace_streams").get();
+    try {
+      const result = await applyPlan(roots, plan, new Set([1, 2]), path.join(dirs[0], "Backups"));
+      expect(result.backupFolder).toBeDefined();
+      expect(result.files.map((file) => [file.written, file.reason])).toEqual([
+        [true, undefined],
+        [false, "writeFailed"],
+      ]);
+      expect(result.files[1].detail).toMatch(/Quit ProPresenter/);
+      // Said of the workspace it stopped, not of the whole call.
+      expect(result.files[1].detail).toMatch(/nothing in it was written/);
+      expect(result.files[1].detail).not.toMatch(/nothing was written/);
+    } finally {
+      open.close();
+      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -103,7 +103,8 @@ database and `-wal` themselves come through byte for byte.
 | `core_path` | for `location_type = 1`: the old relative path without its extension, `<library>/<name>` |
 | `availability` | `0` here, `1` listed but with no snapshot (expected for a Cloud document not yet downloaded) |
 | `snapshot` | the document, as a [Loro](https://loro.dev) CRDT snapshot |
-| `sha256`, `byte_count`, `version_vector`, `updated_at_ms` | bookkeeping |
+| `sha256`, `byte_count`, `version_vector`, `updated_at_ms` | bookkeeping: the snapshot's SHA-256 and length, the document's Loro version vector, and when the row was written |
+| `last_shared_version_vector` | what the Cloud server is known to hold; `NULL` throughout a local workspace |
 
 | `kind` | Replaces |
 | --- | --- |
@@ -119,8 +120,10 @@ database and `-wal` themselves come through byte for byte.
 Some kinds have a second row with `scope = 1`. For `PlaylistLibrary` it holds
 which playlist folders are expanded on this computer, and nothing else.
 
-A workspace that has been in use for a while also has `presentation_search`,
-an FTS5 index of each presentation's name, text, notes and CCLI fields.
+A workspace that has been searched in also has `presentation_search`, an FTS5
+index of each presentation's name, text, notes and CCLI fields. ProPresenter
+makes it the first time somebody searches, and brings it up to date with the
+documents each time it starts.
 
 ### A Cloud workspace
 
@@ -202,9 +205,12 @@ The comparison is a test, skipped without a library to run it on: see
 
 - **A Cloud document that is not downloaded.** Handled as the schema
   suggests, never met.
-- **Writing.** A workspace is read-only here. Its database is held open by
-  ProPresenter and, for a Cloud workspace, synced to other computers, so the
-  four write guards in [AGENTS.md](../AGENTS.md) need a design of their own.
+- **Writing anything but slide text.** Slide text is written into a local
+  workspace while ProPresenter is closed, as
+  [propresenter-22-writing.md](propresenter-22-writing.md) describes.
+  Nothing else is: playlists, the media bin and restyling stay read-only.
+- **Writing to a Cloud workspace.** Refused until it has been tried
+  ([#55](https://github.com/eugenius1/presenter-garage/issues/55)).
 - **The web app.** A browser picking a v22 workspace folder finds no `.pro`
   files. Only the MCP server reads one so far.
 - **When a song was last shown.** See *Dates* above.

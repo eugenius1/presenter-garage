@@ -132,8 +132,29 @@ export interface WriteRun {
   outcomes: WriteOutcome[];
 }
 
+/**
+ * Write each backup copy, read it back and compare, then flush every folder
+ * from each copy up to `backupDir`, so no copy's entry is lost to a crash
+ * once its original changes. Throws at the first that fails.
+ */
+export async function writeBackups(backupDir: string, files: readonly { path: string; bytes: Uint8Array }[]): Promise<void> {
+  for (const { path: copy, bytes } of files) {
+    await fs.mkdir(path.dirname(copy), { recursive: true, mode: PRIVATE_DIR });
+    await writeNew(copy, bytes, PRIVATE_FILE);
+    if (!same(await fs.readFile(copy), bytes)) throw new Error(`${copy} did not read back`);
+  }
+  // Deepest first.
+  const dirs = new Set<string>();
+  for (const { path: copy } of files) {
+    for (let dir = path.dirname(copy); isInside(backupDir, dir) || dir === backupDir; dir = path.dirname(dir)) {
+      dirs.add(dir);
+    }
+  }
+  for (const dir of [...dirs].sort((a, b) => b.length - a.length)) await syncDir(dir);
+}
+
 /** A folder name for this run that sorts by time and does not collide with an earlier one. */
-async function runFolder(backupDir: string, now: Date): Promise<string> {
+export async function runFolder(backupDir: string, now: Date): Promise<string> {
   const stamp = now.toISOString().replace(/:/g, "-").replace(/\..*$/, "");
   for (let n = 1; ; n++) {
     const candidate = path.join(backupDir, n === 1 ? stamp : `${stamp} (${n})`);
@@ -147,7 +168,7 @@ async function runFolder(backupDir: string, now: Date): Promise<string> {
 }
 
 /** Where in the backup a file goes: its root's name, then its path within that root, so a restore is a copy back. */
-function backupPath(folder: string, roots: readonly string[], file: string): string {
+export function backupPath(folder: string, roots: readonly string[], file: string): string {
   const index = roots.findIndex((r) => isInside(r, file));
   const root = roots[index];
   // Two roots with one name would otherwise share a folder, and their files collide.
@@ -173,7 +194,7 @@ async function writeNew(file: string, bytes: Uint8Array, mode: number): Promise<
   }
 }
 
-const same = (a: Uint8Array, b: Uint8Array) => Buffer.compare(a, b) === 0;
+export const same = (a: Uint8Array, b: Uint8Array) => Buffer.compare(a, b) === 0;
 
 /**
  * Flush a folder's entries, so a file just created or renamed in it survives
@@ -194,7 +215,7 @@ async function syncDir(dir: string): Promise<void> {
 const PRIVATE_FILE = 0o600;
 const PRIVATE_DIR = 0o700;
 
-const errorDetail = (e: unknown) => (e as NodeJS.ErrnoException).code ?? (e as Error).message;
+export const errorDetail = (e: unknown) => (e as NodeJS.ErrnoException).code ?? (e as Error).message;
 
 /** Why the file can no longer be replaced as planned, or nothing if it still can. */
 async function stillPlanned(roots: readonly string[], r: Replacement): Promise<Pick<WriteOutcome, "reason" | "detail"> | undefined> {
@@ -232,25 +253,11 @@ export async function replaceWithBackup(
   }
 
   let backupFolder: string | undefined;
-  const backups: string[] = [];
+  let backups: string[] = [];
   try {
-    backupFolder = await runFolder(backupDir, now);
-    for (const r of replacements) {
-      const copy = backupPath(backupFolder, roots, r.path);
-      await fs.mkdir(path.dirname(copy), { recursive: true, mode: PRIVATE_DIR });
-      await writeNew(copy, r.original, PRIVATE_FILE);
-      if (!same(await fs.readFile(copy), r.original)) throw new Error(`${copy} did not read back`);
-      backups.push(copy);
-    }
-    // Every folder from each copy up to the backup folder itself, deepest
-    // first, so no copy's entry is lost to a crash once its original changes.
-    const dirs = new Set<string>();
-    for (const copy of backups) {
-      for (let dir = path.dirname(copy); isInside(backupDir, dir) || dir === backupDir; dir = path.dirname(dir)) {
-        dirs.add(dir);
-      }
-    }
-    for (const dir of [...dirs].sort((a, b) => b.length - a.length)) await syncDir(dir);
+    const folder = (backupFolder = await runFolder(backupDir, now));
+    backups = replacements.map((r) => backupPath(folder, roots, r.path));
+    await writeBackups(backupDir, replacements.map((r, i) => ({ path: backups[i], bytes: r.original })));
   } catch (e) {
     const detail = errorDetail(e);
     return {

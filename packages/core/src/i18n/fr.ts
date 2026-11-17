@@ -357,9 +357,13 @@ export const fr: Dictionary = {
         moved:
           "ce fichier n’est plus là où il était, ou il est désormais atteint par un lien symbolique",
         backupFailed:
-          "une sauvegarde n’a pas pu être faite et vérifiée : rien n’a donc été écrit",
+          "une sauvegarde n’a pas pu être faite et vérifiée : ce fichier n’a donc pas été écrit",
         readBackFailed:
           "le fichier sur le disque ne contient pas ce qui a été écrit ; restaurez-le depuis la sauvegarde",
+        attributeRanges:
+          "une zone de texte porte une mise en forme sur une partie de ligne, qui ne peut pas suivre le texte : rien n’a donc été écrit",
+        rolledBack:
+          "une autre présentation du même espace de travail n’a pas pu être écrite : aucune n’y a donc été écrite",
       },
       editRefusals: {
         noSuchLine: "il n’y a pas de zone de texte ou de ligne à cette adresse",

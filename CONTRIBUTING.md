@@ -67,8 +67,13 @@ snapshot holds the same message under the same field names, reshaped in a few
 regular ways, so `packages/core/src/lib/workspace.ts` turns one back into the
 protobuf message and nothing downstream knows the difference.
 `packages/node/src/workspace.ts` reads the database and gives each document
-the path its file used to have. Only the MCP server reads a workspace so far,
-and nothing writes to one.
+the path its file used to have. Only the MCP server reads a workspace so far.
+Slide text is written back into the Loro document itself, never from the
+converted message: `packages/core/src/lib/workspace-edit.ts` says what an
+edit is in the document's own terms and checks the result, and
+`packages/node/src/workspace-write.ts` takes the lock, backs up the rows and
+replaces them. How, and why each step is there, is in
+[docs/propresenter-22-writing.md](docs/propresenter-22-writing.md).
 
 ## Three things worth knowing
 
@@ -147,9 +152,16 @@ presentation goes through the same gate as a playlist.
 
 The Media Bin's exports emit a differently named file rather than overwriting.
 Presentation text is written in place — by the web app's fixer and the MCP
-server's edit tools, both through `applyFixes()` — under four guards listed
-in [AGENTS.md](AGENTS.md), with where each surface keeps each one. Read those
-before adding anything that writes.
+server's edit tools, both through `applyFixes()`, and into a ProPresenter 22
+workspace by the MCP server through `writeWorkspaceEdits()` — under four
+guards listed in [AGENTS.md](AGENTS.md), with where each surface keeps each
+one. Read those before adding anything that writes.
+
+A workspace document has its own gate, since there are no file bytes to
+re-encode: the snapshot must import, export and import again to the same
+JSON, version vector and frontiers, and our encoding of its version vector
+must be byte for byte the one stored beside it. `gate()` in
+`packages/node/src/workspace-write.ts` is that check.
 
 ## Testing against real files
 
@@ -183,6 +195,13 @@ PP_LEGACY_LIBRARY_DIR=/path/to/old/ProPresenter/Libraries npm test
 `Libraries` folder it was upgraded from, which the upgrade leaves in place.
 Copy the database with its `-wal` and `-shm` files while ProPresenter is
 closed, or the copy can miss what was saved last.
+
+`PP_WORKSPACE_DIR` alone also runs the write path against that workspace, in
+`packages/node/src/__tests__/workspace-write.test.ts`: it copies the database
+into a temporary folder with SQLite's own backup, makes a registry for the
+copy, and edits a line in each of the first presentations there. Only the
+copy is written. Even so, point it at a copy rather than the workspace
+ProPresenter uses, so that the one thing that cannot go wrong is the library.
 
 `packages/core/scripts/make-mutated-sample.mjs` generates a plausibly-edited copy of a real
 file, which is handy for exercising the diff UI without waiting for two genuine
@@ -431,8 +450,9 @@ maintainer's terminal before the publisher is added.
   exports are always a differently named copy the reader moves into place
   themselves, via `exportFilename()` in `packages/core/src/lib/operations.ts`. Presentation
   text is written in place only through `applyFixes()`, by the web app's
-  fixer and the MCP server's edit tools, under the four guards set out in
-  [AGENTS.md](AGENTS.md).
+  fixer and the MCP server's edit tools, and into a ProPresenter 22
+  workspace only through `writeWorkspaceEdits()`, under the four guards set
+  out in [AGENTS.md](AGENTS.md).
 - **Never commit a real ProPresenter library.** Real `.pro` files, media-bin
   playlists and media folders are somebody's personal data. `private/` at
   the root is gitignored for exactly this; development copies go there, in
@@ -463,7 +483,7 @@ deployed site under `apps/`, one version between all four:
   whatever runs under Node — `library.ts` to find and read files without
   leaving the configured folders, `write.ts` to back them up and replace them,
   `workspace.ts` to read a ProPresenter 22 workspace as though it were those
-  files. Its one dependency, `loro-crdt`, is imported from its `base64` build,
+  files, `workspace-write.ts` to write slide text into one. Its one dependency, `loro-crdt`, is imported from its `base64` build,
   which carries the WebAssembly inline so the server stays one file.
   Kept out of `mcp` so a command line can share the one write path rather
   than grow a second.
@@ -497,8 +517,9 @@ nothing to install. npm packs only what is inside the package, so
 test holds equal. It touches the disk only through `packages/node`.
 In `library.ts` there, every path a tool is given is resolved with `realpath`
 before it is compared with the configured folders, and nothing opens a file
-for writing; `write.ts` is the only code that does, and `edits.ts` in the
-server the only caller. Node has no
+for writing; `write.ts` is the only code that does, `workspace-write.ts` the
+only code that opens a workspace's database for writing, and `edits.ts` in
+the server the only caller of either. Node has no
 `openat`, so an open cannot be anchored to a folder; every file is checked
 again once it is open, and every folder before the walk lists it, so a folder
 swapped for a symlink in between is refused rather than followed out.

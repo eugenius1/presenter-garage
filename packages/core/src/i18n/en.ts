@@ -343,8 +343,11 @@ export const en = {
         writeFailed: "the folder would not accept the file",
         stale: "this file changed since it was scanned, so the fix no longer fits it",
         moved: "this file is no longer where it was, or is now reached through a symlink",
-        backupFailed: "a backup could not be made and checked, so nothing was written",
+        backupFailed: "a backup could not be made and checked, so this file was not written",
         readBackFailed: "the file on disk does not hold what was written; restore it from the backup",
+        attributeRanges:
+          "a text box has formatting over part of a line, which cannot be moved with the text, so nothing was written",
+        rolledBack: "another presentation in the same workspace could not be written, so none in it were",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
       editRefusals: {

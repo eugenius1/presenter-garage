@@ -30,12 +30,13 @@ import { isInside, LibraryError, type FoundFile, type FoundTheme } from "./paths
  * Read-only, and not only by omission: nothing here opens the database for
  * writing, and `write.ts` refuses a path inside a workspace outright. The
  * bytes handed out are a conversion, so writing them anywhere would not be
- * writing the document back. ProPresenter keeps the database open while it
+ * writing the document back; slide text is written into the document itself,
+ * by `workspace-write.ts` alone. ProPresenter keeps the database open while it
  * runs; a read-only connection in WAL mode reads beside it without blocking.
  */
 
 const STORE = path.join("DocumentStore", "workspace-v1.sqlite3");
-const REGISTRY = "registry-v1.sqlite3";
+export const REGISTRY = "registry-v1.sqlite3";
 
 /** What the database holds for one document, without its snapshot. */
 export interface StoredDocument {
@@ -192,7 +193,8 @@ export class Workspace {
     this.root = root;
   }
 
-  private get store(): string {
+  /** The document database. */
+  get store(): string {
     return path.join(this.root, STORE);
   }
 
@@ -363,9 +365,9 @@ export class Workspace {
 }
 
 /** Whether a path is its own real path: no part of it, the last included, is a symlink. */
-const isOwnPath = async (p: string) => (await fs.realpath(p).catch(() => undefined)) === p;
+export const isOwnPath = async (p: string) => (await fs.realpath(p).catch(() => undefined)) === p;
 
-const hex = (bytes: unknown) => (bytes ? Buffer.from(bytes as Uint8Array).toString("hex") : "");
+export const hex = (bytes: unknown) => (bytes ? Buffer.from(bytes as Uint8Array).toString("hex") : "");
 
 /** A snapshot, as the bytes of the old file of that kind. */
 function convertSnapshot(kind: string, snapshot: Uint8Array, file: string): Uint8Array {
@@ -440,15 +442,15 @@ export async function documentAt(p: string): Promise<{ workspace: Workspace; doc
 }
 
 /**
- * Said wherever a write is refused, so the person is told what to do rather
- * than only that it did not happen.
+ * Said where a file write is refused inside a workspace, so the person is
+ * told what to do rather than only that it did not happen.
  */
 export const WORKSPACE_READ_ONLY =
-  "This is a ProPresenter 22 workspace, which is read-only here: its documents live in a database " +
-  "ProPresenter keeps open and may be syncing to the cloud, and nothing writes to it yet. " +
-  "Make the change in ProPresenter itself.";
+  "This is a ProPresenter 22 workspace, which has no files to write: its documents live in a database. " +
+  "Only slide text can be changed in it, with plan_slide_edits and apply_slide_edits; " +
+  "make any other change in ProPresenter itself.";
 
-/** Whether a path is inside a ProPresenter 22 workspace, and so cannot be written. */
+/** Whether a path is inside a ProPresenter 22 workspace, and so is not a file that can be written. */
 export async function isInWorkspace(p: string): Promise<boolean> {
   return (await workspaceOf(p)) !== undefined;
 }

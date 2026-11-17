@@ -33,7 +33,7 @@
     "library_folders": {
       "type": "directory",
       "title": "ProPresenter folders",
-      "description": "The folder holding your Libraries and Playlists, usually Documents/ProPresenter. From ProPresenter 22 it is a workspace folder instead, under Library/Application Support/RenewedVision/ProPresenter/Workspaces, and is read-only. Nothing outside the folders chosen here is read.",
+      "description": "The folder holding your Libraries and Playlists, usually Documents/ProPresenter. From ProPresenter 22 it is a workspace folder instead, under Library/Application Support/RenewedVision/ProPresenter/Workspaces, whose slide text is edited only while ProPresenter is closed. Nothing outside the folders chosen here is read.",
       "multiple": true,
       "required": true,
       "default": ["${HOME}/Documents/ProPresenter"]

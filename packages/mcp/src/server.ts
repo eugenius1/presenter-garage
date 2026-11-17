@@ -134,7 +134,9 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       title: "Read a presentation",
       description:
         "Read a presentation's slides: label, arrangement group and the text of every text box, line " +
-        "by line. Also reports `fidelity` (whether the file would survive being written back) and what " +
+        "by line. Also reports `fidelity` (whether the file would survive being written back; always " +
+        "'lossy' in a ProPresenter 22 workspace, which has no files, though its slide text can still be " +
+        "edited with plan_slide_edits) and what " +
         "the file records about itself: ProPresenter's `lastModified` and `lastUsed` (when it was last " +
         "shown; absent if never), category, notes, CCLI details, music key, arrangements, and the " +
         "ProPresenter version that saved it. Prefer `lastModified` for when it was last edited: it is " +

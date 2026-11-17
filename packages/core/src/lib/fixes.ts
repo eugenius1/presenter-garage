@@ -349,6 +349,23 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
     throw e instanceof FixError ? e : new FixError("unreadable");
   }
 
+  const replacements = spliceBoxes(before, fixes);
+
+  writeTextBoxes(doc, replacements);
+  const written = encodePresentation(doc);
+
+  verifyLines(readPresentation(decodePresentation(written)), before, fixes);
+  return written;
+}
+
+/**
+ * Each edited box's new RTF, by box, from the boxes as they read now.
+ *
+ * Throws `stale` when a box no longer holds the source a fix was planned
+ * against. Shared by every writer, so that what a box becomes is worked out
+ * one way whatever it is then written into.
+ */
+export function spliceBoxes(before: PresentationDoc, fixes: readonly LineFix[]): Map<number, string> {
   const byBox = new Map<number, SourceEdit[]>();
   for (const fix of fixes) {
     // ProPresenter may have been open all along. A fix carries offsets into
@@ -372,11 +389,7 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
     replacements.set(boxIndex, applyEdits(box.rtf, edits));
   }
 
-  writeTextBoxes(doc, replacements);
-  const written = encodePresentation(doc);
-
-  verify(written, before, fixes);
-  return written;
+  return replacements;
 }
 
 /** What every line of every edited box should read once the fixes are in. */
@@ -387,8 +400,12 @@ function expected(box: { lines: RtfLine[] }, fixes: readonly LineFix[]): string[
     .filter((text): text is string => text !== null);
 }
 
-function verify(written: Uint8Array, before: PresentationDoc, fixes: readonly LineFix[]): void {
-  const after = readPresentation(decodePresentation(written));
+/**
+ * Throws `verifyFailed` unless every line of every box of `after` reads as
+ * `before` with the fixes in: the edited lines as promised, and every other
+ * line, in every box, exactly as it was.
+ */
+export function verifyLines(after: PresentationDoc, before: PresentationDoc, fixes: readonly LineFix[]): void {
   if (after.textBoxes.length !== before.textBoxes.length) throw new FixError("verifyFailed");
 
   for (const box of before.textBoxes) {

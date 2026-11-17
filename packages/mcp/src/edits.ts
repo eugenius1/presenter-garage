@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { createI18n } from "@presenter-garage/core/i18n/core";
+import { groupBy } from "@presenter-garage/core/lib/collections";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 import {
   EditError,
@@ -12,8 +13,14 @@ import {
   type LineFix,
 } from "@presenter-garage/core/lib/fixes";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
+import { AttributeRangeError, planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
-import { isInWorkspace, WORKSPACE_READ_ONLY } from "@presenter-garage/node/workspace";
+import { documentAt, isInWorkspace, workspaceAt } from "@presenter-garage/node/workspace";
+import {
+  readForPlanning,
+  writeWorkspaceEdits,
+  type WorkspaceRefusal,
+} from "@presenter-garage/node/workspace-write";
 import {
   openBackupDir,
   replaceWithBackup,
@@ -45,7 +52,10 @@ const MAX_PLANS = 20;
 export interface PlannedFile {
   path: string;
   name: string;
+  /** Of the file, or for a document of a ProPresenter 22 workspace, of its row's snapshot. */
   sha256: string;
+  /** Set for a document of a ProPresenter 22 workspace, which is written into its database rather than over a file. */
+  workspace?: { root: string; documentId: Uint8Array };
   /** Each change with its number in the whole plan, which is how the confirmation names it. */
   lines: { n: number; fix: LineFix }[];
 }
@@ -122,9 +132,6 @@ export async function planSlideEdits(
     let real = resolved.get(p);
     if (real === undefined) {
       real = await resolveInRoots(roots, p);
-      // Refused before a plan exists, so nobody reads and approves lines
-      // that could never be written.
-      if (await isInWorkspace(real)) throw new LibraryError(WORKSPACE_READ_ONLY);
       // Only a presentation: a playlist, media bin or theme in the same
       // folders is not something this path was built to write.
       if (!isPresentationFile(path.basename(real))) throw new LibraryError(`Not a presentation (.pro) file: ${p}`);
@@ -138,12 +145,8 @@ export async function planSlideEdits(
   let n = 0;
   const files: PlannedFile[] = [];
   for (const [real, changes] of byFile) {
-    const { bytes } = await readFoundFile(real);
+    const { bytes, sha256: digest, workspace, root } = await readForPlan(real);
     const { doc } = open(real, bytes);
-    // Refused now rather than after a person has read and approved every line.
-    if (!checkPresentationFidelity(bytes).exportSafe) {
-      throw new LibraryError(`${real}: ${refusals.lossy}. Nothing was planned.`);
-    }
     let fixes: LineFix[];
     try {
       fixes = planLineEdits(doc, changes);
@@ -152,10 +155,24 @@ export async function planSlideEdits(
       const { boxIndex, lineIndex } = e.change;
       throw new LibraryError(`${real}, box ${boxIndex} line ${lineIndex}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
+    // A workspace document is edited as itself, and what stops that is
+    // known now: refused before a person has read and approved every line.
+    if (root !== undefined) {
+      try {
+        planWorkspaceEdit(root, fixes);
+      } catch (e) {
+        if (e instanceof AttributeRangeError) {
+          throw new LibraryError(`${real}, box ${e.boxIndex}: ${refusals.attributeRanges}. Nothing was planned.`);
+        }
+        if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
+        throw e;
+      }
+    }
     files.push({
       path: real,
       name: doc.name || presentationName(real),
-      sha256: sha256(bytes),
+      sha256: digest,
+      workspace,
       lines: fixes.map((fix) => ({ n: ++n, fix })),
     });
   }
@@ -180,6 +197,28 @@ export async function planSlideEdits(
   };
 }
 
+/**
+ * A presentation as a plan is made from it: its bytes, and what applying
+ * will check it against. For a document of a workspace that is its row,
+ * and the document passes the checks applying would make, or is refused.
+ */
+async function readForPlan(
+  real: string
+): Promise<{ bytes: Uint8Array; sha256: string; workspace?: PlannedFile["workspace"]; root?: unknown }> {
+  const found = await documentAt(real);
+  if (found) {
+    const { bytes, sha256: digest, root } = await readForPlanning(found.workspace, found.document);
+    return { bytes, sha256: digest, root, workspace: { root: found.workspace.root, documentId: found.document.id } };
+  }
+  if (await isInWorkspace(real)) throw new LibraryError(`Not a presentation in the workspace: ${real}`);
+  const { bytes } = await readFoundFile(real);
+  // Refused now rather than after a person has read and approved every line.
+  if (!checkPresentationFidelity(bytes).exportSafe) {
+    throw new LibraryError(`${real}: ${refusals.lossy}. Nothing was planned.`);
+  }
+  return { bytes, sha256: sha256(bytes) };
+}
+
 /** A confirmation form: one tick box per line, all ticked, each saying what it changes. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
@@ -201,16 +240,19 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
     };
   }
   const count = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+  const closed = plan.files.some((file) => file.workspace)
+    ? "Quit ProPresenter first: while it has the workspace open, nothing is written."
+    : "If ProPresenter has one of these open, close it first: ProPresenter may save its own copy over the change.";
   return {
     message:
       `Change ${count(plan.files.reduce((sum, f) => sum + f.lines.length, 0), "line")} in ${count(plan.files.length, "presentation")}? ` +
-      `Untick any line to leave it as it is. Each file is backed up to ${backupDir} before it is changed. ` +
-      "If ProPresenter has one of these open, close it first: ProPresenter may save its own copy over the change.",
+      `Untick any line to leave it as it is. Each presentation is backed up to ${backupDir} before it is changed. ` +
+      closed,
     requestedSchema: { type: "object" as const, properties },
   };
 }
 
-export type ApplyRefusal = FixRefusal | WriteRefusal;
+export type ApplyRefusal = FixRefusal | WriteRefusal | WorkspaceRefusal;
 
 export interface ApplyResult {
   /** What the person answered. Nothing is written unless they accepted. */
@@ -275,13 +317,65 @@ async function applyPlanNow(
   // Checked when this run's turn comes, not only when it joined the queue: a
   // client can give up while an earlier apply is still writing.
   stopIfCancelled(signal);
-  const planned = new Map(plan.files.map((file) => [file.path, file]));
+  const choose = (file: PlannedFile) => file.lines.filter(({ n }) => ticked.has(n)).map(({ fix }) => fix);
+  const inWorkspaces: ApplyResult["files"] = [];
+  // The first run's folder; each file's own `backup` says where its copy is.
+  let backupFolder: string | undefined;
+
+  /**
+   * A step that refuses by throwing -- ProPresenter open, a workspace that
+   * cannot be written, a cancelled call -- refuses the whole call only while
+   * nothing has been written yet. Once something has, throwing would tell
+   * the person nothing was written and lose where its backup went, so the
+   * refusal becomes these files' outcome instead and the rest is reported.
+   */
+  const refuseOrRecord = (e: unknown, files: ApplyResult["files"]) => {
+    if (!inWorkspaces.some((file) => file.written)) throw e;
+    // A cancellation's own words say nothing at all was written, which is
+    // no longer so; they are said of these files alone.
+    const detail = signal?.aborted ? "the call was cancelled before these were written" : (e as Error).message;
+    for (const file of files) Object.assign(file, { written: false, reason: "writeFailed", detail });
+  };
+
+  // Workspaces first: one ProPresenter has open refuses the whole call, and
+  // a refusal is clearest when nothing at all has been written.
+  const byWorkspace = groupBy(
+    plan.files.filter((file) => file.workspace),
+    (file) => file.workspace!.root
+  );
+  for (const [root, group] of byWorkspace) {
+    const chosen = group.map(choose);
+    const outcomes: ApplyResult["files"] = group.map((file, i) => ({
+      path: file.path,
+      name: file.name,
+      lines: chosen[i].length,
+      written: false,
+    }));
+    try {
+      const workspace = await workspaceAt(root);
+      if (!workspace) throw new LibraryError(`${root} is no longer a ProPresenter workspace, so nothing in it was written.`);
+      stopIfCancelled(signal);
+      const run = await writeWorkspaceEdits(
+        workspace,
+        roots,
+        await openBackupDir(backupDir, roots),
+        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] })),
+        { signal }
+      );
+      backupFolder ??= run.backupFolder;
+      // One outcome per replacement, in the order given.
+      run.outcomes.forEach((outcome, i) => Object.assign(outcomes[i], outcome));
+    } catch (e) {
+      refuseOrRecord(e, outcomes);
+    }
+    inWorkspaces.push(...outcomes);
+  }
+
+  const onDisk = plan.files.filter((file) => !file.workspace);
+  const planned = new Map(onDisk.map((file) => [file.path, file]));
   const originals = new Map<string, Uint8Array>();
   const fixed = await fixFiles(
-    plan.files.map((file) => ({
-      path: file.path,
-      fixes: file.lines.filter(({ n }) => ticked.has(n)).map(({ fix }) => fix),
-    })),
+    onDisk.map((file) => ({ path: file.path, fixes: choose(file) })),
     {
       read: async (p) => {
         const { bytes } = await readFoundFile(p);
@@ -292,7 +386,7 @@ async function applyPlanNow(
     }
   );
 
-  const files: ApplyResult["files"] = fixed.map(({ path: p, lines, reason }) => ({
+  const onDiskFiles: ApplyResult["files"] = fixed.map(({ path: p, lines, reason }) => ({
     path: p,
     name: planned.get(p)!.name,
     lines,
@@ -303,21 +397,25 @@ async function applyPlanNow(
     .filter((outcome) => outcome.bytes)
     .map(({ path: p, bytes }) => ({ path: p, original: originals.get(p)!, updated: bytes! }));
 
-  let backupFolder: string | undefined;
   if (replacements.length > 0) {
-    // And once more at the last moment before anything on disk changes.
-    stopIfCancelled(signal);
-    // And inside, once the backups are made, right before the first original
-    // changes: backing up takes time, and the client can give up during it.
-    const run = await replaceWithBackup(roots, await openBackupDir(backupDir, roots), replacements, { signal });
-    backupFolder = run.backupFolder;
-    const byPath = new Map(run.outcomes.map((outcome) => [outcome.path, outcome]));
-    for (const file of files) Object.assign(file, byPath.get(file.path));
+    try {
+      // And once more at the last moment before anything on disk changes.
+      stopIfCancelled(signal);
+      // And inside, once the backups are made, right before the first original
+      // changes: backing up takes time, and the client can give up during it.
+      const run = await replaceWithBackup(roots, await openBackupDir(backupDir, roots), replacements, { signal });
+      backupFolder ??= run.backupFolder;
+      const byPath = new Map(run.outcomes.map((outcome) => [outcome.path, outcome]));
+      for (const file of onDiskFiles) Object.assign(file, byPath.get(file.path));
+    } catch (e) {
+      const waiting = new Set(replacements.map((r) => r.path));
+      refuseOrRecord(e, onDiskFiles.filter((file) => waiting.has(file.path)));
+    }
   }
 
   return {
     backupFolder,
-    files: files.map((file) =>
+    files: [...inWorkspaces, ...onDiskFiles].map((file) =>
       file.reason ? { ...file, detail: [refusals[file.reason], file.detail].filter(Boolean).join(": ") } : file
     ),
   };
