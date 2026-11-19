@@ -404,10 +404,9 @@ path. Chromium's picker also refuses `AppData` outright, as a system folder,
 which is where ProPresenter keeps its libraries on Windows; the shell's
 dialog has no such list.
 
-**Folder permission lapses when the last tab for the origin closes.**
-Re-requesting needs a user
-gesture, so offer a button rather than re-requesting on load --
-`handlePermission` and `requestHandlePermission` in `apps/web/src/lib/persistence.ts`
+**Folder permission can lapse when the last tab for the origin closes.**
+Re-requesting needs a user gesture, so offer a button rather than
+re-requesting on load -- `handlePermission` and `requestHandlePermission` in `apps/web/src/lib/persistence.ts`
 model this.
 
 **Only Chromium can write to a folder at all.** `folderAccess()` returns

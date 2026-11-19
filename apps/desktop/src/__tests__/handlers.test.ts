@@ -20,16 +20,19 @@ import { createHandlers } from "../handlers";
 
 /**
  * Guard 1's verdict, made to say `lossy` where a test asks, since no real
- * file the suite can build is; and, for guard 4, a write that also changes a
+ * file the suite can build is -- after letting `pass` more calls through, so
+ * a test can let planning accept a file that applying must then refuse; and, for guard 4, a write that also changes a
  * box nobody chose, as an encoder that went wrong would.
  */
-const gate = vi.hoisted(() => ({ lossy: false, tamper: undefined as { boxIndex: number; rtf: string } | undefined }));
+const gate = vi.hoisted(() => ({ lossy: false, pass: 0, tamper: undefined as { boxIndex: number; rtf: string } | undefined }));
 vi.mock("@presenter-garage/core/lib/presentation", async (original) => {
   const actual = await original<typeof import("@presenter-garage/core/lib/presentation")>();
   return {
     ...actual,
     checkPresentationFidelity: (bytes: Uint8Array) =>
-      gate.lossy ? { ...actual.checkPresentationFidelity(bytes), fidelity: "lossy", exportSafe: false } : actual.checkPresentationFidelity(bytes),
+      gate.lossy && gate.pass-- <= 0
+        ? { ...actual.checkPresentationFidelity(bytes), fidelity: "lossy", exportSafe: false }
+        : actual.checkPresentationFidelity(bytes),
     writeTextBoxes: (...[doc, replacements]: Parameters<typeof actual.writeTextBoxes>) => {
       actual.writeTextBoxes(doc, replacements);
       if (gate.tamper) actual.writeTextBoxes(doc, new Map([[gate.tamper.boxIndex, gate.tamper.rtf]]));
@@ -82,6 +85,7 @@ beforeEach(() => {
   backups = path.join(tmp, "Backups");
   shown = [];
   gate.lossy = false;
+  gate.pass = 0;
   gate.tamper = undefined;
   bridge = make();
 });
@@ -263,13 +267,29 @@ describe("a folder of .pro files", () => {
     for (const outcome of run.files) expect(outcome).not.toHaveProperty("detail");
   });
 
-  it("refuses a file the fidelity gate rates lossy (guard 1)", async () => {
+  it("refuses a file the fidelity gate rates lossy when planned (guard 1)", async () => {
     const file = song("Checked Song");
     const before = fs.readFileSync(file);
     shown.push(library);
     await bridge.pickFolder();
     const choice = await chosen(file);
     gate.lossy = true;
+
+    const run = await bridge.applyFixes([choice]);
+
+    expect(run.files).toEqual([expect.objectContaining({ written: false, reason: "lossy" })]);
+    expect(fs.readFileSync(file)).toEqual(before);
+  });
+
+  it("refuses a file the fidelity gate rates lossy only when applied (guard 1)", async () => {
+    const file = song("Checked Song");
+    const before = fs.readFileSync(file);
+    shown.push(library);
+    await bridge.pickFolder();
+    const choice = await chosen(file);
+    // Planning's own check passes: only the check on the file as written can refuse it.
+    gate.lossy = true;
+    gate.pass = 1;
 
     const run = await bridge.applyFixes([choice]);
 

@@ -184,8 +184,9 @@ read copies — they offer no way back to the original files, so there the fixes
 arrive as a zip instead. Both routes are offered automatically; you do not
 choose between them.
 
-Permission to read a folder lapses when you close the last tab, so a folder
-chosen on an earlier visit is offered as a button to grant it again.
+Permission to read a folder can lapse when you close the last tab, unless you
+allowed it on every visit. Where it has lapsed, a folder chosen on an earlier
+visit is offered as a button to grant it again.
 
 ## Languages
 

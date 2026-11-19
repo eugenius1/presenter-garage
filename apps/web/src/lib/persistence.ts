@@ -118,9 +118,10 @@ export interface RememberedFile {
 /**
  * Whether a stored directory handle may still be used.
  *
- * Permission does not necessarily survive a refresh: it lapses once the last
- * tab for the origin closes. Asking again needs a user gesture, so a caller that gets "prompt" has to
- * offer a button rather than re-requesting on load.
+ * Permission does not necessarily survive a refresh: it can lapse once the
+ * last tab for the origin closes. Asking again needs a user gesture, so a
+ * caller that gets "prompt" has to offer a button rather than re-requesting
+ * on load.
  */
 export async function handlePermission(
   handle: unknown,

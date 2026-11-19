@@ -647,6 +647,26 @@ describe("the desktop app", () => {
     expect(screen.queryByText("English from the shell")).not.toBeInTheDocument();
   });
 
+  it("keeps the folder opened last when an earlier one finishes opening after it", async () => {
+    let finishFirst: (folder: NativeFolder) => void = () => {};
+    const shell = fakeBridge();
+    // The dialog's folder takes its time; the workspace opened meanwhile does not.
+    shell.pickFolder = () => new Promise<NativeFolder>((resolve) => (finishFirst = resolve));
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await user.click(await screen.findByRole("button", { name: /Choose a folder/ }));
+    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await screen.findByRole("heading", { name: "Fix these" });
+
+    finishFirst({ root: "/Users/someone/Slow", name: "Slow", files: [], truncated: false });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByText(ROOT)).toBeInTheDocument();
+    expect(screen.queryByText("/Users/someone/Slow")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Fix these" })).toBeInTheDocument();
+  });
+
   it("reads a Cloud workspace but offers no way to write to it", async () => {
     vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: true } }));
     const user = userEvent.setup();

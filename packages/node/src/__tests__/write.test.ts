@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openRoots } from "../library";
 import { openBackupDir, replaceWithBackup, type Replacement } from "../write";
 
@@ -36,7 +37,10 @@ beforeEach(async () => {
   roots = await openRoots([library]);
 });
 
-afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 describe("replaceWithBackup", () => {
   it("backs up the original where a restore is a copy back, then replaces it", async () => {
@@ -102,6 +106,22 @@ describe("replaceWithBackup", () => {
     const run = await replaceWithBackup(roots, await openBackupDir(backups, roots), [planned]);
     expect(run.outcomes[0]).toMatchObject({ written: false, reason: "stale" });
     expect(fs.readFileSync(file, "utf8")).toBe("ProPresenter saved this meanwhile");
+  });
+
+  it("leaves alone a file saved while its replacement was being staged", async () => {
+    const file = song("Song.pro", "before");
+    const planned = replacement(file, "after");
+    // ProPresenter saves just as the replacement is being written beside it.
+    const open = fsp.open.bind(fsp);
+    vi.spyOn(fsp, "open").mockImplementation(async (p, ...rest) => {
+      if (String(p).endsWith(".garage-tmp")) fs.writeFileSync(file, "ProPresenter saved this meanwhile");
+      return open(p, ...rest);
+    });
+
+    const run = await replaceWithBackup(roots, await openBackupDir(backups, roots), [planned]);
+    expect(run.outcomes[0]).toMatchObject({ written: false, reason: "stale" });
+    expect(fs.readFileSync(file, "utf8")).toBe("ProPresenter saved this meanwhile");
+    expect(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith(".garage-tmp"))).toEqual([]);
   });
 
   it("writes nothing at all when one backup cannot be made", async () => {

@@ -201,6 +201,13 @@ export function Presentations() {
   const bridge = useMemo(() => desktopBridge(), []);
   const nativeText = p.native;
   const input = useRef<HTMLInputElement>(null);
+  /**
+   * Bumped by every folder that starts opening. A read that finds it moved
+   * on was overtaken by a later folder, and leaves the screen to that one:
+   * otherwise a slow first folder finishing last shows its findings beside
+   * the second folder's files.
+   */
+  const opening = useRef(0);
 
   const [scanned, setScanned] = useState<Examined[] | null>(null);
   const [files, setFiles] = useState<FolderFile[]>([]);
@@ -323,10 +330,11 @@ export function Presentations() {
     setNativeRun(null);
   }
 
-  /** Read and check each file, saying which one is being read. */
-  async function examineAll(list: FolderFile[]): Promise<Examined[]> {
+  /** Read and check each file, saying which one is being read, until a later folder overtakes it. */
+  async function examineAll(list: FolderFile[], mine: number): Promise<Examined[] | null> {
     const out: Examined[] = [];
     for (const file of list) {
+      if (mine !== opening.current) return null;
       setBusy(file.name);
       let bytes: Uint8Array;
       try {
@@ -339,12 +347,15 @@ export function Presentations() {
       }
       out.push(examine(file.path, bytes));
     }
+    if (mine !== opening.current) return null;
     setBusy(null);
     return out;
   }
 
-  async function scan(list: FolderFile[]) {
-    setScanned(await examineAll(list));
+  async function scan(list: FolderFile[], mine = opening.current) {
+    const examined = await examineAll(list, mine);
+    if (!examined) return;
+    setScanned(examined);
     setExcluded(new Set());
   }
 
@@ -354,33 +365,41 @@ export function Presentations() {
    * a whole library through the shell again is seconds of copying for nothing.
    */
   async function rescan(list: FolderFile[]) {
-    const fresh = new Map((await examineAll(list)).map((one) => [one.report.filename, one]));
+    const examined = await examineAll(list, opening.current);
+    if (!examined) return;
+    const fresh = new Map(examined.map((one) => [one.report.filename, one]));
     setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
     setExcluded(new Set());
   }
 
-  /** Make a freshly opened folder the one on screen, and read it. */
-  function load(folder: { name: string; files: FolderFile[] }, folderHandle: unknown) {
+  /**
+   * Make a freshly opened folder the one on screen, and read it. `mine` is
+   * the caller's, taken before its own first wait, where it has one.
+   */
+  function load(folder: { name: string; files: FolderFile[] }, folderHandle: unknown, mine = ++opening.current) {
+    if (mine !== opening.current) return Promise.resolve();
     setPending(null);
     clearRun();
     setFolderName(folder.name);
     setFiles(folder.files);
     setHandle(folderHandle);
-    return scan(folder.files);
+    return scan(folder.files, mine);
   }
 
   /** Make a folder the desktop shell opened the one on screen. */
-  function loadNative(shell: DesktopBridge, folder: NativeFolder) {
+  function loadNative(shell: DesktopBridge, folder: NativeFolder, mine: number) {
+    if (mine !== opening.current) return Promise.resolve();
     setNative(folder);
-    return load({ name: folder.name, files: nativeFiles(shell, folder) }, null);
+    return load({ name: folder.name, files: nativeFiles(shell, folder) }, null, mine);
   }
 
   /** Open a folder through the desktop shell: its dialog, or a workspace it listed. */
   async function chooseNative(open: () => Promise<NativeFolder | null>) {
     setError(null);
+    const mine = ++opening.current;
     try {
       const folder = await open();
-      if (folder) await loadNative(bridge!, folder);
+      if (folder) await loadNative(bridge!, folder, mine);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -389,10 +408,11 @@ export function Presentations() {
   /**
    * Pick up where the last visit left off.
    *
-   * A directory handle survives in IndexedDB, but permission may not: it
-   * lapses once the last tab for the origin closes. Where it is still granted the folder is simply
-   * reread; where it is not, asking again needs a user gesture, so the folder
-   * is offered as a button rather than re-requested on load.
+   * A directory handle survives in IndexedDB, but permission may not: it can
+   * lapse once the last tab for the origin closes. Where it is still granted
+   * the folder is simply reread; where it is not, asking again needs a user
+   * gesture, so the folder is offered as a button rather than re-requested on
+   * load.
    */
   useEffect(() => {
     void (async () => {
@@ -414,17 +434,19 @@ export function Presentations() {
       // rather than taken from `bridge`, so this runs once, on mount.
       const shell = desktopBridge();
       if (shell) {
+        const mine = ++opening.current;
         try {
           const [last, listed] = await Promise.all([shell.reopenLast(), shell.workspaces()]);
           if (cancelled) return;
           setWorkspaces(listed);
-          if (last) await loadNative(shell, last);
+          if (last) await loadNative(shell, last, mine);
         } catch (e) {
           if (!cancelled) setError((e as Error).message);
         }
         return;
       }
 
+      const mine = ++opening.current;
       const saved = await remember<unknown>(KEYS.presentationsFolder);
       if (!saved || cancelled) return;
 
@@ -438,11 +460,11 @@ export function Presentations() {
           await forget(KEYS.presentationsFolder);
           return;
         }
-        if (!cancelled) await load(folder, saved);
+        if (!cancelled) await load(folder, saved, mine);
         return;
       }
 
-      if (!cancelled) setPending({ handle: saved, name });
+      if (!cancelled && mine === opening.current) setPending({ handle: saved, name });
     })();
 
     return () => {
