@@ -138,9 +138,11 @@ describe("a folder of .pro files", () => {
     const opening = bridge.pickFolder();
     // Let the open reach its walk of the folder, which waits on the disk.
     for (let i = 0; i < 10; i++) await Promise.resolve();
+    // Watched before the forget: the open can give up while the forget is still saving.
+    const refused = expect(opening).rejects.toThrow();
     await bridge.forgetLast();
 
-    await expect(opening).rejects.toThrow();
+    await refused;
     await expect(bridge.read(file)).rejects.toThrow();
     expect(JSON.parse(fs.readFileSync(path.join(tmp, "state.json"), "utf8"))).toEqual({});
     expect(await make().reopenLast()).toBeNull();
@@ -345,9 +347,10 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
 
   it("stays closed when forgotten while the registry was still being asked", async () => {
     const opening = bridge.openWorkspace(root);
+    const refused = expect(opening).rejects.toThrow();
     await bridge.forgetLast();
 
-    await expect(opening).rejects.toThrow();
+    await refused;
     expect(JSON.parse(fs.readFileSync(path.join(tmp, "state.json"), "utf8"))).toEqual({});
     expect(await make().reopenLast()).toBeNull();
   });
