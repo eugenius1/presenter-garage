@@ -4,8 +4,9 @@
 // worker changed, and this is the answer -- clear the cache, unregister, and
 // reload each open page from the network.
 //
-// Keep it. Deleting it leaves a browser that has not been back since with the
-// old worker, still serving the old build.
+// Temporary: delete it once each browser that had the site installed has
+// opened it once since this was deployed. One that has not would keep the old
+// worker, still serving the old build.
 self.addEventListener("install", () => self.skipWaiting());
 
 self.addEventListener("activate", (event) => {
