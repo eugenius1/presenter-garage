@@ -54,6 +54,11 @@ export interface FoundFile {
    * never be written back, and say nothing of whether the document could be.
    */
   converted?: true;
+  /**
+   * For converted bytes, the hash of the stored snapshot they were made
+   * from: looked up with the bytes, so the two describe the same snapshot.
+   */
+  sha256?: string;
 }
 
 export interface FoundTheme {

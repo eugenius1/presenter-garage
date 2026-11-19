@@ -42,10 +42,20 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
   const registryDir = deps.workspacesDir ?? workspacesDir();
   /** The folder open now, as `openRoots` resolved it. Nothing outside it can be read or written. */
   let roots: string[] = [];
+  /** The presentations its walk listed: the only paths `read` answers for. */
+  let listed = new Set<string>();
+  /**
+   * Bumped by every open and every forget. An open that finds it moved on
+   * while it walked the folder was overtaken, and leaves the state alone.
+   */
+  let generation = 0;
+  /** Writes of the remembered folder, in the order they were asked for, so a later forget stays final. */
+  let saving: Promise<unknown> = Promise.resolve();
   /** Backup folders this session's runs made, which are the only folders `showBackups` opens. */
   const backupFolders = new Set<string>();
 
   async function openFolder(dir: string): Promise<NativeFolder> {
+    const mine = ++generation;
     const opened = await openRoots([dir]);
     const root = opened[0];
     const workspace = await workspaceAt(root);
@@ -56,7 +66,9 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     // Either says Cloud, as the write path's own check (`checkWritableWorkspace`) takes either.
     const cloud = registered?.cloud === true || (await hasCloudImprint(root));
     const { files, truncated } = await findPresentations(opened);
+    if (mine !== generation) throw new LibraryError(`${root} was closed or replaced while it was opening.`);
     roots = opened;
+    listed = new Set(files);
     // Remembering is a convenience: a folder that opened is open, whether or not it could be noted.
     await remember(root).catch(() => undefined);
     return {
@@ -72,9 +84,13 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     };
   }
 
-  async function remember(root: string | undefined): Promise<void> {
-    await fs.mkdir(path.dirname(deps.stateFile), { recursive: true });
-    await fs.writeFile(deps.stateFile, JSON.stringify(root ? { lastFolder: root } : {}));
+  function remember(root: string | undefined): Promise<void> {
+    const write = saving.then(async () => {
+      await fs.mkdir(path.dirname(deps.stateFile), { recursive: true });
+      await fs.writeFile(deps.stateFile, JSON.stringify(root ? { lastFolder: root } : {}));
+    });
+    saving = write.catch(() => undefined);
+    return write;
   }
 
   async function lastFolder(): Promise<string | undefined> {
@@ -101,7 +117,9 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     },
 
     async forgetLast() {
+      generation++;
       roots = [];
+      listed = new Set();
       await remember(undefined);
     },
 
@@ -124,6 +142,8 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
 
     async read(p: string) {
       if (typeof p !== "string") throw new LibraryError("No file named.");
+      // Only what the folder's walk listed: the open folder may hold other files that are none of the page's business.
+      if (!listed.has(p)) throw new LibraryError(`Not a presentation in the open folder: ${p}`);
       return readWithHash(await resolveInRoots(roots, p));
     },
 

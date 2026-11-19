@@ -687,9 +687,8 @@ export function Presentations() {
       );
       const shownAs = new Map(files.map((file) => [file.native?.path, file.path]));
       setNativeRun({ backupFolder: result.backupFolder, refused: result.refused });
-      if (!result.refused) {
-        setOutcomes(result.files.map((file) => ({ ...file, path: shownAs.get(file.path) ?? file.path })));
-      }
+      // A refused run replaces the last run's outcomes too: an earlier success is not this run's.
+      setOutcomes(result.refused ? null : result.files.map((file) => ({ ...file, path: shownAs.get(file.path) ?? file.path })));
       // Read again what the run may have changed, so what is on screen is what is on disk.
       await rescan(chosen.flatMap((plan) => fileByPath.get(plan.path) ?? []));
     });

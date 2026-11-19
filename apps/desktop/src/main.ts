@@ -126,6 +126,13 @@ function runSmoke(window: BrowserWindow): void {
   window.webContents.once("did-fail-load", (_e, code, description) => fail(`load failed: ${code} ${description}`));
   window.webContents.once("did-finish-load", async () => {
     try {
+      // On a clean runner there are no workspaces, so the bridge's answer alone
+      // would not show that this Electron's Node has a working `node:sqlite`.
+      const { DatabaseSync } = await import("node:sqlite");
+      const db = new DatabaseSync(":memory:");
+      const { version } = db.prepare("SELECT sqlite_version() AS version").get() as { version: string };
+      db.close();
+      console.log(`smoke: sqlite ${version}`);
       // The page renders after load; give React a moment.
       const ready = await window.webContents.executeJavaScript(
         `new Promise((resolve) => {

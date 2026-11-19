@@ -306,9 +306,9 @@ function planStyling(
  * hands back is the one the plan compares.
  */
 export async function readWithHash(real: string): Promise<{ bytes: Uint8Array; sha256: string }> {
-  const stored = await documentAt(real);
-  const { bytes } = await readFoundFile(real);
-  return { bytes, sha256: stored ? stored.document.sha256 : sha256(bytes) };
+  // One read for both, so the hash is of the very snapshot the bytes were made from.
+  const found = await readFoundFile(real);
+  return { bytes: found.bytes, sha256: found.converted ? (found.sha256 ?? "") : sha256(found.bytes) };
 }
 
 function plannedFile(
@@ -352,6 +352,8 @@ export async function planChosenFixes(
 ): Promise<{ plan: Plan; refused: Omit<AppliedFile, "name">[] }> {
   const files: PlannedFile[] = [];
   const refused: Omit<AppliedFile, "name">[] = [];
+  /** Each presentation once: two entries for one file would back it up, and write it, twice. */
+  const seen = new Set<string>();
   let n = 0;
   for (const file of chosen) {
     const refuse = (reason: ApplyRefusal, more: Partial<AppliedFile> = {}) =>
@@ -368,6 +370,12 @@ export async function planChosenFixes(
       refuse(e instanceof LossyFile ? "lossy" : "unreadable", { detail: e.message });
       continue;
     }
+    // The page never sends one file twice; a second entry, however spelled, describes nothing it showed.
+    if (seen.has(real)) {
+      refuse("stale");
+      continue;
+    }
+    seen.add(real);
     if (read.sha256 !== file.sha256) {
       refuse("stale");
       continue;
@@ -499,6 +507,12 @@ async function applyPlanNow(
       lines: chosen[i].length,
       written: false,
     }));
+    // Nothing ticked here: nothing to back up, so no backup folder is needed to say so.
+    if (chosen.every((fixes) => fixes.length === 0)) {
+      for (const outcome of outcomes) outcome.reason = "unchanged";
+      inWorkspaces.push(...outcomes);
+      continue;
+    }
     try {
       const workspace = await workspaceAt(root);
       if (!workspace) throw new LibraryError(`${root} is no longer a ProPresenter workspace, so nothing in it was written.`);

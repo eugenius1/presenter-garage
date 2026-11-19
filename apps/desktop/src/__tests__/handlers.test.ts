@@ -18,14 +18,22 @@ import { createHandlers } from "../handlers";
  * fails if a guard is skipped.
  */
 
-/** Guard 1's verdict, made to say `lossy` where a test asks, since no real file the suite can build is. */
-const gate = vi.hoisted(() => ({ lossy: false }));
+/**
+ * Guard 1's verdict, made to say `lossy` where a test asks, since no real
+ * file the suite can build is; and, for guard 4, a write that also changes a
+ * box nobody chose, as an encoder that went wrong would.
+ */
+const gate = vi.hoisted(() => ({ lossy: false, tamper: undefined as { boxIndex: number; rtf: string } | undefined }));
 vi.mock("@presenter-garage/core/lib/presentation", async (original) => {
   const actual = await original<typeof import("@presenter-garage/core/lib/presentation")>();
   return {
     ...actual,
     checkPresentationFidelity: (bytes: Uint8Array) =>
       gate.lossy ? { ...actual.checkPresentationFidelity(bytes), fidelity: "lossy", exportSafe: false } : actual.checkPresentationFidelity(bytes),
+    writeTextBoxes: (...[doc, replacements]: Parameters<typeof actual.writeTextBoxes>) => {
+      actual.writeTextBoxes(doc, replacements);
+      if (gate.tamper) actual.writeTextBoxes(doc, new Map([[gate.tamper.boxIndex, gate.tamper.rtf]]));
+    },
   };
 });
 
@@ -74,6 +82,7 @@ beforeEach(() => {
   backups = path.join(tmp, "Backups");
   shown = [];
   gate.lossy = false;
+  gate.tamper = undefined;
   bridge = make();
 });
 
@@ -112,6 +121,25 @@ describe("a folder of .pro files", () => {
     // A link inside the folder that points out of it is not followed.
     fs.symlinkSync(outside, path.join(library, "Libraries", "Default", "Link.pro"));
     await expect(bridge.read(path.join(library, "Libraries", "Default", "Link.pro"))).rejects.toThrow();
+    // Inside the folder, only the presentations it listed: not whatever else is kept beside them.
+    const beside = path.join(fs.realpathSync(library), "Libraries", "Default", "private.txt");
+    fs.writeFileSync(beside, "x");
+    await expect(bridge.read(beside)).rejects.toThrow();
+    await expect(bridge.read(file)).resolves.toBeDefined();
+  });
+
+  it("leaves a folder closed that was forgotten while it was still opening", async () => {
+    const file = song("Checked Song");
+    shown.push(library);
+    const opening = bridge.pickFolder();
+    // Let the open reach its walk of the folder, which waits on the disk.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    await bridge.forgetLast();
+
+    await expect(opening).rejects.toThrow();
+    await expect(bridge.read(file)).rejects.toThrow();
+    expect(JSON.parse(fs.readFileSync(path.join(tmp, "state.json"), "utf8"))).toEqual({});
+    expect(await make().reopenLast()).toBeNull();
   });
 
   it("backs up each file before changing it, writes the ticked lines, and reads them back", async () => {
@@ -132,6 +160,24 @@ describe("a folder of .pro files", () => {
     // Guard 4 ran inside the write; here, what it promised is what is on disk.
     const after = new Uint8Array(fs.readFileSync(file));
     expect(textOf(after).filter((issue) => KINDS.some((k) => issue.endsWith(k)))).toEqual([]);
+  });
+
+  it("writes nothing when the result does not read back as promised, even in a box nobody chose", async () => {
+    const file = song("Checked Song");
+    const original = fs.readFileSync(file);
+    shown.push(library);
+    await bridge.pickFolder();
+    const choice = await chosen(file);
+    const ticked = choice.lines[0].boxIndex;
+    const boxes = examine(file, new Uint8Array(original)).fixable.textBoxes;
+    const other = boxes.find((box) => box.boxIndex !== ticked && box.rtf !== boxes.find((b) => b.boxIndex === ticked)!.rtf)!;
+    // Box `other` is not among the ticked lines; the write changes it anyway.
+    gate.tamper = { boxIndex: other.boxIndex, rtf: boxes.find((b) => b.boxIndex === ticked)!.rtf };
+
+    const run = await bridge.applyFixes([{ ...choice, lines: choice.lines.filter((line) => line.boxIndex === ticked) }]);
+
+    expect(run.files).toEqual([expect.objectContaining({ path: file, written: false, reason: "verifyFailed" })]);
+    expect(fs.readFileSync(file)).toEqual(original);
   });
 
   it("changes only the lines the person left ticked", async () => {
@@ -182,15 +228,18 @@ describe("a folder of .pro files", () => {
   it("refuses, file by file, what cannot be planned, and writes the rest", async () => {
     const file = song("Checked Song");
     const other = song("Other Song");
+    const third = song("Third Song");
     const before = fs.readFileSync(other);
     shown.push(library);
     await bridge.pickFolder();
     const good = await chosen(file);
     const twice = await chosen(other, (lines) => [lines[0], lines[0]]);
     const outside = { ...good, path: path.join(tmp, "Elsewhere.pro") };
-    const none = { ...(await chosen(other)), lines: [] };
+    const none = { ...(await chosen(third)), lines: [] };
+    // The same file again, spelled another way: one backup and one write per file.
+    const again = { ...good, path: `${path.dirname(file)}${path.sep}.${path.sep}${path.basename(file)}` };
 
-    const run = await bridge.applyFixes([good, twice, outside, none]);
+    const run = await bridge.applyFixes([good, twice, outside, none, again]);
 
     expect(run.files).toEqual(
       expect.arrayContaining([
@@ -198,9 +247,11 @@ describe("a folder of .pro files", () => {
         // A line sent twice is not written twice; the file is left alone.
         expect.objectContaining({ path: other, written: false, reason: "stale" }),
         expect.objectContaining({ path: outside.path, written: false, reason: "unreadable" }),
-        expect.objectContaining({ path: other, written: false, reason: "unchanged" }),
+        expect.objectContaining({ path: third, written: false, reason: "unchanged" }),
+        expect.objectContaining({ path: again.path, written: false, reason: "stale" }),
       ])
     );
+    expect(run.files.filter((outcome) => outcome.written)).toHaveLength(1);
     expect(fs.readFileSync(other)).toEqual(before);
     // Nothing the page is told carries the server's English.
     for (const outcome of run.files) expect(outcome).not.toHaveProperty("detail");

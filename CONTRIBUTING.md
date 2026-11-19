@@ -31,10 +31,13 @@ npm run desktop:dev    # against `npm run dev`, started first in another termina
 `npm run smoke -w @presenter-garage/desktop` launches the build, checks the
 page came up with its bridge to the main process, and quits; CI runs it on
 macOS and Windows. ProPresenter 22 is found through its own registry under
-the user's home folder, and backups go there too, so to try the app on a copy
-of a workspace rather than the one ProPresenter uses, run it with `HOME`
-pointing at a folder holding the copy and a registry whose `root_path` names
-it.
+the user's application data, and backups go there too, so to try the app on a
+copy of a workspace rather than the one ProPresenter uses, run it with that
+folder pointing somewhere holding the copy and a registry whose `root_path`
+names it. On macOS that is `HOME`, the registry going under
+`Library/Application Support/RenewedVision/ProPresenter/Workspaces` in it. On
+Windows it is `APPDATA`, not `HOME`, the registry going under
+`RenewedVision\ProPresenter\Workspaces` in it.
 
 `npm run check` is the gate, and it is the one CI runs. Run it before every
 commit — it includes the codegen step, so it also catches the case where a
