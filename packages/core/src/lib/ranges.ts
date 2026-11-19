@@ -524,18 +524,14 @@ export function rangesAfter(
   }
 
   const said = (styling: LineStyling | undefined) => JSON.stringify(styling?.ranges);
-  const tried = new Map<string, Map<LineFix, LineStyling> | AttributeRangeError>();
+  /** What each fix shows with these units left unticked, or null where that choice is refused. */
   const stylingWith = (left: ReadonlySet<number>) => {
-    const key = [...left].sort((a, b) => a - b).join(" ");
-    if (!tried.has(key)) {
-      try {
-        tried.set(key, outcome(units.flatMap((unit, u) => (left.has(u) ? [] : unit.fixes))).styling);
-      } catch (e) {
-        if (!(e instanceof AttributeRangeError)) throw e;
-        tried.set(key, e);
-      }
+    try {
+      return outcome(units.flatMap((unit, u) => (left.has(u) ? [] : unit.fixes))).styling;
+    } catch (e) {
+      if (!(e instanceof AttributeRangeError)) throw e;
+      return null;
     }
-    return tried.get(key)!;
   };
   for (const [u, unit] of units.entries()) {
     // What can change how styling falls on a line is what happens to the
@@ -545,9 +541,11 @@ export function rangesAfter(
     const near = units.flatMap((other, v) => (v !== u && Math.abs(rank[other.line] - rank[unit.line]) <= 2 ? [v] : []));
     if (near.length > MOST_NEAR) throw new AttributeRangeError(box.boxIndex, "dependsOnChoice", unit.line);
     for (let mask = 1; mask < 1 << near.length; mask++) {
+      // Not kept once compared: a choice is tried again rather than every
+      // one held, which for a long box would be every fix's styling for each.
       const result = stylingWith(new Set(near.filter((_, j) => mask & (1 << j))));
       for (const fix of unit.fixes) {
-        if (result instanceof AttributeRangeError || said(result.get(fix)) !== said(all.styling.get(fix))) {
+        if (!result || said(result.get(fix)) !== said(all.styling.get(fix))) {
           throw new AttributeRangeError(box.boxIndex, "dependsOnChoice", fix.lineIndex);
         }
       }
