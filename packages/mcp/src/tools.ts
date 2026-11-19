@@ -764,7 +764,9 @@ async function readConfigured<T>(
   const file = await find(roots);
   if (!file) return { items: [], problem: missing };
   try {
-    return { path: file, items: read((await readFoundFile(file)).bytes) };
+    // Through the roots, as every other read: `Configuration` can be a symlink leading out of them.
+    const { path: real, bytes } = await readLibraryFile(roots, file);
+    return { path: real, items: read(bytes) };
   } catch (e) {
     // protobuf.js says why it could not decode; a LibraryError says why it could not read.
     return { path: file, items: [], problem: (e as Error).message };

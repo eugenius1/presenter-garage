@@ -87,10 +87,15 @@ export function readMacros(doc: RawDoc): ConfiguredMacro[] {
     if (entry && !entry.collections.includes(collection)) entry.collections.push(collection);
   };
 
+  const collections: any[] = raw.macro_collections ?? [];
   for (const macro of raw.macros ?? []) add(macro);
-  for (const collection of raw.macro_collections ?? []) {
+  for (const collection of collections) {
     const name: string = collection.name ?? "";
     for (const macro of collection.macros ?? []) listIn(add(macro), name);
+  }
+  // A second pass, so an item may name a macro held in a later collection.
+  for (const collection of collections) {
+    const name: string = collection.name ?? "";
     for (const item of collection.items ?? []) {
       const id: string | undefined = item?.macro_id?.string;
       if (id) listIn(byKey.get(id.toLowerCase()), name);
