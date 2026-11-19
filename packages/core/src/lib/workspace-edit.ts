@@ -1,6 +1,6 @@
 import { FixError, spliceBoxes, verifyLines, type LineFix } from "./fixes";
 import { readPresentation, textBoxAddresses, type PresentationDoc, type TextBoxAddress } from "./presentation";
-import { rangesAfter } from "./ranges";
+import { isAllCaps, rangesAfter } from "./ranges";
 import { decodeRtf, encodeRtf } from "./rtf";
 import { isObject, presentationFromWorkspace } from "./workspace";
 
@@ -117,9 +117,9 @@ function rangeOf(attribute: Json): { start: number; end: number } | undefined {
   return { start, end };
 }
 
-/** Whether an attribute is a capitalization: its oneof, as the snapshot keeps one, tagged so. */
+/** Whether an attribute is All Caps: its oneof, as the snapshot keeps one, tagged a capitalization of that value. */
 function isCapitalization(attribute: Json): boolean {
-  return isObject(attribute) && Object.values(attribute).some((v) => isObject(v) && v.__tag === "capitalization");
+  return isObject(attribute) && Object.values(attribute).some((v) => isObject(v) && v.__tag === "capitalization" && isAllCaps(v.capitalization));
 }
 
 /**

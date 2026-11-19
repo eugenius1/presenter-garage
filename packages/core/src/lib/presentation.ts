@@ -1,6 +1,6 @@
 import { checkTypeFidelity, messageType, type FidelityReport, type RawDoc } from "./decode";
 import { applicationInfo, basename } from "./model";
-import type { Range } from "./ranges";
+import { isAllCaps, type Range } from "./ranges";
 import { decodeRtf, encodeRtf, extractLines, type RtfLine } from "./rtf";
 
 /**
@@ -534,7 +534,7 @@ export function textBoxRanges(doc: RawDoc): Map<number, AttributeRange[]> {
         const range = attribute?.range;
         if (!range) return [];
         // `Attribute` is the oneof protobuf.js names after the member set.
-        return [{ index, start: range.start ?? 0, end: range.end ?? 0, caps: attribute.Attribute === "capitalization" }];
+        return [{ index, start: range.start ?? 0, end: range.end ?? 0, caps: attribute.Attribute === "capitalization" && isAllCaps(attribute.capitalization) }];
       })
     )
   );

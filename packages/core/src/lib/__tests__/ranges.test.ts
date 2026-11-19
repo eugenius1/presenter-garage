@@ -115,6 +115,15 @@ describe("moving a .pro file's ranges with its text", () => {
     expect(() => applyFixes(bytes, fixes)).toThrow(new FixError("addedLineRanges"));
   });
 
+  it("takes only All Caps for capitals, refusing a line added beside title case", () => {
+    const bytes = withAttributes(syntheticTextPresentation(), {
+      0: [{ range: { start: 0, end: 11 }, capitalization: "CAPITALIZATION_TITLE_CASE" }],
+    });
+    expect(textBoxRanges(decodePresentation(bytes)).get(0)![0].caps).toBe(false);
+    const fixes = plan(bytes, [{ boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }]);
+    expect(() => applyFixes(bytes, fixes)).toThrow(new FixError("addedLineRanges"));
+  });
+
   it("refuses a file whose ranges do not read back where they were planned", () => {
     const bytes = song();
     const fixes = plan(bytes, [{ boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }]);

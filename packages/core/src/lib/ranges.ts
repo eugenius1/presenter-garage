@@ -42,7 +42,16 @@ export interface AddedLines {
   after: readonly string[];
 }
 
-/** An attribute range; `caps` when it is a capitalization, which an added line beside it takes. */
+/**
+ * Whether a capitalization's value is All Caps: the number protobuf.js and a
+ * snapshot keep, or its name. Small caps, title case and start case are left
+ * out, since what they make of an added line is not known.
+ */
+export function isAllCaps(value: unknown): boolean {
+  return value === 1 || value === "CAPITALIZATION_ALL_CAPS";
+}
+
+/** An attribute range; `caps` when it is All Caps, which an added line beside it takes. */
 export interface Range {
   start: number;
   end: number;
