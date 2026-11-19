@@ -346,8 +346,16 @@ export const en = {
         backupFailed: "a backup could not be made and checked, so this file was not written",
         readBackFailed: "the file on disk does not hold what was written; restore it from the backup",
         attributeRanges:
-          "a text box has formatting over part of a line, which cannot be moved with the text, so nothing was written",
+          "a text box has formatting that cannot be moved with its text without guessing, so nothing was written",
         rolledBack: "another presentation in the same workspace could not be written, so none in it were",
+      },
+      // Why a box's formatting cannot be moved with its text, said after `refusals.attributeRanges`.
+      rangeRefusals: {
+        malformed: "a formatting range in it ends before it starts",
+        typedAtEdge:
+          "text would be added right at the edge of formatting that covers only part of the line, and whether the new text takes it is a guess",
+        replacedAcrossEdge:
+          "new text would replace where formatting over part of the line starts or ends, and where it starts or ends in the new text is a guess",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
       editRefusals: {

@@ -196,6 +196,15 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-workspace-edit-")));
     root = createWritableWorkspace(dir);
     putPresentation(root, "Song", presentationRoot());
+    // The box that opens "Que ton nom,": All Caps on "ton nom," alone, and a range past the end of the text.
+    const opening = (lines: string[]) => lines[0] === "Que ton nom,";
+    putPresentation(
+      root,
+      "Styled",
+      presentationRoot((lines) => (opening(lines) ? [{ start: 4, end: 12 }, { start: 0, end: 50 }] : []))
+    );
+    // And All Caps on "ton" alone.
+    putPresentation(root, "Partial", presentationRoot((lines) => (opening(lines) ? [{ start: 4, end: 7 }] : [])));
     asked = [];
     ({ client: editor, call: edit } = await connect([root], { backupDir: path.join(dir, "Backups") }, { elicitation: { form: {} } }));
     editor.setRequestHandler(ElicitRequestSchema, (request) => {
@@ -223,6 +232,33 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
 
     const read = (await edit("read_presentation", { path: song })).json();
     expect(read.slides[6].textBoxes[0].lines).toEqual(["Que ton nom", "pour toujours ,", "sois glorifie"]);
+  });
+
+  it("shows the person what each change does to the styling on its line, and writes it", async () => {
+    const styled = "Libraries/Default/Styled.pro";
+    const planned = (await edit("plan_slide_edits", { edits: [{ path: styled, boxIndex: 6, lineIndex: 0, text: "Que ton nom" }] })).json();
+    const styling = [
+      "All Caps on “ton nom,” → on “ton nom”",
+      "All Caps on the whole line, as before",
+      "formatting that ran past the end of the text box is cut back to its end, which changes nothing visible",
+    ];
+    expect(planned.files[0].lines[0].styling).toEqual(styling);
+
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    const { properties } = (asked.at(-1)!.params as { requestedSchema: { properties: Record<string, { description: string }> } })
+      .requestedSchema;
+    expect(properties.line1.description).toBe(`“Que ton nom,” → “Que ton nom”. Styling: ${styling.join("; ")}.`);
+    expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
+  });
+
+  it("refuses, before anybody is asked, a change that would leave a range's place to a guess", async () => {
+    const asks = asked.length;
+    const refused = await edit("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Partial.pro", boxIndex: 6, lineIndex: 0, text: "Que notre Dieu," }],
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/box 6 line 0: a text box has formatting that cannot be moved .* where it starts or ends in the new text is a guess\. Nothing was planned\.$/);
+    expect(asked).toHaveLength(asks);
   });
 
   it("refuses a Cloud workspace before anybody is asked", async () => {

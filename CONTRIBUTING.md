@@ -206,6 +206,10 @@ into a temporary folder with SQLite's own backup, makes a registry for the
 copy, and edits a line in each of the first presentations there. Only the
 copy is written. Even so, point it at a copy rather than the workspace
 ProPresenter uses, so that the one thing that cannot go wrong is the library.
+It also runs `packages/node/src/__tests__/workspace-ranges-survey.test.ts`,
+which only reads: it tries five edits on every line of every box with
+styling ranges, and prints on stderr how many boxes the ranges can be moved
+for and why the rest are refused.
 
 `packages/core/scripts/make-mutated-sample.mjs` generates a plausibly-edited copy of a real
 file, which is handy for exercising the diff UI without waiting for two genuine

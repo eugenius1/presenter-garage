@@ -361,9 +361,16 @@ export const fr: Dictionary = {
         readBackFailed:
           "le fichier sur le disque ne contient pas ce qui a été écrit ; restaurez-le depuis la sauvegarde",
         attributeRanges:
-          "une zone de texte porte une mise en forme sur une partie de ligne, qui ne peut pas suivre le texte : rien n’a donc été écrit",
+          "une zone de texte porte une mise en forme qui ne peut pas suivre son texte sans deviner : rien n’a donc été écrit",
         rolledBack:
           "une autre présentation du même espace de travail n’a pas pu être écrite : aucune n’y a donc été écrite",
+      },
+      rangeRefusals: {
+        malformed: "une plage de mise en forme y finit avant de commencer",
+        typedAtEdge:
+          "du texte serait ajouté juste au bord d’une mise en forme qui ne couvre qu’une partie de la ligne, et rien ne dit s’il doit la prendre",
+        replacedAcrossEdge:
+          "du nouveau texte remplacerait l’endroit où commence ou finit une mise en forme sur une partie de la ligne, et rien ne dit où elle doit commencer ou finir dans le nouveau texte",
       },
       editRefusals: {
         noSuchLine: "il n’y a pas de zone de texte ou de ligne à cette adresse",

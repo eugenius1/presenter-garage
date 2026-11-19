@@ -246,8 +246,8 @@ export interface WorkspaceReplacement {
  * Why a presentation in a workspace was not written, beyond the refusals the
  * `.pro` path shares:
  *
- * - `attributeRanges`: a box's character ranges do not fall on its lines, so
- *   they cannot be moved with the text.
+ * - `attributeRanges`: a box's character ranges cannot be moved with its
+ *   text without a guess (`moveRanges()` in core says when).
  * - `rolledBack`: this one was fine, but another in the same workspace was
  *   not, and a workspace's run is written whole or not at all.
  */
@@ -395,7 +395,10 @@ export async function writeWorkspaceEdits(
 
 function refusalOf(e: unknown): Pick<WorkspaceOutcome, "reason" | "detail"> {
   if (e instanceof FixError) return { reason: e.reason };
-  if (e instanceof AttributeRangeError) return { reason: "attributeRanges", detail: `box ${e.boxIndex}` };
+  if (e instanceof AttributeRangeError) {
+    const where = e.lineIndex === undefined ? `box ${e.boxIndex}` : `box ${e.boxIndex} line ${e.lineIndex}`;
+    return { reason: "attributeRanges", detail: `${where}, ${e.reason}` };
+  }
   return { reason: "unreadable", detail: (e as Error).message };
 }
 
