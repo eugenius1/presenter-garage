@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { applyFixes, EditError, FixError, planLineEdits, presentationRanges, verifyRanges, type LineChange } from "../fixes";
-import { decodePresentation, readPresentation, textBoxRanges, type AttributeRange } from "../presentation";
+import { decodePresentation, openPresentation, readPresentation, textBoxRanges, type AttributeRange } from "../presentation";
 import { AttributeRangeError } from "../ranges";
 import { hasRealLibrary, libraryFiles, readLibraryFile } from "./corpus";
 import { capsByLine, syntheticTextPresentation, textLines, withAttributes } from "./synthetic";
@@ -168,10 +168,11 @@ function capsOnLines(lines: readonly string[], ranges: readonly { start: number;
  * Over a real library: beside every line of every box with ranges, a line
  * added after it and one before it, and the line itself lengthened. Each
  * that is not refused leaves every line in capitals exactly where it was,
- * and an added line in capitals exactly where its neighbour is; and one file
- * write per presentation, with a line added to each box that takes one,
- * reads back with every range where it was planned. Only a machine with a
- * library runs it.
+ * and an added line in capitals exactly where its neighbour is. Then one
+ * file write per presentation, with the first line added to each box that
+ * took one, wherever it went, reads back with every range where it was
+ * planned. A ChordPro chart, which shares the extension, is passed over as
+ * the app passes it over. Only a machine with a library runs it.
  */
 describe.skipIf(!hasRealLibrary)("moving the ranges of a real library", () => {
   const files: { file: string; bytes: Uint8Array }[] = [];
@@ -182,14 +183,22 @@ describe.skipIf(!hasRealLibrary)("moving the ranges of a real library", () => {
   });
 
   it("keeps every line's capitals, and gives an added line its neighbour's", () => {
+    type Operation = "after" | "before" | "lengthened";
+    const counts = Object.fromEntries(
+      (["after", "before", "lengthened"] as const).map((op) => [op, { tried: 0, refused: 0, kept: 0 }])
+    ) as Record<Operation, { tried: number; refused: number; kept: number }>;
     const failures: string[] = [];
-    let tried = 0;
-    let refused = 0;
     let boxes = 0;
+    let filesWritten = 0;
 
     for (const { file, bytes } of files) {
-      const raw = decodePresentation(bytes);
-      const doc = readPresentation(raw);
+      const opened = openPresentation(bytes);
+      if (opened.problem === "notPresentation" || opened.problem === "empty") continue;
+      if (opened.problem) {
+        failures.push(`${file}: ${opened.problem}`);
+        continue;
+      }
+      const { doc, raw } = opened;
       const all = textBoxRanges(raw);
       const written: LineChange[] = [];
       for (const box of doc.textBoxes) {
@@ -198,19 +207,21 @@ describe.skipIf(!hasRealLibrary)("moving the ranges of a real library", () => {
         boxes++;
         const lines = box.lines.map((l) => l.text);
         const was = capsOnLines(lines, present);
+        let added = false;
         for (const [index, text] of lines.entries()) {
-          const tries: [LineChange, string[], boolean[]][] = [];
+          const tries: [Operation, LineChange, string[], boolean[]][] = [];
           for (const side of ["after", "before"] as const) {
             const at = side === "after" ? index + 1 : index;
             tries.push([
+              side,
               { boxIndex: box.boxIndex, lineIndex: index, text: "pg added", insert: side },
               lines.toSpliced(at, 0, "pg added"),
               was.toSpliced(at, 0, was[index]),
             ]);
           }
-          tries.push([{ boxIndex: box.boxIndex, lineIndex: index, text: `${text} pg` }, lines.with(index, `${text} pg`), was]);
+          tries.push(["lengthened", { boxIndex: box.boxIndex, lineIndex: index, text: `${text} pg` }, lines.with(index, `${text} pg`), was]);
 
-          for (const [change, after, want] of tries) {
+          for (const [op, change, after, want] of tries) {
             if (failures.length >= 5) break;
             let fixes;
             try {
@@ -219,26 +230,32 @@ describe.skipIf(!hasRealLibrary)("moving the ranges of a real library", () => {
               if (e instanceof EditError) continue;
               throw e;
             }
-            tried++;
+            counts[op].tried++;
             let moved;
             try {
               moved = presentationRanges(raw, doc, fixes).moved.get(box.boxIndex)!;
             } catch (e) {
               if (!(e instanceof AttributeRangeError)) throw e;
-              refused++;
+              counts[op].refused++;
               continue;
             }
             const got = capsOnLines(after, moved);
             if (got.some((c, i) => c !== want[i])) {
               failures.push(`${file} box ${box.boxIndex} ${JSON.stringify(change)}: ${JSON.stringify(got)} for ${JSON.stringify(want)}`);
+              continue;
             }
-            if (index === 0 && change.insert === "after") written.push(change);
+            counts[op].kept++;
+            if (change.insert && !added) {
+              written.push(change);
+              added = true;
+            }
           }
         }
       }
       if (written.length === 0) continue;
       try {
         applyFixes(bytes, planLineEdits(doc, written));
+        filesWritten++;
       } catch (e) {
         failures.push(`${file}: ${(e as Error).message}`);
       }
@@ -246,7 +263,13 @@ describe.skipIf(!hasRealLibrary)("moving the ranges of a real library", () => {
 
     expect(failures).toEqual([]);
     expect(boxes).toBeGreaterThan(100);
-    // Counted, so a rule that refuses too much shows here.
-    expect(refused).toBeLessThan(tried / 20);
+    expect(filesWritten).toBeGreaterThan(100);
+    // Counted for each operation, so a rule that refuses one of them
+    // wholesale shows here even while the others carry the total.
+    for (const [op, { tried, refused, kept }] of Object.entries(counts)) {
+      expect(kept + refused, op).toBe(tried);
+      expect(tried, op).toBeGreaterThan(1000);
+      expect(refused, op).toBeLessThan(tried / 10);
+    }
   }, 300_000);
 });
