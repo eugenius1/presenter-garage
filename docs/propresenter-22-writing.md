@@ -107,9 +107,20 @@ three-line box, the last four characters of the box were no longer in
 capitals. ProPresenter rewrites the ranges when it edits text itself.
 
 So an edit to a workspace moves these ranges with the text. The same field
-exists in a `.pro` file, where `applyFixes()` does not touch it; whether
-ProPresenter 7 shows the same drift there has not been checked, and is
-[#56](https://github.com/eugenius1/presenter-garage/issues/56).
+exists in a `.pro` file, and ProPresenter 20.0.1 does not work the ranges
+out again there either: opening a file with a line added, it showed the
+next line without its capitals and only part of the new one in them, and
+its own next edit to the box left that as it was. So `applyFixes()` moves
+a `.pro` file's ranges too, by the same rule, `rangesAfter()` in
+`packages/core/src/lib/ranges.ts`, refuses what it refuses, and reads every
+range back where it was planned (`verifyRanges()`). That covers a line
+lengthened or shortened by any fix, not only an added one
+([#56](https://github.com/eugenius1/presenter-garage/issues/56)). Over the real `.pro` library behind
+this workspace, 6,713 boxes with ranges: of 36,017 lines lengthened or
+given a line on either side, 1,153 were refused and every other left each
+line in capitals exactly where it was. Of the 447 files the text checks
+would fix, 15 are now refused for a box with ranges off its lines, where
+before they were written with the capitals moved.
 
 ### Two computers and one text box
 

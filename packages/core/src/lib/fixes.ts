@@ -6,10 +6,12 @@ import {
   openPresentation,
   readPresentation,
   RUN_CLASS,
+  textBoxRanges,
   SPACE_CLASS,
   TRAILING_PUNCTUATION,
   unreadableReport,
   writeTextBoxes,
+  type AttributeRange,
   type PresentationDoc,
   type PresentationReport,
   type ReadProblem,
@@ -31,6 +33,8 @@ import {
   type TextCut,
 } from "./rtf";
 import { groupBy } from "./collections";
+import type { RawDoc } from "./decode";
+import { AttributeRangeError, rangesAfter } from "./ranges";
 
 /**
  * Turning findings into edits.
@@ -373,8 +377,20 @@ export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange
   return fixes;
 }
 
-/** Why a file was not written. Carries a code; the interface supplies the words. */
-export type FixRefusal = "lossy" | "unchanged" | "verifyFailed" | "unreadable" | "stale";
+/**
+ * Why a file was not written. Carries a code; the interface supplies the words.
+ * `attributeRanges` and `addedLineRanges` are an `AttributeRangeError`'s two
+ * answers: a box's ranges do not fall on its lines, or whether an added line
+ * takes one would be a guess.
+ */
+export type FixRefusal =
+  | "lossy"
+  | "unchanged"
+  | "verifyFailed"
+  | "unreadable"
+  | "stale"
+  | "attributeRanges"
+  | "addedLineRanges";
 
 export class FixError extends Error {
   readonly reason: FixRefusal;
@@ -421,12 +437,69 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
   }
 
   const replacements = spliceBoxes(before, fixes);
+  let planned;
+  try {
+    planned = presentationRanges(doc, before, fixes);
+  } catch (e) {
+    if (e instanceof AttributeRangeError) throw new FixError(e.addedLine ? "addedLineRanges" : "attributeRanges");
+    throw e;
+  }
 
-  writeTextBoxes(doc, replacements);
+  writeTextBoxes(doc, replacements, planned.moved);
   const written = encodePresentation(doc);
 
-  verifyLines(readPresentation(decodePresentation(written)), before, fixes);
+  // The gate again, on the bytes handed back rather than the ones read.
+  if (!checkPresentationFidelity(written).exportSafe) throw new FixError("lossy");
+  const reread = decodePresentation(written);
+  verifyLines(readPresentation(reread), before, fixes);
+  verifyRanges(textBoxRanges(reread), planned);
   return written;
+}
+
+/** A `.pro` file's attribute ranges, as read and as the fixes will leave them. */
+export interface PlannedRanges {
+  /** Every box's ranges as the file holds them now. */
+  before: Map<number, AttributeRange[]>;
+  /** Each edited box's ranges once the fixes are in, by box. */
+  moved: Map<number, AttributeRange[]>;
+  /** The added lines a capitalization is widened over, which read in capitals. */
+  capitals: Set<LineFix>;
+}
+
+/**
+ * Where a `.pro` file's attribute ranges go once the fixes are in, by
+ * `rangesAfter`, the rule a workspace's ranges move by too. ProPresenter
+ * does not move them itself on opening the file, so left alone they would
+ * put the capitals on the wrong characters. `raw` is the decoded message
+ * `before` was read from. Throws `AttributeRangeError`.
+ */
+export function presentationRanges(raw: RawDoc, before: PresentationDoc, fixes: readonly LineFix[]): PlannedRanges {
+  const ranges = textBoxRanges(raw);
+  const moved = new Map<number, AttributeRange[]>();
+  const capitals = new Set<LineFix>();
+  for (const boxIndex of new Set(fixes.map((fix) => fix.boxIndex))) {
+    const box = before.textBoxes.find((b) => b.boxIndex === boxIndex)!;
+    const present = ranges.get(boxIndex) ?? [];
+    const after = rangesAfter(box, fixes, present);
+    moved.set(boxIndex, present.map((range, i) => ({ ...range, ...after.moved[i] })));
+    for (const fix of after.capitals) capitals.add(fix);
+  }
+  return { before: ranges, moved, capitals };
+}
+
+/**
+ * Throws `verifyFailed` unless every range of every box reads back where it
+ * was planned: moved in the edited boxes, exactly where it was in the rest.
+ */
+export function verifyRanges(after: ReadonlyMap<number, readonly AttributeRange[]>, planned: PlannedRanges): void {
+  if (after.size !== planned.before.size) throw new FixError("verifyFailed");
+  for (const [boxIndex, was] of planned.before) {
+    const want = planned.moved.get(boxIndex) ?? was;
+    const got = after.get(boxIndex);
+    const same = (a: AttributeRange, b: AttributeRange) =>
+      a.index === b.index && a.start === b.start && a.end === b.end && a.caps === b.caps;
+    if (got?.length !== want.length || got.some((range, i) => !same(range, want[i]))) throw new FixError("verifyFailed");
+  }
 }
 
 /**
@@ -463,11 +536,6 @@ export function spliceBoxes(before: PresentationDoc, fixes: readonly LineFix[]):
   return replacements;
 }
 
-/**
- * What every line of every edited box should read once the fixes are in:
- * each line as changed or as it was, with the lines added before and after
- * it in the order the fixes list them.
- */
 /** Whether a box with these fixes spliced in reads exactly as `expected()` says. */
 function readsBack(box: { rtf: string; lines: RtfLine[] }, fixes: readonly LineFix[]): boolean {
   const got = extractLines(applyEdits(box.rtf, fixes.flatMap((fix) => fix.edits))).map((line) => line.text);
@@ -475,6 +543,11 @@ function readsBack(box: { rtf: string; lines: RtfLine[] }, fixes: readonly LineF
   return got.length === want.length && got.every((text, i) => text === want[i]);
 }
 
+/**
+ * What every line of every edited box should read once the fixes are in:
+ * each line as changed or as it was, with the lines added before and after
+ * it in the order the fixes list them.
+ */
 function expected(box: { lines: RtfLine[] }, fixes: readonly LineFix[]): string[] {
   const changed = new Map(fixes.filter((f) => !f.insert).map((f) => [f.lineIndex, f.after]));
   const added = (index: number, side: InsertSide) =>

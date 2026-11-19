@@ -230,10 +230,18 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     const planned = (
       await edit("plan_slide_edits", { edits: [{ path: song, boxIndex: 6, lineIndex: 2, text: "sois glorifie", insert: "after" }] })
     ).json();
-    expect(planned.files[0].lines[0]).toMatchObject({ lineIndex: 2, insert: "after", before: null, after: "sois glorifie" });
+    expect(planned.files[0].lines[0]).toMatchObject({
+      lineIndex: 2,
+      insert: "after",
+      before: null,
+      after: "sois glorifie",
+      capitals: true,
+    });
 
     const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
     expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
+    const { properties } = (asked.at(-1)!.params as { requestedSchema: { properties: Record<string, { description: string }> } }).requestedSchema;
+    expect(properties.line1.description).toMatch(/, in capitals as the line beside it is$/);
     const read = (await edit("read_presentation", { path: song })).json();
     expect(read.slides[6].textBoxes[0].lines.slice(-2)).toEqual(["sois glorifie", "sois glorifie"]);
   });

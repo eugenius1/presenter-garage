@@ -233,6 +233,12 @@ every other line unchanged, and a line added before and after every line. Withou
 exhaustively — every insertion, deletion and replacement at every position —
 over hand-written documents built to hit each trap above.
 
+`packages/core/src/lib/__tests__/ranges.test.ts` holds a `.pro` file's
+attribute ranges to the text: the boxes ProPresenter 20 showed capitals
+drifting in, built with one All Caps range to a line, and over a real
+library, every line of every box with ranges lengthened and given a line on
+either side, each line left in capitals exactly where it was.
+
 ## Checked against ProPresenter
 
 The suite proves a file round-trips. It cannot prove that ProPresenter shows
@@ -312,6 +318,15 @@ delimiter the line's text did not when the line opens on an escape
 (`\cb2\u201 ?ternel`). Before an *empty* last line it goes before that line's
 formatting instead, since text after it leaves nothing behind the break and
 the empty line vanishes -- the real-library test caught that on its first run.
+
+**Text is not only `rtf_data`.** A text element's `custom_attributes` are
+ranges of character offsets over the box's plain text, All Caps nearly
+always, one to a line, and ProPresenter does not work them out again when it
+opens a file. A writer that changes a line's length and leaves them puts the
+capitals on the wrong characters, in a `.pro` file as in a workspace. Every
+writer moves them by `rangesAfter()` in `packages/core/src/lib/ranges.ts`
+and nothing else; a box whose ranges it cannot move without a guess is
+refused, not written approximately.
 
 **`instanceof Uint8Array` fails across realms.** The array protobuf.js hands
 back is not always built from the same global as the code reading it, and

@@ -1,6 +1,6 @@
 import protobuf from "protobufjs";
 import descriptor from "../../generated/pp.descriptor.json";
-import { decodePresentation, readPresentation } from "../presentation";
+import { decodePresentation, encodePresentation, readPresentation, textBoxAddresses } from "../presentation";
 
 /**
  * A synthetic media-bin document, built rather than committed.
@@ -512,4 +512,27 @@ export function syntheticMacrosFile(): Uint8Array {
       })
     )
     .finish();
+}
+
+/** All Caps over each line on its own, as ProPresenter records it: one range to a line. */
+export function capsByLine(lines: readonly string[]): object[] {
+  let at = 0;
+  return lines.map((line) => {
+    const range = { start: at, end: at + line.length };
+    at = range.end + 1;
+    return { range, capitalization: "CAPITALIZATION_ALL_CAPS" };
+  });
+}
+
+/** A presentation with these attribute ranges on some of its text boxes, by box. */
+export function withAttributes(bytes: Uint8Array, byBox: Record<number, object[]>): Uint8Array {
+  const Attributes = root.lookupType("rv.data.Graphics.Text.Attributes");
+  const doc = decodePresentation(bytes);
+  for (const { boxIndex, cueUuid, actionIndex, elementIndex } of textBoxAddresses(doc)) {
+    if (!byBox[boxIndex]) continue;
+    const cue = doc.cues.find((c: any) => c.uuid?.string === cueUuid);
+    const { text } = cue.actions[actionIndex].slide.presentation.base_slide.elements[elementIndex].element;
+    text.attributes = Attributes.fromObject({ custom_attributes: byBox[boxIndex] });
+  }
+  return encodePresentation(doc);
 }

@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { FixError, planLineEdits } from "../fixes";
 import { readPresentation } from "../presentation";
 import { presentationFromWorkspace } from "../workspace";
+import { AttributeRangeError, moveRanges } from "../ranges";
 import {
-  AttributeRangeError,
   checkWorkspaceEdit,
   editedRoot,
   encodeVersionVector,
-  moveRanges,
   onlyPeerAdded,
   planWorkspaceEdit,
   valueAt,

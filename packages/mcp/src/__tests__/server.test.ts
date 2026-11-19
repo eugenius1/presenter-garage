@@ -10,6 +10,7 @@ import {
   type ElicitResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
+  capsByLine,
   CONFIGURED_GROUPS,
   MACROS,
   syntheticGroupsFile,
@@ -19,12 +20,13 @@ import {
   syntheticTextPresentation,
   SYNTHETIC,
   textLines,
+  withAttributes,
 } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { encodeDocument, messageType } from "@presenter-garage/core/lib/decode";
 import { decodeMediaDocument, rawItems, walkNodes } from "@presenter-garage/core/lib/model";
 import { applyOperations } from "@presenter-garage/core/lib/operations";
 import { decodePlaylistsDocument, headerEntry, mediaEntry, presentationEntry } from "@presenter-garage/core/lib/playlists";
-import { decodePresentation, encodePresentation, slidesInOrder } from "@presenter-garage/core/lib/presentation";
+import { decodePresentation, encodePresentation, slidesInOrder, textBoxRanges } from "@presenter-garage/core/lib/presentation";
 import { syntheticPresentationFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { findPresentations, openRoots, readFoundFile, readLibraryFile, resolveInRoots } from "@presenter-garage/node/library";
 import { parseArgs } from "../args";
@@ -930,6 +932,42 @@ describe("editing slide text", () => {
 
     expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
     expect(lines()[6]).toEqual(["Refrain", "Que ton nom,", "Que ton nom,", "pour toujours ,", "sois glorifie"]);
+  });
+
+  it("moves the capitals with the text, and says where an added line comes out in them", async () => {
+    fs.writeFileSync(
+      file,
+      withAttributes(syntheticTextPresentation("Song"), { 0: capsByLine(["A tidy line", "And another"]) })
+    );
+    const planned = await plan([
+      { boxIndex: 0, lineIndex: 0, text: "new line", insert: "after" },
+      { boxIndex: 1, lineIndex: 0, text: "not", insert: "after" },
+    ]);
+    expect(planned.files[0].lines.map((l: Record<string, unknown>) => l.capitals)).toEqual([true, undefined]);
+
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    const { properties } = form(asked[0]).requestedSchema;
+    expect(properties.line1.description).toBe("Added after “A tidy line”: “new line”, in capitals as the line beside it is");
+    expect(properties.line2.description).toBe("Added after “Fine here”: “not”");
+    expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
+    const ranges = textBoxRanges(decodePresentation(new Uint8Array(fs.readFileSync(file)))).get(0)!;
+    // "A tidy line" and the new line under one range, "And another" moved past it.
+    expect(ranges.map((r) => [r.start, r.end])).toEqual([
+      [0, 20],
+      [21, 32],
+    ]);
+  });
+
+  it("refuses at plan time an added line whether a range covers would be a guess", async () => {
+    fs.writeFileSync(
+      file,
+      withAttributes(syntheticTextPresentation("Song"), { 0: [{ range: { start: 0, end: 11 }, original_font_size: 120 }] })
+    );
+    const result = await edit("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/box 0: a text box has formatting that an added line could only guess whether to take/);
   });
 
   it("refuses an added line it cannot place, saying which", async () => {

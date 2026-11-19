@@ -9,12 +9,14 @@ import {
   FixError,
   fixFiles,
   planLineEdits,
+  presentationRanges,
   type FixRefusal,
   type LineChange,
   type LineFix,
 } from "@presenter-garage/core/lib/fixes";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
-import { AttributeRangeError, planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
+import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
+import { planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
 import { documentAt, isInWorkspace, workspaceAt } from "@presenter-garage/node/workspace";
 import {
@@ -57,8 +59,13 @@ export interface PlannedFile {
   sha256: string;
   /** Set for a document of a ProPresenter 22 workspace, which is written into its database rather than over a file. */
   workspace?: { root: string; documentId: Uint8Array };
-  /** Each change with its number in the whole plan, which is how the confirmation names it. */
-  lines: { n: number; fix: LineFix }[];
+  /**
+   * Each change with its number in the whole plan, which is how the
+   * confirmation names it. `capitals` is set for an added line that reads in
+   * capitals, because the All Caps range of the line beside it is widened
+   * over it.
+   */
+  lines: { n: number; fix: LineFix; capitals?: true }[];
 }
 
 export interface Plan {
@@ -102,6 +109,8 @@ export interface PlannedLine {
   insert?: "before" | "after";
   /** Null for an added line, which was not there before. */
   before: string | null;
+  /** Set for an added line that shows in capitals: the line beside it is All Caps, and the new line takes it. */
+  capitals?: true;
   /** Null when the line is removed. */
   after: string | null;
 }
@@ -151,7 +160,7 @@ export async function planSlideEdits(
   const files: PlannedFile[] = [];
   for (const [real, changes] of byFile) {
     const { bytes, sha256: digest, workspace, root } = await readForPlan(real);
-    const { doc } = open(real, bytes);
+    const { doc, raw } = open(real, bytes);
     let fixes: LineFix[];
     try {
       fixes = planLineEdits(doc, changes);
@@ -162,26 +171,29 @@ export async function planSlideEdits(
       const where = `${insert ? ", " : " "}${changeSite(e.change)}`;
       throw new LibraryError(`${real}, box ${boxIndex}${where}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
-    // A workspace document is edited as itself, and what stops that is
-    // known now: refused before a person has read and approved every line.
-    if (root !== undefined) {
-      try {
-        planWorkspaceEdit(root, fixes);
-      } catch (e) {
-        if (e instanceof AttributeRangeError) {
-          const why = e.addedLine ? refusals.addedLineRanges : refusals.attributeRanges;
-          throw new LibraryError(`${real}, box ${e.boxIndex}: ${why}. Nothing was planned.`);
-        }
-        if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
-        throw e;
+    // Where every attribute range goes, which the person is shown, and what
+    // stops it, known now: refused before a person has read and approved
+    // every line. A workspace document is edited as itself.
+    let capitals: Set<LineFix>;
+    try {
+      capitals =
+        root !== undefined
+          ? planWorkspaceEdit(root, fixes).capitals
+          : presentationRanges(raw, doc, fixes).capitals;
+    } catch (e) {
+      if (e instanceof AttributeRangeError) {
+        const why = e.addedLine ? refusals.addedLineRanges : refusals.attributeRanges;
+        throw new LibraryError(`${real}, box ${e.boxIndex}: ${why}. Nothing was planned.`);
       }
+      if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
+      throw e;
     }
     files.push({
       path: real,
       name: doc.name || presentationName(real),
       sha256: digest,
       workspace,
-      lines: fixes.map((fix) => ({ n: ++n, fix })),
+      lines: fixes.map((fix) => ({ n: ++n, fix, ...(capitals.has(fix) && { capitals: true as const }) })),
     });
   }
 
@@ -191,7 +203,7 @@ export async function planSlideEdits(
     files: plan.files.map((file) => ({
       path: file.path,
       name: file.name,
-      lines: file.lines.map(({ fix, n }) => ({
+      lines: file.lines.map(({ fix, n, capitals }) => ({
         n,
         slideIndex: fix.slideIndex,
         label: fix.cueName,
@@ -201,6 +213,7 @@ export async function planSlideEdits(
         ...(fix.insert && { insert: fix.insert }),
         before: fix.insert ? null : fix.before,
         after: fix.after,
+        ...(capitals && { capitals }),
       })),
     })),
   };
@@ -231,7 +244,7 @@ async function readForPlan(
 /** A confirmation form: one tick box per line, all ticked, each saying what it changes. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
-  for (const file of plan.files) for (const { fix, n } of file.lines) {
+  for (const file of plan.files) for (const { fix, n, capitals } of file.lines) {
     // Box and line too: a slide can hold the same line twice, and a person
     // choosing one of them has to be able to tell which.
     const where = [
@@ -245,9 +258,11 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
       type: "boolean",
       title: `${n}. ${file.name} (${where})`,
       // An added line as it would read, and the line it goes beside as it
-      // reads now, so it can be placed without the slide in front of them.
+      // reads now, so it can be placed without the slide in front of them;
+      // and in capitals where it takes the All Caps of that line.
       description: fix.insert
-        ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
+        ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”` +
+          (capitals ? ", in capitals as the line beside it is" : "")
         : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`,
       default: true,
     };
