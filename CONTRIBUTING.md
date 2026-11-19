@@ -159,7 +159,12 @@ result is one of:
 | --- | --- |
 | `identical` | Byte-for-byte match. Safest possible result. |
 | `equivalent` | Bytes differ, decoded content does not — the original was encoded non-canonically. Nothing would be lost. |
-| `lossy` | Decoded content differs. Something is uncovered by the schema; writing this file back could corrupt it. |
+| `lossy` | The original carries a field the schema does not declare, or decoded content differs. Something is uncovered by the schema; writing this file back could corrupt it. |
+
+Comparing two decodes cannot see a field protobuf.js dropped from both, so
+when the bytes differ the gate also walks the original's wire format beside
+the schema, at every depth, and rates it `lossy` on any field number the
+message does not declare (or a field protobuf.js would not read back whole).
 
 Real files from ProPresenter 20.0.1 and 21.4.2 verify as `identical` (see
 [docs/propresenter-versions.md](docs/propresenter-versions.md)): the strongest
