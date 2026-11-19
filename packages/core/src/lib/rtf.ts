@@ -570,9 +570,13 @@ export function unicodeSkipAt(rtf: string, index: number): number {
   return skip;
 }
 
-/** Whether a UTF-16 code unit is a control character other than a tab, which cannot sit on one line of a slide. */
+/**
+ * Whether a UTF-16 code unit is a control character other than a tab, or a
+ * line break by Unicode's own count -- next line, line and paragraph
+ * separator -- which cannot sit on one line of a slide.
+ */
 function isLineControl(code: number): boolean {
-  return (code < 0x20 && code !== 0x09) || code === 0x7f;
+  return (code < 0x20 && code !== 0x09) || code === 0x7f || code === 0x85 || code === 0x2028 || code === 0x2029;
 }
 
 /** Whether text holds a line break or another control character, so it cannot sit on one line. */

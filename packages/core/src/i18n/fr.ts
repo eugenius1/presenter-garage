@@ -373,6 +373,8 @@ export const fr: Dictionary = {
           "du nouveau texte remplacerait l’endroit où commence ou finit une mise en forme sur une partie de la ligne, et rien ne dit où elle doit commencer ou finir dans le nouveau texte",
         addedLine:
           "une ligne serait ajoutée à côté d’une mise en forme autre que Tout en majuscules, ou au milieu d’une mise en forme qui ne couvre pas la ligne voisine, et rien ne dit si la nouvelle ligne doit la prendre",
+        dependsOnChoice:
+          "la mise en forme d’une ligne dépend d’une autre modification de la même ligne, qui pourrait être décochée : elle ne peut donc pas être montrée pour chaque choix ; planifiez ces modifications séparément",
       },
       editRefusals: {
         noSuchLine: "il n’y a pas de zone de texte ou de ligne à cette adresse",

@@ -308,6 +308,14 @@ difference, since only All Caps is known to carry over to a new line:
 - New lines beside a **blank** line, where a range runs from text on their
   far side up to it, fall inside the range, whatever its styling.
 
+What each line shows has to hold whichever of the others the person leaves
+ticked, and an added line's styling can hang on the change to the line it
+goes beside: All Caps over part of a line that the change makes the whole
+line. So every choice among the changes at one line -- its own, the run
+added before it, the run added after it -- is tried at plan time, and a line
+that would come out otherwise in one of them is refused (`dependsOnChoice`),
+to be planned on its own.
+
 No range is ever created. A range is an attribute, a map in the box's
 `custom_attributes` list, and giving the new line one of its own would mean
 inserting a container into the document, which nothing here does; widening

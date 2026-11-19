@@ -374,6 +374,11 @@ describe("planning line edits on a presentation", () => {
     expect(refuse([{ boxIndex: 0, lineIndex: 9, text: "x" }])).toBe("noSuchLine");
     expect(refuse([{ boxIndex: 0, lineIndex: 0, text: "A tidy line" }])).toBe("unchanged");
     expect(refuse([{ boxIndex: 0, lineIndex: 0, text: "two\nlines" }])).toBe("notOneLine");
+    // Line breaks by Unicode's count too: next line, line separator, paragraph separator.
+    for (const brk of ["\u0085", "\u2028", "\u2029"]) {
+      expect(refuse([{ boxIndex: 0, lineIndex: 0, text: `two${brk}lines` }])).toBe("notOneLine");
+      expect(refuse([{ boxIndex: 0, lineIndex: 0, text: `two${brk}lines`, insert: "after" }])).toBe("notOneLine");
+    }
     // The last line of a box has no break to take with it.
     expect(refuse([{ boxIndex: 0, lineIndex: 1, text: null }])).toBe("lastLine");
     expect(

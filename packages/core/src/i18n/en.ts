@@ -358,6 +358,8 @@ export const en = {
           "new text would replace where formatting over part of the line starts or ends, and where it starts or ends in the new text is a guess",
         addedLine:
           "a line would be added beside formatting other than All Caps, or inside formatting that does not cover the line it goes beside, and whether the new line takes it is a guess",
+        dependsOnChoice:
+          "how the formatting falls on a line depends on whether another change at the same line is chosen, so it cannot be shown for every choice; plan those changes separately",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
       editRefusals: {

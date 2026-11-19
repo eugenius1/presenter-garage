@@ -29,8 +29,11 @@ import { lineSplice } from "./rtf";
  * - `addedLine`: a line is added beside one that styling other than All
  *   Caps covers, or inside a range that does not cover the line it is added
  *   beside, so whether the new line takes it is a guess.
+ * - `dependsOnChoice`: how styling falls on a line depends on whether
+ *   another change at the same line is chosen, so unticking that one would
+ *   leave this one otherwise than the person was shown.
  */
-export type RangeRefusal = "malformed" | "typedAtEdge" | "replacedAcrossEdge" | "addedLine";
+export type RangeRefusal = "malformed" | "typedAtEdge" | "replacedAcrossEdge" | "addedLine" | "dependsOnChoice";
 
 /** Thrown when a box's attribute ranges cannot be moved with its text without a guess. */
 export class AttributeRangeError extends Error {
@@ -431,9 +434,13 @@ function layout(lines: readonly string[], fixes: readonly LineFix[]) {
  * they choose it. `cutBack` is set when a range ran past the end of the text
  * and is cut back to it.
  *
- * Each fix is also moved on its own, as the person may untick the rest, so
- * one that only works beside another is refused before anybody is asked.
- * Throws `AttributeRangeError`.
+ * The person may untick any line, so what each line is shown has to hold
+ * whichever others stay chosen. What can change how styling falls on a
+ * line, or on lines added beside it, is the changes at that line: its own,
+ * and the run of lines added before it and the run added after it, each
+ * run decided as a whole. So every choice among those is tried, and a line
+ * that would come out otherwise than shown in one of them is refused
+ * (`dependsOnChoice`) before anybody is asked. Throws `AttributeRangeError`.
  */
 export function rangesAfter(
   box: { boxIndex: number; lines: readonly { text: string }[] },
@@ -444,45 +451,68 @@ export function rangesAfter(
   const lines = box.lines.map((line) => line.text);
   // Ranges of the same styling: equal `style`, or each its own without one.
   const styles = ranges.map((range, i) => range.style ?? i);
-  const move = (chosen: readonly LineFix[]) => {
-    const { after, texts } = layout(lines, chosen);
-    return moveRanges(box.boxIndex, lines, after, ranges, styles, texts);
-  };
-  if (mine.length > 1) for (const fix of mine) move([fix]);
-  const moved = move(mine);
-
-  // Where every line lies once the fixes are in, added lines among them.
-  const { after, added } = layout(lines, mine);
-  const placed = new Map<LineFix | number, { start: number; end: number }>();
-  let at = 0;
-  const place = (key: LineFix | number, text: string) => {
-    placed.set(key, { start: at, end: at + text.length });
-    at += text.length + 1;
-  };
-  for (const [i, text] of after.entries()) {
-    for (const fix of added.get(i)?.before ?? []) place(fix, fix.after!);
-    if (text !== null) place(i, text);
-    for (const fix of added.get(i)?.after ?? []) place(fix, fix.after!);
-  }
-
   const length = lines.join("\n").length;
   const was = lineBounds(lines);
-  const styling = new Map<LineFix, LineStyling>();
+
+  /** Where the ranges go with these fixes in, and what each of them shows. */
+  const outcome = (chosen: readonly LineFix[]) => {
+    const { after, added, texts } = layout(lines, chosen);
+    const moved = moveRanges(box.boxIndex, lines, after, ranges, styles, texts);
+
+    // Where every line lies once the fixes are in, added lines among them.
+    const placed = new Map<LineFix | number, { start: number; end: number }>();
+    let at = 0;
+    const place = (key: LineFix | number, text: string) => {
+      placed.set(key, { start: at, end: at + text.length });
+      at += text.length + 1;
+    };
+    for (const [i, text] of after.entries()) {
+      for (const fix of added.get(i)?.before ?? []) place(fix, fix.after!);
+      if (text !== null) place(i, text);
+      for (const fix of added.get(i)?.after ?? []) place(fix, fix.after!);
+    }
+
+    const styling = new Map<LineFix, LineStyling>();
+    for (const fix of chosen) {
+      const i = fix.lineIndex;
+      const on = ranges.flatMap((range, k) => {
+        const about = { index: range.index ?? k, kind: range.kind ?? "unknown", ...(range.value !== undefined && { value: range.value }) };
+        if (fix.insert) {
+          const covered = coveredOn(fix.after!, placed.get(fix)!, moved[k]);
+          return covered ? [{ ...about, before: "", after: covered }] : [];
+        }
+        const shown = {
+          before: coveredOn(lines[i], was[i], { start: Math.min(range.start, length), end: Math.min(range.end, length) }),
+          after: after[i] === null ? null : coveredOn(after[i]!, placed.get(i)!, moved[k]),
+        };
+        return shown.before === shown.after || (shown.before === "" && !shown.after) ? [] : [{ ...about, ...shown }];
+      });
+      styling.set(fix, { boxIndex: box.boxIndex, lineIndex: i, ranges: on });
+    }
+    return { moved, styling };
+  };
+  const all = outcome(mine);
+
+  // By line: its own change, the run added before it, the run added after it.
+  const atLine = new Map<number, [LineFix[], LineFix[], LineFix[]]>();
   for (const fix of mine) {
-    const i = fix.lineIndex;
-    const on = ranges.flatMap((range, k) => {
-      const about = { index: range.index ?? k, kind: range.kind ?? "unknown", ...(range.value !== undefined && { value: range.value }) };
-      if (fix.insert) {
-        const covered = coveredOn(fix.after!, placed.get(fix)!, moved[k]);
-        return covered ? [{ ...about, before: "", after: covered }] : [];
-      }
-      const shown = {
-        before: coveredOn(lines[i], was[i], { start: Math.min(range.start, length), end: Math.min(range.end, length) }),
-        after: after[i] === null ? null : coveredOn(after[i]!, placed.get(i)!, moved[k]),
-      };
-      return shown.before === shown.after || (shown.before === "" && !shown.after) ? [] : [{ ...about, ...shown }];
-    });
-    styling.set(fix, { boxIndex: box.boxIndex, lineIndex: i, ranges: on });
+    const parts = atLine.get(fix.lineIndex) ?? [[], [], []];
+    parts[fix.insert === "before" ? 1 : fix.insert === "after" ? 2 : 0].push(fix);
+    atLine.set(fix.lineIndex, parts);
   }
-  return { moved, styling, cutBack: ranges.some((range) => range.end > length) };
+  const said = (styling: LineStyling | undefined) => JSON.stringify(styling?.ranges);
+  for (const parts of atLine.values()) {
+    const present = parts.filter((part) => part.length > 0);
+    for (let mask = 1; mask < 1 << present.length; mask++) {
+      const chosen = present.filter((_, j) => mask & (1 << j)).flat();
+      if (chosen.length === mine.length) continue;
+      const { styling } = outcome(chosen);
+      for (const fix of chosen) {
+        if (said(styling.get(fix)) !== said(all.styling.get(fix))) {
+          throw new AttributeRangeError(box.boxIndex, "dependsOnChoice", fix.lineIndex);
+        }
+      }
+    }
+  }
+  return { moved: all.moved, styling: all.styling, cutBack: ranges.some((range) => range.end > length) };
 }

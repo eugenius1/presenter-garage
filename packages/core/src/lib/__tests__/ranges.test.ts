@@ -104,6 +104,40 @@ describe("moving a .pro file's ranges with its text", () => {
     ]);
   });
 
+  it("refuses a line added beside a change it takes its capitals from only when both are chosen", () => {
+    // All Caps on "A tidy" only. Cut to "A tidy", the line is all in it, and
+    // a line added after takes it; added alone, it would not. Unticking the
+    // change would write the new line otherwise than the person was shown.
+    const bytes = withAttributes(syntheticTextPresentation(), {
+      0: [{ range: { start: 0, end: 6 }, capitalization: "CAPITALIZATION_ALL_CAPS" }],
+    });
+    const fixes = plan(bytes, [
+      { boxIndex: 0, lineIndex: 0, text: "A tidy" },
+      { boxIndex: 0, lineIndex: 0, text: "new", insert: "after" },
+    ]);
+    expect(() => presentationRanges(decodePresentation(bytes), open(bytes), fixes)).toThrow(
+      new AttributeRangeError(0, "dependsOnChoice", 0)
+    );
+    // Each on its own is fine, and says what it does.
+    for (const fix of fixes) expect(() => presentationRanges(decodePresentation(bytes), open(bytes), [fix])).not.toThrow();
+  });
+
+  it("plans a change and a line added beside it together when each reads the same either way", () => {
+    const bytes = song();
+    const fixes = plan(bytes, [
+      { boxIndex: 0, lineIndex: 0, text: "A tidier line" },
+      { boxIndex: 0, lineIndex: 0, text: "new", insert: "after" },
+      { boxIndex: 0, lineIndex: 0, text: "first", insert: "before" },
+    ]);
+    const { styling } = presentationRanges(decodePresentation(bytes), open(bytes), fixes);
+    // Each line in capitals as a whole, whichever of the others is chosen.
+    expect(fixes.map((fix, i) => [fix.after, styling[i].ranges.map((r) => r.after)])).toEqual([
+      ["first", ["first"]],
+      ["A tidier line", ["A tidier line"]],
+      ["new", ["new"]],
+    ]);
+  });
+
   it("moves a range inside a line with its text, and refuses text typed at its edge", () => {
     // All Caps on "tidy" only, which the rule before #67 refused outright.
     const bytes = withAttributes(syntheticTextPresentation(), {
