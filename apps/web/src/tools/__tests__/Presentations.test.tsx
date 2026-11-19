@@ -8,6 +8,13 @@ import { I18nProvider } from "../../i18n";
 import { checkPresentation, decodePresentation, readPresentation } from "@presenter-garage/core/lib/presentation";
 import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
+import {
+  BRIDGE_GLOBAL,
+  type ChosenFile,
+  type DesktopBridge,
+  type NativeApplyResult,
+  type NativeFolder,
+} from "@presenter-garage/core/lib/desktop";
 
 /**
  * A folder held in memory, standing in for one on disk.
@@ -554,5 +561,98 @@ describe("a browser that cannot write", () => {
     expect(issuesIn(original)).not.toHaveLength(0);
 
     downloads.restore();
+  });
+});
+
+describe("the desktop app", () => {
+  const ROOT = "/Users/someone/ProPresenter";
+  let applied: ChosenFile[][];
+  let result: NativeApplyResult;
+  let shown: string[];
+
+  function fakeBridge(folder: Partial<NativeFolder> = {}): DesktopBridge {
+    const opened = (): NativeFolder => ({
+      root: ROOT,
+      name: "ProPresenter",
+      files: [...store.keys()].map((path) => ({ path: `${ROOT}/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+      ...folder,
+    });
+    return {
+      pickFolder: async () => opened(),
+      reopenLast: async () => null,
+      forgetLast: async () => {},
+      workspaces: async () => [{ root: "/ws/1", name: "Church", active: true, cloud: false }],
+      openWorkspace: async () => opened(),
+      read: async (path) => ({ bytes: store.get(path.slice(ROOT.length + 1))!, sha256: `sha of ${path}` }),
+      applyFixes: async (files) => {
+        applied.push(files);
+        return result;
+      },
+      showBackups: async (dir) => void shown.push(dir),
+    };
+  }
+
+  beforeEach(() => {
+    access = "native";
+    applied = [];
+    shown = [];
+    result = { backupFolder: "/backups/run", files: [] };
+  });
+
+  it("shows the folder's real path and ProPresenter's workspaces", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    expect(await screen.findByText("Church")).toBeInTheDocument();
+    await openFolder(user);
+    expect(screen.getByText(ROOT)).toBeInTheDocument();
+  });
+
+  it("sends the shell only the lines left ticked, as they were shown, and asks for no backup itself", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    // The shell makes the backup; there is nothing to download first.
+    expect(screen.queryByRole("button", { name: /Download a backup/ })).not.toBeInTheDocument();
+    const boxes = screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ });
+    await user.click(boxes[0]);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+
+    const [file] = applied[0];
+    expect(file.path).toBe(`${ROOT}/Chants/Checked Song.pro`);
+    expect(file.sha256).toBe(`sha of ${ROOT}/Chants/Checked Song.pro`);
+    expect(file.kinds).toEqual(["leadingSpace", "trailingSpace", "blankLine", "repeatedSpace"]);
+    expect(file.lines).toHaveLength(boxes.length - 1);
+    // What was shown, never bytes: the shell works the fix out again itself.
+    for (const line of file.lines) expect(Object.keys(line).sort()).toEqual(["after", "before", "boxIndex", "lineIndex"]);
+
+    await user.click(await screen.findByRole("button", { name: "Show backups" }));
+    expect(shown).toEqual(["/backups/run"]);
+  });
+
+  it("says why a run wrote nothing, in the reader's language", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: false } }));
+    result = { files: [], refused: { code: "propresenterOpen", detail: "English from the shell" } };
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.getByText(/Quit ProPresenter before saving/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    expect(await screen.findByText(/ProPresenter has this workspace open, so nothing was written/)).toBeInTheDocument();
+    expect(screen.queryByText("English from the shell")).not.toBeInTheDocument();
+  });
+
+  it("reads a Cloud workspace but offers no way to write to it", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: true } }));
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.getByText(/synced with ProPresenter Cloud\. It can be checked here/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ })).toBeDisabled();
   });
 });

@@ -72,10 +72,10 @@ const unverified = (what: string) =>
  */
 export async function checkWritableWorkspace(workspace: Workspace): Promise<void> {
   const root = workspace.root;
-  if (await fs.stat(path.join(root, "imprint.cloud")).catch(() => undefined)) throw new LibraryError(CLOUD_REFUSED);
+  if (await fs.stat(path.join(root, "imprint.cloud")).catch(() => undefined)) throw new LibraryError(CLOUD_REFUSED, "cloudWorkspace");
   const registry = path.join(path.dirname(root), REGISTRY);
   if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
-    throw new LibraryError(unverified(`format version could not be read: there is no ${REGISTRY} beside it`));
+    throw new LibraryError(unverified(`format version could not be read: there is no ${REGISTRY} beside it`), "unverifiedWorkspace");
   }
   const db = await openDatabase(registry);
   let row;
@@ -88,10 +88,10 @@ export async function checkWritableWorkspace(workspace: Workspace): Promise<void
   } finally {
     db.close();
   }
-  if (!row) throw new LibraryError(unverified(`format version could not be read: ${REGISTRY} does not list it`));
-  if (row.cloud_uuid !== null) throw new LibraryError(CLOUD_REFUSED);
+  if (!row) throw new LibraryError(unverified(`format version could not be read: ${REGISTRY} does not list it`), "unverifiedWorkspace");
+  if (row.cloud_uuid !== null) throw new LibraryError(CLOUD_REFUSED, "cloudWorkspace");
   if (row.schema_version !== VERIFIED_SCHEMA_VERSION) {
-    throw new LibraryError(unverified(`format is ${String(row.schema_version)}, not ${VERIFIED_SCHEMA_VERSION}`));
+    throw new LibraryError(unverified(`format is ${String(row.schema_version)}, not ${VERIFIED_SCHEMA_VERSION}`), "unverifiedWorkspace");
   }
 }
 
@@ -186,7 +186,8 @@ export async function readForPlanning(
   } catch {
     throw new LibraryError(
       `${document.path}: this document does not come back exactly as it was through a read and a rewrite, ` +
-        "so it is not written to. Nothing was planned."
+        "so it is not written to. Nothing was planned.",
+      "lossy"
     );
   }
   const { message } = presentationFromWorkspace(root);
@@ -197,7 +198,7 @@ export async function readForPlanning(
 function checkStoreVersion(db: Database): void {
   const version = Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
   if (version !== VERIFIED_USER_VERSION) {
-    throw new LibraryError(unverified(`document store is version ${version}, not ${VERIFIED_USER_VERSION}`));
+    throw new LibraryError(unverified(`document store is version ${version}, not ${VERIFIED_USER_VERSION}`), "unverifiedWorkspace");
   }
 }
 
@@ -227,7 +228,7 @@ async function lockStore(store: string): Promise<Database> {
     // from ProPresenter; closing also ends the transaction, if one began.
     db?.close();
     if (e instanceof LibraryError) throw e;
-    if (!locked && /locked|busy/i.test((e as Error).message)) throw new LibraryError(PROPRESENTER_OPEN);
+    if (!locked && /locked|busy/i.test((e as Error).message)) throw new LibraryError(PROPRESENTER_OPEN, "propresenterOpen");
     throw new LibraryError(`Could not open ${store} for writing: ${(e as Error).message}`);
   }
 }

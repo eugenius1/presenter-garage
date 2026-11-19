@@ -29,11 +29,9 @@ import {
   checkPresentationFidelity,
   hasText,
   decodePresentation,
-  openPresentation,
   readDetails,
   type PresentationDetails,
   type PresentationDoc,
-  type ReadProblem,
   type SlideMacro,
   type TextIssue,
 } from "@presenter-garage/core/lib/presentation";
@@ -46,7 +44,6 @@ import {
   type ConfiguredGroup,
   type ConfiguredMacro,
 } from "@presenter-garage/core/lib/configuration";
-import { createI18n } from "@presenter-garage/core/i18n/core";
 import {
   findGroups,
   findMacros,
@@ -62,6 +59,7 @@ import {
   resolveInRoots,
   statFoundFile,
 } from "@presenter-garage/node/library";
+import { explain, open, presentationName } from "@presenter-garage/node/presentations";
 import { isInWorkspace } from "@presenter-garage/node/workspace";
 
 /**
@@ -76,24 +74,6 @@ import { isInWorkspace } from "@presenter-garage/node/workspace";
  * Nothing here writes; writing is `edits.ts`.
  */
 
-export function presentationName(file: string): string {
-  return path.basename(file).replace(/\.pro$/i, "");
-}
-
-const { t, f } = createI18n("en");
-
-/**
- * Why a file would not open, in the words the app uses.
- *
- * English, because the reader is a model rather than a person with a language
- * setting; the app's own sentence, so the two never describe one file
- * differently.
- */
-function explain(problem: ReadProblem, detail = ""): string {
-  const problems = t.tools.presentations.problems;
-  return problem === "unreadable" ? f(problems.unreadable, { reason: detail }) : problems[problem];
-}
-
 /**
  * Whether writing a file back would keep everything in it.
  *
@@ -107,11 +87,6 @@ function explain(problem: ReadProblem, detail = ""): string {
  */
 const fidelityOf = (converted: true | undefined, measured: Fidelity): Fidelity => (converted ? "lossy" : measured);
 
-export function open(file: string, bytes: Uint8Array) {
-  const opened = openPresentation(bytes);
-  if (opened.problem) throw new LibraryError(`${file}: ${explain(opened.problem, opened.detail)}`);
-  return opened;
-}
 
 /**
  * A listing entry. No creation date, on purpose: see `PresentationDetails`.

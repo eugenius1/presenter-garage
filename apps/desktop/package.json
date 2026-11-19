@@ -1,0 +1,24 @@
+{
+  "name": "@presenter-garage/desktop",
+  "productName": "Presenter Garage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Presenter Garage as a desktop app: the web app in Electron, with native folder access and the same write path as the MCP server.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "dist/main.mjs",
+  "scripts": {
+    "build": "vite build --logLevel warn && vite build --logLevel warn -c vite.preload.config.ts && node scripts/copy-web.mjs",
+    "start": "electron .",
+    "dev": "node scripts/dev.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@presenter-garage/core": "*",
+    "@presenter-garage/node": "*"
+  },
+  "devDependencies": {
+    "electron": "45.4.1"
+  }
+}

@@ -55,7 +55,9 @@ Presentation text is written in place, and only through `applyFixes()` in
 `packages/core/src/lib/fixes.ts` -- or, in a ProPresenter 22 workspace, which
 has no files, only through `writeWorkspaceEdits()` in
 `packages/node/src/workspace-write.ts`, which edits the Loro document itself
-and never writes from the converted message. Every surface that writes must
+and never writes from the converted message. Under Node both are reached only
+through `applyPlan()` in `packages/node/src/edits.ts`, which the MCP server
+and the desktop app share. Every surface that writes must
 keep all four of these guards. Each is defined by what it protects, so a new surface keeps
 it in its own form; do not add a write path that keeps fewer, and do not
 quietly drop one from a path that has them:
@@ -73,12 +75,12 @@ quietly drop one from a path that has them:
    line of every box including the ones no change touched. A file that comes
    back saying anything else is not written.
 
-| Guard | Web app (`apps/web/src/tools/Presentations.tsx`) | MCP server (`packages/mcp/src/edits.ts`) | MCP server, ProPresenter 22 workspace (`packages/node/src/workspace-write.ts`) |
-| --- | --- | --- | --- |
-| 1 | `applyFixes()` | `applyFixes()`, run again on the file as read at apply time | `gate()` on the row as read inside the exclusive lock (snapshot hash, Loro round trip, version vector encoding), the workspace's registry `schema_version` and the store's `user_version` among those verified, not a Cloud workspace, and every edited box found in the document with exactly the RTF planned, and every one of its ranges mapped through the edit without a guess (`moveRanges()`) |
-| 2 | The write button stays disabled until the user downloads a backup zip covering the selection | `replaceWithBackup()` in `packages/node/src/write.ts` copies every file out of the library, reads each copy back, and writes nothing if one fails | The rows about to change (snapshot, other columns, converted `.pro`) written out inside the lock and read back before the first `UPDATE`; none written if one fails |
-| 3 | Every line shown with a tick box | `apply_slide_edits` takes only a plan id, and the server asks the person through MCP elicitation, one tick box per line; a client that cannot ask gets nothing written | The same |
-| 4 | `applyFixes()` | `applyFixes()`, as for guard 1 | `checkWorkspaceEdit()`: the new snapshot, decoded afresh, is the old document plus exactly the planned `rtf_data` and ranges, its version vector the old one plus one new peer, and every line of every box reads as promised (`verifyLines()`, as `applyFixes()` uses), and every range of every edited box runs forwards within its text; again on the row read back before `COMMIT`, a mismatch rolling the run back, and once more from a fresh connection after |
+| Guard | Web app (`apps/web/src/tools/Presentations.tsx`) | MCP server (`packages/node/src/edits.ts`) | MCP server, ProPresenter 22 workspace (`packages/node/src/workspace-write.ts`) | Desktop app (`apps/desktop/src/handlers.ts`) |
+| --- | --- | --- | --- | --- |
+| 1 | `applyFixes()` | `applyFixes()`, run again on the file as read at apply time | `gate()` on the row as read inside the exclusive lock (snapshot hash, Loro round trip, version vector encoding), the workspace's registry `schema_version` and the store's `user_version` among those verified, not a Cloud workspace, and every edited box found in the document with exactly the RTF planned, and every one of its ranges mapped through the edit without a guess (`moveRanges()`) | `planChosenFixes()` and `applyPlan()`, as the MCP server's two columns |
+| 2 | The write button stays disabled until the user downloads a backup zip covering the selection | `replaceWithBackup()` in `packages/node/src/write.ts` copies every file out of the library, reads each copy back, and writes nothing if one fails | The rows about to change (snapshot, other columns, converted `.pro`) written out inside the lock and read back before the first `UPDATE`; none written if one fails | As the MCP server's two columns, into the same backup folder; no IPC call writes bytes, so there is no other way to disk |
+| 3 | Every line shown with a tick box | `apply_slide_edits` takes only a plan id, and the server asks the person through MCP elicitation, one tick box per line; a client that cannot ask gets nothing written | The same | Every line shown with a tick box in the web app's interface; the page sends the ticked lines as shown, and `planChosenFixes()` writes a line only if the file as read now gives exactly that change |
+| 4 | `applyFixes()` | `applyFixes()`, as for guard 1 | `checkWorkspaceEdit()`: the new snapshot, decoded afresh, is the old document plus exactly the planned `rtf_data` and ranges, its version vector the old one plus one new peer, and every line of every box reads as promised (`verifyLines()`, as `applyFixes()` uses), and every range of every edited box runs forwards within its text; again on the row read back before `COMMIT`, a mismatch rolling the run back, and once more from a fresh connection after | As the MCP server's two columns |
 
 A workspace is written only while ProPresenter is closed: the store is taken
 with an exclusive lock, refused while ProPresenter has it open, because a

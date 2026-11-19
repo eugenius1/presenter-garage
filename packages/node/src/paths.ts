@@ -7,11 +7,21 @@ import path from "node:path";
  * has to import the other to get at it.
  */
 
+/**
+ * The refusals an app has to word in its own language, rather than show the
+ * English a model is given. The rest are a path or a file a person can see
+ * in the message itself.
+ */
+export type LibraryErrorCode = "propresenterOpen" | "cloudWorkspace" | "unverifiedWorkspace" | "lossy";
+
 /** Something a caller can act on: a wrong path, a file that will not read. Never a crash. */
 export class LibraryError extends Error {
-  constructor(message: string) {
+  readonly code?: LibraryErrorCode;
+
+  constructor(message: string, code?: LibraryErrorCode) {
     super(message);
     this.name = "LibraryError";
+    this.code = code;
   }
 }
 

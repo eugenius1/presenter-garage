@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
+import { desktopBridge } from "@presenter-garage/core/lib/desktop";
 import { useI18n } from "../i18n";
 
 /**
@@ -34,6 +35,9 @@ const CHECK_EVERY = 60 * 60 * 1000;
 
 /** The real registration, loaded lazily so tests never need the virtual module. */
 async function loadRegistrar(): Promise<Registrar | null> {
+  // The desktop app is updated as an app, not by a worker caching the page,
+  // and a worker on its own scheme would only serve a stale build.
+  if (desktopBridge()) return null;
   try {
     const module = await import("virtual:pwa-register");
     return module.registerSW as Registrar;

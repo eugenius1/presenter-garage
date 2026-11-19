@@ -334,6 +334,36 @@ export const en = {
       downloadedFixed: "Saved as {name}. Your library has not been touched.",
       permissionNeeded:
         "Saving needs permission to write to the folder. Choose the folder again and allow editing.",
+      // The desktop app, which reads and writes the folder itself.
+      native: {
+        chooseHint:
+          "Pick your ProPresenter folder, its Libraries folder, or one of the ProPresenter 22 workspaces below. Everything is read on this computer; nothing is uploaded.",
+        note: "The app reads the folder directly and saves fixes in place, backing up every file before it changes.",
+        workspaces: "ProPresenter 22 workspaces on this computer",
+        open: "Open",
+        inUse: "the one ProPresenter opens",
+        cloud: "synced with ProPresenter Cloud",
+        cloudReadOnly:
+          "This workspace is synced with ProPresenter Cloud. It can be checked here but not changed yet: what Cloud does with a change made outside ProPresenter has not been tried. Make the fixes in ProPresenter itself.",
+        closeProPresenter:
+          "This is a ProPresenter 22 workspace. Quit ProPresenter before saving: while it has the workspace open, nothing is written.",
+        backupWhy:
+          "Each file is copied to the app's backup folder and checked before it changes. A file that changed since it was read is left alone.",
+        backedUpTo: "The files as they were are in {folder}.",
+        showBackups: "Show backups",
+        truncated:
+          "This folder holds more presentations than are read at once, so not all of them are listed. Pick the Libraries folder, or one library, instead.",
+      },
+      // Why a desktop run wrote nothing at all.
+      runRefusals: {
+        propresenterOpen:
+          "ProPresenter has this workspace open, so nothing was written: a change made under it would be lost the next time it saves. Quit ProPresenter and save again.",
+        cloudWorkspace:
+          "This workspace is synced with ProPresenter Cloud, which is not written to yet, so nothing was written. Make the change in ProPresenter itself.",
+        unverifiedWorkspace:
+          "This workspace's format is not one the app has been checked against, so nothing was written. Make the change in ProPresenter itself.",
+        failed: "Nothing was written: {detail}",
+      },
       refusals: {
         lossy:
           "this file uses something the schema does not cover, so saving it could lose data",

@@ -344,6 +344,34 @@ export const fr: Dictionary = {
         "Enregistré sous {name}. Votre bibliothèque n’a pas été touchée.",
       permissionNeeded:
         "L’enregistrement nécessite l’autorisation d’écrire dans le dossier. Choisissez de nouveau le dossier et autorisez la modification.",
+      native: {
+        chooseHint:
+          "Choisissez votre dossier ProPresenter, son dossier Libraries, ou l’un des espaces de travail ProPresenter 22 ci-dessous. Tout est lu sur cet ordinateur ; rien n’est envoyé.",
+        note: "L’application lit le dossier directement et enregistre les corrections sur place, en sauvegardant chaque fichier avant de le modifier.",
+        workspaces: "Espaces de travail ProPresenter 22 sur cet ordinateur",
+        open: "Ouvrir",
+        inUse: "celui qu’ouvre ProPresenter",
+        cloud: "synchronisé avec ProPresenter Cloud",
+        cloudReadOnly:
+          "Cet espace de travail est synchronisé avec ProPresenter Cloud. Il peut être vérifié ici, mais pas encore modifié : ce que Cloud fait d’une modification faite hors de ProPresenter n’a pas encore été essayé. Faites les corrections dans ProPresenter lui-même.",
+        closeProPresenter:
+          "Ceci est un espace de travail ProPresenter 22. Quittez ProPresenter avant d’enregistrer : tant qu’il a l’espace de travail ouvert, rien n’est écrit.",
+        backupWhy:
+          "Chaque fichier est copié dans le dossier de sauvegarde de l’application et vérifié avant d’être modifié. Un fichier qui a changé depuis sa lecture est laissé tel quel.",
+        backedUpTo: "Les fichiers tels qu’ils étaient se trouvent dans {folder}.",
+        showBackups: "Afficher les sauvegardes",
+        truncated:
+          "Ce dossier contient plus de présentations que ce qui est lu en une fois : elles ne sont donc pas toutes listées. Choisissez plutôt le dossier Libraries, ou une seule bibliothèque.",
+      },
+      runRefusals: {
+        propresenterOpen:
+          "ProPresenter a cet espace de travail ouvert : rien n’a été écrit, car une modification faite sous lui serait perdue à son prochain enregistrement. Quittez ProPresenter et enregistrez de nouveau.",
+        cloudWorkspace:
+          "Cet espace de travail est synchronisé avec ProPresenter Cloud, où rien n’est encore écrit : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
+        unverifiedWorkspace:
+          "Le format de cet espace de travail n’est pas l’un de ceux que l’application a vérifiés : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
+        failed: "Rien n’a été écrit : {detail}",
+      },
       refusals: {
         lossy:
           "ce fichier utilise quelque chose que le schéma ne couvre pas : l’enregistrer pourrait perdre des données",

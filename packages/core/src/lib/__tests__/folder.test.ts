@@ -6,6 +6,7 @@ import {
   pickFolder,
   readFolderFromInput,
 } from "../folder";
+import { BRIDGE_GLOBAL } from "../desktop";
 
 /**
  * A stand-in for a FileSystemDirectoryHandle.
@@ -176,6 +177,13 @@ describe("capability detection", () => {
   it("reports read-write where the picker exists", () => {
     vi.stubGlobal("window", { showDirectoryPicker: () => {} });
     expect(folderAccess()).toBe("readwrite");
+  });
+
+  it("reports native inside the desktop app, whatever the page's own APIs say", () => {
+    // Chromium's picker is there too, and refuses AppData: the shell's dialog is the one to use.
+    vi.stubGlobal("window", { showDirectoryPicker: () => {} });
+    vi.stubGlobal(BRIDGE_GLOBAL, {});
+    expect(folderAccess()).toBe("native");
   });
 
   it("reports unavailable with no window at all", () => {
