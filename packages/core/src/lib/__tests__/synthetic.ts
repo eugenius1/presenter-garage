@@ -432,3 +432,84 @@ export function rtfWithHeader(body: string, uc = "\\uc1"): string {
 export function textLines(bytes: Uint8Array): string[][] {
   return readPresentation(decodePresentation(bytes)).textBoxes.map((box) => box.lines.map((line) => line.text));
 }
+
+/** Macros as ProPresenter's own list holds them: lower-case uuids in a `Configuration/Macros` file. */
+export const MACROS = {
+  bienvenue: { name: "Bienvenue", uuid: "9534cc41-0000-4000-8000-000000000001" },
+  louange: { name: "Louange", uuid: "09ca4bc0-0000-4000-8000-000000000002" },
+  lumieres: { name: "Lumières", uuid: "f94ec992-0000-4000-8000-000000000003" },
+} as const;
+
+const macroAction = (id: number, macro: { name: string; uuid: string }, enabled = true) => ({
+  uuid: uuid(26000 + id),
+  name: macro.name,
+  isEnabled: enabled,
+  type: "ACTION_TYPE_MACRO",
+  macro: { identification: { parameter_uuid: { string: macro.uuid }, parameter_name: macro.name } },
+});
+
+let cachedMacroSong: Uint8Array | undefined;
+
+/**
+ * The checked song with a macro on its slides, the way a church library
+ * carries them: "Bienvenue" on the first, "Louange" on the rest, one slide
+ * with a second, switched-off macro and one with none. Its first group is
+ * named `Couplet` + non-breaking space + `1`, which looks exactly like the
+ * configured `Couplet 1` and is not it.
+ */
+export function syntheticMacroSong(): Uint8Array {
+  if (cachedMacroSong) return cachedMacroSong;
+  const doc = decodePresentation(syntheticTextPresentation("Macro Song")) as any;
+  const byName = new Map(doc.cues.map((cue: any) => [cue.name, cue]));
+  const add = (cueName: string, ...actions: unknown[]) => (byName.get(cueName) as any).actions.push(...actions);
+  add("Clean", macroAction(1, MACROS.bienvenue));
+  for (const [i, cueName] of ["Leading", "Trailing", "Gap", "Doubled", "Comma"].entries()) {
+    add(cueName, macroAction(10 + i, MACROS.louange));
+  }
+  add("Gap", macroAction(20, MACROS.lumieres, false));
+  // "Empty" and "Punctuation" have none.
+  doc.cue_groups[0].group.name = "Couplet 1";
+  const Presentation = root.lookupType("rv.data.Presentation");
+  cachedMacroSong = Presentation.encode(doc).finish();
+  return cachedMacroSong;
+}
+
+/** ProPresenter's configured groups, two of them told apart only by the kind of space. */
+export const CONFIGURED_GROUPS = [
+  { uuid: { string: "a7ed11a5-0000-4000-8000-000000000001" }, name: "Couplet 1", color: { red: 0, green: 0.4, blue: 0.8, alpha: 1 } },
+  { uuid: { string: "c3fdfda2-0000-4000-8000-000000000002" }, name: "Couplet 4", color: { red: 0, green: 0.2, blue: 0.3, alpha: 1 } },
+  { uuid: { string: "143b5f28-0000-4000-8000-000000000003" }, name: "Refrain", color: { red: 1, green: 0.27, blue: 0, alpha: 0.5 } },
+];
+
+/** A `Configuration/Groups` file. */
+export function syntheticGroupsFile(): Uint8Array {
+  const type = root.lookupType("rv.data.ProGroupsDocument");
+  return type.encode(type.fromObject({ groups: CONFIGURED_GROUPS })).finish();
+}
+
+/**
+ * A `Configuration/Macros` file, laid out as a real one: every macro at the
+ * top, and each collection naming its own by uuid. "Lumières" is in no
+ * collection, and "Louange" in two.
+ */
+export function syntheticMacrosFile(): Uint8Array {
+  const type = root.lookupType("rv.data.MacrosDocument");
+  const id = (macro: { uuid: string }) => ({ macro_id: { string: macro.uuid } });
+  return type
+    .encode(
+      type.fromObject({
+        macros: [MACROS.bienvenue, MACROS.louange, MACROS.lumieres].map((macro, i) => ({
+          uuid: { string: macro.uuid },
+          name: macro.name,
+          color: { red: 0.3, green: 0.2, blue: 0.7, alpha: 1 },
+          actions: [{ uuid: uuid(26030 + i), name: "Clear", isEnabled: true, type: "ACTION_TYPE_CLEAR", clear: { target_layer: 1 } }],
+        })),
+        macro_collections: [
+          { uuid: uuid(27000), name: "Default Collection", items: [id(MACROS.bienvenue), id(MACROS.louange)] },
+          // Upper-case, as a uuid can be written anywhere: still the same macro.
+          { uuid: uuid(27001), name: "Louange", items: [{ macro_id: { string: MACROS.louange.uuid.toUpperCase() } }] },
+        ],
+      })
+    )
+    .finish();
+}

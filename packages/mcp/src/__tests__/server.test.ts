@@ -10,6 +10,11 @@ import {
   type ElicitResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
+  CONFIGURED_GROUPS,
+  MACROS,
+  syntheticGroupsFile,
+  syntheticMacroSong,
+  syntheticMacrosFile,
   syntheticMediaFile,
   syntheticTextPresentation,
   SYNTHETIC,
@@ -66,6 +71,7 @@ const can = (() => {
 
 let tmp: string;
 let library: string;
+let church: string;
 let client: Client;
 let call: Awaited<ReturnType<typeof connect>>["call"];
 
@@ -89,6 +95,13 @@ beforeAll(async () => {
     fs.chmodSync(path.join(songs, "Locked.pro"), 0o000);
   }
   fs.writeFileSync(path.join(library, "Playlists", "Media"), syntheticMediaFile());
+  // A library of its own, so the shared one's counts stay what they were.
+  church = path.join(tmp, "Church");
+  fs.mkdirSync(path.join(church, "Libraries", "Chants"), { recursive: true });
+  fs.mkdirSync(path.join(church, "Configuration"));
+  fs.writeFileSync(path.join(church, "Libraries", "Chants", "Macro Song.pro"), syntheticMacroSong());
+  fs.writeFileSync(path.join(church, "Configuration", "Groups"), syntheticGroupsFile());
+  fs.writeFileSync(path.join(church, "Configuration", "Macros"), syntheticMacrosFile());
 
   // Outside the library, and a link inside it pointing there.
   fs.writeFileSync(path.join(tmp, "secret.txt"), "not yours");
@@ -109,6 +122,7 @@ const READING_TOOLS = [
   "list_presentations",
   "list_themes",
   "preview_style",
+  "read_groups_and_macros",
   "read_media_bin",
   "read_playlists",
   "read_presentation",
@@ -173,6 +187,22 @@ describe("read_presentation", () => {
     expect(doc.slides.find((s: { label: string }) => s.label === "Empty").textBoxes).toEqual([]);
   });
 
+  it("gives each slide's group and macros, a non-breaking space escaped where a reader sees it", async () => {
+    const { client: own, call: callOwn } = await connect([church]);
+    const result = await callOwn("read_presentation", { path: "Libraries/Chants/Macro Song.pro" });
+    await own.close();
+    // Visible in the text a model reads, and the very character once parsed.
+    expect(result.text).toContain('"group":"Couplet\\u00a01"');
+    expect(result.text).not.toContain("\u00a0");
+    const { slides } = result.json();
+    expect(slides[0]).toMatchObject({ group: "Couplet\u00a01", macros: [{ name: "Bienvenue", uuid: MACROS.bienvenue.uuid }] });
+    expect(slides[3].macros).toEqual([
+      { name: "Louange", uuid: MACROS.louange.uuid },
+      { name: "Lumières", uuid: MACROS.lumieres.uuid, disabled: true },
+    ]);
+    expect(slides[5].macros).toEqual([]);
+  });
+
   it("names a chord chart for what it is", async () => {
     const result = await call("read_presentation", { path: "Libraries/Default/Chords.pro" });
     expect(result.isError).toBe(true);
@@ -194,6 +224,45 @@ describe("read_presentation", () => {
   it("refuses an absolute path elsewhere", async () => {
     const result = await call("read_presentation", { path: path.join(tmp, "secret.txt") });
     expect(result.isError).toBe(true);
+  });
+});
+
+describe("read_groups_and_macros", () => {
+  it("reads ProPresenter's configured lists from beside Libraries, names exactly as stored", async () => {
+    const { client: own, call: callOwn } = await connect([church]);
+    const result = await callOwn("read_groups_and_macros");
+    await own.close();
+    expect(result.text).toContain('"name":"Couplet\\u00a01"');
+    const answer = result.json();
+    expect(answer.groupsPath).toBe(path.join(church, "Configuration", "Groups"));
+    expect(answer.groups.map((g: { name: string }) => g.name)).toEqual(CONFIGURED_GROUPS.map((g) => g.name));
+    expect(answer.groups[0]).toEqual({ name: "Couplet\u00a01", uuid: CONFIGURED_GROUPS[0].uuid.string, color: "rgb(0,102,204)" });
+    expect(answer.macros).toEqual([
+      { ...MACROS.bienvenue, collections: ["Default Collection"] },
+      { ...MACROS.louange, collections: ["Default Collection", "Louange"] },
+      { ...MACROS.lumieres, collections: [] },
+    ]);
+    expect(answer.unreadable).toBeUndefined();
+  });
+
+  it("says which list it could not read, and refuses when it found neither", async () => {
+    const other = path.join(tmp, "Other");
+    fs.mkdirSync(path.join(other, "Configuration"), { recursive: true });
+    fs.writeFileSync(path.join(other, "Configuration", "Groups"), "not a protobuf \xff\xff");
+    const { client: one, call: callOne } = await connect([other]);
+    const answer = (await callOne("read_groups_and_macros")).json();
+    expect(answer.groups).toEqual([]);
+    expect(answer.unreadable.groups).toBeTruthy();
+    expect(answer.unreadable.macros).toMatch(/Configuration\/Macros/);
+    await one.close();
+
+    const empty = path.join(tmp, "Empty");
+    fs.mkdirSync(empty);
+    const { client: none, call: callNone } = await connect([empty]);
+    const refused = await callNone("read_groups_and_macros");
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/neither/);
+    await none.close();
   });
 });
 
