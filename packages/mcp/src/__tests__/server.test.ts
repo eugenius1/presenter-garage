@@ -816,6 +816,37 @@ describe("editing slide text", () => {
     expect(fs.readFileSync(file)).toEqual(before);
   });
 
+  it("adds lines, shows each as it would read and where it goes, and writes only those left ticked", async () => {
+    const planned = await plan([
+      { boxIndex: 6, lineIndex: 0, text: "Que ton nom,", insert: "after" },
+      { boxIndex: 6, lineIndex: 2, text: "(bis)", insert: "after" },
+      { boxIndex: 6, lineIndex: 0, text: "Refrain", insert: "before" },
+    ]);
+    // In reading order, each saying which side of which line it goes, with no line before it.
+    expect(planned.files[0].lines.map((l: Record<string, unknown>) => [l.n, l.lineIndex, l.insert, l.before, l.after])).toEqual([
+      [1, 0, "before", null, "Refrain"],
+      [2, 0, "after", null, "Que ton nom,"],
+      [3, 2, "after", null, "(bis)"],
+    ]);
+
+    reply = () => ({ action: "accept", content: { line1: true, line2: true, line3: false } });
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    const { properties } = form(asked[0]).requestedSchema;
+    expect(properties.line2.description).toBe("Added after “Que ton nom,”: “Que ton nom,”");
+    expect((properties.line1 as { title?: string }).title).toMatch(/text box 7, new line before line 1\)/);
+
+    expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
+    expect(lines()[6]).toEqual(["Refrain", "Que ton nom,", "Que ton nom,", "pour toujours ,", "sois glorifie"]);
+  });
+
+  it("refuses an added line it cannot place, saying which", async () => {
+    const result = await edit("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 0, lineIndex: 1, text: "", insert: "after" }],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/box 0, a line added after line 1: an added line needs some text.*Nothing was planned/);
+  });
+
   it("asks the person, then writes what they confirmed and backs up the original first", async () => {
     const original = fs.readFileSync(file);
     const { planId } = await plan([

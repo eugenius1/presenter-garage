@@ -248,10 +248,18 @@ export interface WorkspaceReplacement {
  *
  * - `attributeRanges`: a box's character ranges do not fall on its lines, so
  *   they cannot be moved with the text.
+ * - `addedLineRanges`: whether a line added to a box takes one of its
+ *   character ranges would be a guess.
  * - `rolledBack`: this one was fine, but another in the same workspace was
  *   not, and a workspace's run is written whole or not at all.
  */
-export type WorkspaceRefusal = FixRefusal | "attributeRanges" | "rolledBack" | "backupFailed" | "readBackFailed";
+export type WorkspaceRefusal =
+  | FixRefusal
+  | "attributeRanges"
+  | "addedLineRanges"
+  | "rolledBack"
+  | "backupFailed"
+  | "readBackFailed";
 
 export interface WorkspaceOutcome extends Omit<WriteOutcome, "reason"> {
   reason?: WorkspaceRefusal;
@@ -395,7 +403,9 @@ export async function writeWorkspaceEdits(
 
 function refusalOf(e: unknown): Pick<WorkspaceOutcome, "reason" | "detail"> {
   if (e instanceof FixError) return { reason: e.reason };
-  if (e instanceof AttributeRangeError) return { reason: "attributeRanges", detail: `box ${e.boxIndex}` };
+  if (e instanceof AttributeRangeError) {
+    return { reason: e.addedLine ? "addedLineRanges" : "attributeRanges", detail: `box ${e.boxIndex}` };
+  }
   return { reason: "unreadable", detail: (e as Error).message };
 }
 

@@ -303,7 +303,11 @@ function registerEditTools(server: McpServer, roots: readonly string[], backupDi
         "Work out changes to the text of slides, writing nothing. Each edit names a line by the `path`, " +
         "`boxIndex` and `lineIndex` read_presentation or search_text gave it, and the whole text the line " +
         "should read afterwards, or null to remove the line. Only what differs is touched, so formatting " +
-        "elsewhere on the line is kept. Returns a `planId` and every line as it is and as it would read. " +
+        "elsewhere on the line is kept. With `insert`, the edit adds `text` as a new line after (or before) " +
+        "that line instead, leaving it as it is; the new line takes its formatting, and several added on one " +
+        "side of one line read in the order given. Line indexes always name lines as they read now, before " +
+        "any edit. Returns a `planId` and every line as it is and as it would read (an added line with " +
+        "`before` null). " +
         "If any edit cannot be made, nothing is planned and the error says which. " +
         "Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm.",
       inputSchema: {
@@ -316,7 +320,11 @@ function registerEditTools(server: McpServer, roots: readonly string[], backupDi
               text: z
                 .string()
                 .nullable()
-                .describe("The line's whole new text, on one line; null removes the line."),
+                .describe("The line's whole new text, on one line; null removes the line. With `insert`, the added line's text."),
+              insert: z
+                .enum(["after", "before"])
+                .optional()
+                .describe("Add `text` as a new line on this side of the line, instead of changing the line."),
             })
           )
           .min(1)

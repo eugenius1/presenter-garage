@@ -166,8 +166,8 @@ cannot be moved.
 5. **Back up** (guard 2, below), every row about to change, before any does.
 6. **Edit** the Loro document, never the conversion: a new random 63-bit
    peer id that the document has never seen, `rtf_data` set on the text
-   element's map, each moved range set as a new value on its attribute's
-   map, and one commit with a timestamp, as ProPresenter's own carry. Only
+   element's map, each moved or widened range set as a new value on its
+   attribute's map, and one commit with a timestamp, as ProPresenter's own carry. Only
    values are set, in containers that are already there; no container is
    ever created, which ProPresenter's own messages say a writer must never
    do under a key that holds one. A range is set from JavaScript integers,
@@ -208,6 +208,48 @@ carry ranges, nearly all of them lines that start with a tab the All Caps
 range leaves out. Making the rule cover them is possible, since an end
 inside a line that the edit does not touch could simply move with the lines
 before it, but it has not been needed yet.
+
+### A line added to a box
+
+A plan can add a line after or before an existing one (`insert` on
+`plan_slide_edits`). In the RTF the new line is the old line's formatting
+with new text: after a line it goes at that line's break, as a break of the
+same kind and the text, so it reads in the state the old line ended in and
+the next line starts as it did; before a line it goes after that line's own
+formatting. Not a character already in the box is touched. Details and the
+edge cases are in `insertLineEdit()` in `packages/core/src/lib/rtf.ts`.
+
+The ranges follow the same idea: a new line is to be covered by exactly the
+ranges that cover all of the line it copies. Most of that falls out of
+moving the ranges as above -- a range over the whole box still covers the
+whole box -- and what does not is one rule:
+
+- A **capitalization** range (All Caps, nearly every range there is) that
+  ends where the copied line ends, after which the line is added, or starts
+  where it starts, before which it is added, is **widened** over the new
+  lines. "Que ton nom" in capitals with "x2" added after it becomes one
+  range over both lines.
+- Any other range that would come out covering the new line and not the
+  line it copies, or the line and not the new one, or part of the new one,
+  refuses the box (`addedLineRanges`), at plan time as everything else is.
+
+No range is ever created. A range is an attribute, a map in the box's
+`custom_attributes` list, and giving the new line one of its own would mean
+inserting a container into the document, which nothing here does; widening
+one is setting a value, as moving one is. So a box written this way can
+hold a range over two lines where ProPresenter would have made two. That
+ProPresenter shows such a range in capitals over both lines, and keeps it
+through its own edits, has not been checked.
+
+Planning a line beside every line of every presentation in a copy of the
+workspace above (518 documents, both sides of each of 14,046 lines):
+26,089 planned. 709 were refused by the second rule, in boxes whose ranges
+include a `text_gradient_fill` (647) or an `original_font_size` (62), which
+the capitalization rule leaves alone. 296 were refused as any edit there
+is, ranges off their lines. 995 were a line added before the empty line of
+a one-line placeholder box, which would then read as no line at all, so
+the plan refuses it: such a box is filled by writing its line 0, not by
+adding to it. The other 3 did not read back as asked and were refused.
 
 ### The four guards
 
@@ -277,6 +319,12 @@ edit waiting to go up. What has to be seen on the Windows computer first:
 - **Not at all:** Windows; a Cloud workspace; a ProPresenter release other
   than 22.0.1. Another `schema_version` or `user_version` is refused until
   it has been checked.
+- **Not in ProPresenter yet:** adding a line. It is held by the same tests
+  as every other edit, on built databases and on a copy of the real one,
+  but ProPresenter has not been shown a box with a line added: that it
+  shows the new line with its neighbour's look, that a capitalization range
+  widened over two lines puts both in capitals, and that it keeps both
+  through its own edits and a restart.
 
 ### What it does not do
 

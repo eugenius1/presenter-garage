@@ -95,8 +95,12 @@ export interface PlannedLine {
   label: string;
   group?: string;
   boxIndex: number;
+  /** The line changed, or for an added line, the line it is added beside. */
   lineIndex: number;
-  before: string;
+  /** Set for an added line: which side of line `lineIndex` it goes. */
+  insert?: "before" | "after";
+  /** Null for an added line, which was not there before. */
+  before: string | null;
   /** Null when the line is removed. */
   after: string | null;
 }
@@ -152,8 +156,9 @@ export async function planSlideEdits(
       fixes = planLineEdits(doc, changes);
     } catch (e) {
       if (!(e instanceof EditError)) throw e;
-      const { boxIndex, lineIndex } = e.change;
-      throw new LibraryError(`${real}, box ${boxIndex} line ${lineIndex}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
+      const { boxIndex, lineIndex, insert } = e.change;
+      const where = insert ? `, a line added ${insert} line ${lineIndex}` : ` line ${lineIndex}`;
+      throw new LibraryError(`${real}, box ${boxIndex}${where}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
     // A workspace document is edited as itself, and what stops that is
     // known now: refused before a person has read and approved every line.
@@ -162,7 +167,8 @@ export async function planSlideEdits(
         planWorkspaceEdit(root, fixes);
       } catch (e) {
         if (e instanceof AttributeRangeError) {
-          throw new LibraryError(`${real}, box ${e.boxIndex}: ${refusals.attributeRanges}. Nothing was planned.`);
+          const why = e.addedLine ? refusals.addedLineRanges : refusals.attributeRanges;
+          throw new LibraryError(`${real}, box ${e.boxIndex}: ${why}. Nothing was planned.`);
         }
         if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
         throw e;
@@ -190,7 +196,8 @@ export async function planSlideEdits(
         group: fix.groupName,
         boxIndex: fix.boxIndex,
         lineIndex: fix.lineIndex,
-        before: fix.before,
+        ...(fix.insert && { insert: fix.insert }),
+        before: fix.insert ? null : fix.before,
         after: fix.after,
       })),
     })),
@@ -228,14 +235,18 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
     const where = [
       `slide ${fix.slideIndex + 1}`,
       fix.groupName,
-      `text box ${fix.boxIndex + 1}, line ${fix.lineIndex + 1}`,
+      `text box ${fix.boxIndex + 1}, ${fix.insert ? `new line ${fix.insert} line` : "line"} ${fix.lineIndex + 1}`,
     ]
       .filter(Boolean)
       .join(", ");
     properties[`line${n}`] = {
       type: "boolean",
       title: `${n}. ${file.name} (${where})`,
-      description: `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`,
+      // An added line as it would read, and the line it goes beside as it
+      // reads now, so it can be placed without the slide in front of them.
+      description: fix.insert
+        ? `Added ${fix.insert} “${fix.before}”: “${fix.after}”`
+        : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`,
       default: true,
     };
   }

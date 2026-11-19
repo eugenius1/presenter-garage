@@ -347,6 +347,8 @@ export const en = {
         readBackFailed: "the file on disk does not hold what was written; restore it from the backup",
         attributeRanges:
           "a text box has formatting over part of a line, which cannot be moved with the text, so nothing was written",
+        addedLineRanges:
+          "a text box has formatting that an added line could only guess whether to take, so nothing was written",
         rolledBack: "another presentation in the same workspace could not be written, so none in it were",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
@@ -356,6 +358,8 @@ export const en = {
         unchanged: "the line already reads that",
         notOneLine: "the text holds a line break or another control character, so it cannot sit on one line",
         lastLine: "the last line of a text box cannot be removed, only emptied",
+        emptyLine: "an added line needs some text: a blank line between two others is what the blank-line check reports",
+        besideRemoved: "a line cannot be added beside a line the same plan removes, since it would take that line's formatting",
         unsupported: "the change would not read back as asked once written, so it is not offered",
       },
     },

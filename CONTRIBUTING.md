@@ -225,7 +225,7 @@ having left every untouched box alone.
 writing text rather than cutting it: for every line of every box, text typed
 at the start, the middle and the end, accented and astral characters, RTF's
 reserved characters and a whole-line rewrite, each read back exactly with
-every other line unchanged. Without a library it runs the same contract
+every other line unchanged, and a line added before and after every line. Without a library it runs the same contract
 exhaustively — every insertion, deletion and replacement at every position —
 over hand-written documents built to hit each trap above.
 
@@ -298,6 +298,16 @@ must carry exactly as many fallback characters as the `\ucN` in force there
 next to a removed one loses its new text. Emptying the last line of a box is
 refused: a last line with neither text nor formatting is no line at all to a
 reader, so it would read back as a removal.
+
+**Adding a line is an insertion that touches nothing.** `insertLineEdit`
+puts a new line at the old one's break, as a break of the same kind and the
+text, rather than copying the old line's instructions: copied, they would
+restyle the line after it in a box that does not repeat them per line.
+Before a line, the new one goes after that line's formatting, and needs the
+delimiter the line's text did not when the line opens on an escape
+(`\cb2\u201 ?ternel`). Before an *empty* last line it goes before that line's
+formatting instead, since text after it leaves nothing behind the break and
+the empty line vanishes -- the real-library test caught that on its first run.
 
 **`instanceof Uint8Array` fails across realms.** The array protobuf.js hands
 back is not always built from the same global as the code reading it, and

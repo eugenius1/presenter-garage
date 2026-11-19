@@ -362,6 +362,8 @@ export const fr: Dictionary = {
           "le fichier sur le disque ne contient pas ce qui a été écrit ; restaurez-le depuis la sauvegarde",
         attributeRanges:
           "une zone de texte porte une mise en forme sur une partie de ligne, qui ne peut pas suivre le texte : rien n’a donc été écrit",
+        addedLineRanges:
+          "une zone de texte porte une mise en forme qu’une ligne ajoutée ne pourrait reprendre qu’au hasard : rien n’a été écrit",
         rolledBack:
           "une autre présentation du même espace de travail n’a pas pu être écrite : aucune n’y a donc été écrite",
       },
@@ -372,6 +374,10 @@ export const fr: Dictionary = {
         notOneLine:
           "le texte contient un saut de ligne ou un autre caractère de contrôle : il ne tient pas sur une ligne",
         lastLine: "la dernière ligne d’une zone de texte ne peut pas être supprimée, seulement vidée",
+        emptyLine:
+          "une ligne ajoutée doit contenir du texte : une ligne vide entre deux autres est justement ce que signale la vérification des lignes vides",
+        besideRemoved:
+          "impossible d’ajouter une ligne à côté d’une ligne que ce même plan supprime : elle en prendrait la mise en forme",
         unsupported:
           "la modification ne se relirait pas comme demandé une fois écrite : elle n’est donc pas proposée",
       },

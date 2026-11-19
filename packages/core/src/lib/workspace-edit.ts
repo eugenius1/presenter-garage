@@ -51,16 +51,24 @@ export interface WorkspaceEdit {
 }
 
 /**
- * Thrown when a box has character ranges that do not start and end on its
- * lines as they read: moving them with the text would be a guess.
+ * Thrown when a box has character ranges that cannot be moved with its text
+ * without guessing: one that does not start and end on its lines as they
+ * read, or, with `addedLine` set, one an added line could only guess
+ * whether to take.
  */
 export class AttributeRangeError extends Error {
   readonly boxIndex: number;
+  readonly addedLine: boolean;
 
-  constructor(boxIndex: number) {
-    super(`The attribute ranges of text box ${boxIndex} do not fall on its lines`);
+  constructor(boxIndex: number, addedLine = false) {
+    super(
+      addedLine
+        ? `Whether a line added to text box ${boxIndex} takes its attribute ranges would be a guess`
+        : `The attribute ranges of text box ${boxIndex} do not fall on its lines`
+    );
     this.name = "AttributeRangeError";
     this.boxIndex = boxIndex;
+    this.addedLine = addedLine;
   }
 }
 
@@ -119,8 +127,22 @@ export function valueAt(json: Json, path: readonly LoroKey[]): Json {
   return at;
 }
 
+/** Lines added beside one line of a box, in the order they read. */
+export interface AddedLines {
+  before: readonly string[];
+  after: readonly string[];
+}
+
+/** An attribute range; `caps` when it is a capitalization, which an added line beside it takes. */
+export interface Range {
+  start: number;
+  end: number;
+  caps?: boolean;
+}
+
 /**
- * Where an attribute range's ends go when lines change length.
+ * Where an attribute range's ends go when lines change length, or lines are
+ * added.
  *
  * Each end has to sit on a line's start or a line's end as the box reads
  * now -- in this box's characters, a line break counting as one, as
@@ -131,39 +153,92 @@ export function valueAt(json: Json, path: readonly LoroKey[]): Json {
  * what it was meant to cover, so the box is refused.
  *
  * `after` has one entry per line of `before`: its new text, or null where
- * the line is removed.
+ * the line is removed. `added` has, by line, the lines added beside it.
+ *
+ * An added line takes the formatting of the line it is added beside, and so
+ * its ranges: a range is to cover the new lines exactly when it covers
+ * all of that line. A capitalization -- ProPresenter's All Caps, nearly
+ * every range in a real library and one to a line -- that ends where that
+ * line does is widened over the new lines, so they read in capitals as
+ * their neighbour does. No range is created: that would be a new container
+ * in the document, which nothing here writes. Any other range that would
+ * come out covering the new lines and not the line, or the line and not
+ * the new lines, or part of them, makes the answer a guess, and the box is
+ * refused.
  */
 export function moveRanges(
   boxIndex: number,
   before: readonly string[],
   after: readonly (string | null)[],
-  ranges: readonly { start: number; end: number }[]
+  ranges: readonly Range[],
+  added: ReadonlyMap<number, AddedLines> = new Map()
 ): { start: number; end: number }[] {
   // Each line's old start and end, to where they go.
   const starts = new Map<number, number>();
   const ends = new Map<number, number>();
+  /** Each run of added lines: where its text lies now, and where the line it was added beside lies, then and now. */
+  const blocks: {
+    side: keyof AddedLines;
+    start: number;
+    end: number;
+    line: { was: { start: number; end: number }; now: { start: number; end: number } };
+  }[] = [];
   let was = 0;
   let now = 0;
+  /** Lay out a run of added lines from `now`, and say where its text lies. */
+  const lay = (texts: readonly string[]) => {
+    const start = now;
+    for (const text of texts) now += text.length + 1;
+    return { start, end: now - 1 };
+  };
   for (const [i, text] of before.entries()) {
     const next = after[i];
+    const add = added.get(i);
+    // Refused when planning: the added line would take the formatting of a line that goes.
+    if (next === null && (add?.before.length || add?.after.length)) throw new AttributeRangeError(boxIndex, true);
+    const ahead = add?.before.length ? lay(add.before) : undefined;
+    const line = {
+      was: { start: was, end: was + text.length },
+      now: { start: now, end: now + (next?.length ?? 0) },
+    };
     // A removed line takes no room, so both its ends land where the next line now starts.
-    starts.set(was, now);
-    ends.set(was + text.length, now + (next?.length ?? 0));
+    starts.set(line.was.start, line.now.start);
+    ends.set(line.was.end, line.now.end);
     was += text.length + 1;
     if (next !== null) now += next.length + 1;
+    if (ahead) blocks.push({ side: "before", ...ahead, line });
+    if (add?.after.length) blocks.push({ side: "after", ...lay(add.after), line });
   }
   // `now` counts a break after the last kept line that is not there. A
   // removed line with no kept line after it has nowhere to land but the end
   // of the text, and would otherwise land one past it.
   const length = Math.max(now - 1, 0);
   const place = (p: number | undefined) => (p === undefined ? undefined : Math.min(p, length));
+  const covers = (r: { start: number; end: number }, span: { start: number; end: number }) =>
+    r.start <= span.start && r.end >= span.end;
 
   // A start is matched to a line's start first, an end to a line's end, so
   // a range over an empty line keeps both its ends on that line.
-  return ranges.map(({ start, end }) => {
+  return ranges.map((range) => {
+    const { start, end } = range;
     const moved = { start: place(starts.get(start) ?? ends.get(start)), end: place(ends.get(end) ?? starts.get(end)) };
     if (!(start <= end) || moved.start === undefined || moved.end === undefined) throw new AttributeRangeError(boxIndex);
-    return moved as { start: number; end: number };
+    const out = moved as { start: number; end: number };
+
+    for (const block of blocks) {
+      // Whether the range covers the line, judged by where it was, so the
+      // empty range a removed neighbour leaves behind is not mistaken for one.
+      const owns = covers(range, block.line.was);
+      if (owns && !covers(out, block)) {
+        const edge = block.side === "after" ? out.end === block.line.now.end : out.start === block.line.now.start;
+        if (!range.caps || !edge) throw new AttributeRangeError(boxIndex, true);
+        if (block.side === "after") out.end = block.end;
+        else out.start = block.start;
+      } else if (!owns && Math.max(out.start, block.start) < Math.min(out.end, block.end)) {
+        throw new AttributeRangeError(boxIndex, true);
+      }
+    }
+    return out;
   });
 }
 
@@ -176,6 +251,11 @@ function rangeOf(attribute: Json): { start: number; end: number } | undefined {
   return { start, end };
 }
 
+/** Whether an attribute is a capitalization: its oneof, as the snapshot keeps one, tagged so. */
+function isCapitalization(attribute: Json): boolean {
+  return isObject(attribute) && Object.values(attribute).some((v) => isObject(v) && v.__tag === "capitalization");
+}
+
 /**
  * Say an edit planned against the message in the Loro document's terms.
  *
@@ -183,7 +263,8 @@ function rangeOf(attribute: Json): { start: number; end: number } | undefined {
  * `FixError("stale")` when a box no longer holds what the fix was planned
  * against, `FixError("lossy")` when a box the person was shown cannot be
  * found in the document holding exactly the RTF the plan read, and
- * `AttributeRangeError` when a box's ranges cannot be moved with its text.
+ * `AttributeRangeError` when a box's ranges cannot be moved with its text,
+ * or whether a line added to it takes one would be a guess.
  */
 export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): WorkspaceEdit {
   if (fixes.length === 0) throw new FixError("unchanged");
@@ -205,15 +286,24 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): Worksp
       throw new FixError("lossy");
     }
 
-    const byLine = new Map(fixes.filter((fix) => fix.boxIndex === boxIndex).map((fix) => [fix.lineIndex, fix.after]));
+    const mine = fixes.filter((fix) => fix.boxIndex === boxIndex);
+    const byLine = new Map(mine.filter((fix) => !fix.insert).map((fix) => [fix.lineIndex, fix.after]));
+    const added = new Map<number, { before: string[]; after: string[] }>();
+    // In the order the fixes list them, which is the order the lines read.
+    for (const fix of mine) {
+      if (!fix.insert) continue;
+      const beside = added.get(fix.lineIndex) ?? { before: [], after: [] };
+      beside[fix.insert].push(fix.after!);
+      added.set(fix.lineIndex, beside);
+    }
     const lines = box.lines.map((line) => line.text);
     const after = lines.map((was, i) => (byLine.has(i) ? byLine.get(i)! : was));
     const attributes: Json[] = Array.isArray(text.attributes?.custom_attributes) ? text.attributes.custom_attributes : [];
     const present = attributes.flatMap((attribute, index) => {
       const range = rangeOf(attribute);
-      return range ? [{ index, range }] : [];
+      return range ? [{ index, range: { ...range, caps: isCapitalization(attribute) } }] : [];
     });
-    const moved = moveRanges(boxIndex, lines, after, present.map((p) => p.range));
+    const moved = moveRanges(boxIndex, lines, after, present.map((p) => p.range), added);
     const ranges: RangeMove[] = present.flatMap(({ index, range }, i) =>
       moved[i].start !== range.start || moved[i].end !== range.end ? [{ index, ...moved[i] }] : []
     );

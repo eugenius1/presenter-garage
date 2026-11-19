@@ -59,7 +59,7 @@ assistant such as Claude read your library from disk: list and search
 presentations, read their slides line by line, run the Presentations checks,
 read or audit the media bin, read the presentation playlists, and preview
 giving a presentation a theme's look. It can also **edit slide text**: ask
-it to fix a typo or reword a line, and before anything is written your app
+it to fix a typo, reword a line, or add one, and before anything is written your app
 shows you every line as it is and as it would read, with a tick box for each.
 Every file is backed up outside your library first, and the result is read
 back before it is kept. Started with `--read-only` (or the extension's *Read
