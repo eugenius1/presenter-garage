@@ -56,7 +56,7 @@ Presentation text is written in place, and only through `applyFixes()` in
 has no files, only through `writeWorkspaceEdits()` in
 `packages/node/src/workspace-write.ts`, which edits the Loro document itself
 and never writes from the converted message. Under Node both are reached only
-through `applyPlan()` in `packages/node/src/edits.ts`, which the MCP server
+through `applyPlan()` in `packages/node/src/apply.ts`, which the MCP server
 and the desktop app share. Every surface that writes must
 keep all four of these guards. Each is defined by what it protects, so a new surface keeps
 it in its own form; do not add a write path that keeps fewer, and do not

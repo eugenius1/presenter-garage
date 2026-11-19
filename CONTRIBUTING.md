@@ -520,8 +520,9 @@ five:
   whatever runs under Node — `library.ts` to find and read files without
   leaving the configured folders, `write.ts` to back them up and replace them,
   `workspace.ts` to read a ProPresenter 22 workspace as though it were those
-  files, `workspace-write.ts` to write slide text into one, and `edits.ts`
-  to plan and apply an edit through them. Its one dependency, `loro-crdt`, is imported from its `base64` build,
+  files, `workspace-write.ts` to write slide text into one, and `planning.ts`
+  and `apply.ts` (with `plans.ts` and `styling.ts`, all re-exported as
+  `edits.ts`) to plan and apply an edit through them. Its one dependency, `loro-crdt`, is imported from its `base64` build,
   which carries the WebAssembly inline so the server stays one file.
   Kept out of `mcp` so the desktop app, and a command line later, share the
   one write path rather than grow a second.
@@ -562,7 +563,7 @@ test holds equal. It touches the disk only through `packages/node`.
 In `library.ts` there, every path a tool is given is resolved with `realpath`
 before it is compared with the configured folders, and nothing opens a file
 for writing; `write.ts` is the only code that does, `workspace-write.ts` the
-only code that opens a workspace's database for writing, and `edits.ts`
+only code that opens a workspace's database for writing, and `apply.ts`
 beside them the only caller of either, called in turn by the server and the
 desktop app. Node has no
 `openat`, so an open cannot be anchored to a folder; every file is checked
