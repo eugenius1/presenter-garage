@@ -37,11 +37,11 @@ protocol.registerSchemesAsPrivileged([
  */
 if (!smoke && !app.requestSingleInstanceLock()) app.quit();
 
+/** Whether a URL is the app's own page: its build, or in development the web app's dev server. */
+const isOurs = (url: string) => url.startsWith(`${ORIGIN}/`) || (devServer !== undefined && url.startsWith(devServer));
+
 /** Whether a call came from our own page, and not from anything it might have navigated to. */
-function fromOurPage(event: IpcMainInvokeEvent): boolean {
-  const url = event.senderFrame?.url ?? "";
-  return url.startsWith(`${ORIGIN}/`) || (devServer !== undefined && url.startsWith(devServer));
-}
+const fromOurPage = (event: IpcMainInvokeEvent) => isOurs(event.senderFrame?.url ?? "");
 
 function registerHandlers(): void {
   const handlers = createHandlers({
@@ -100,7 +100,7 @@ function createWindow(): BrowserWindow {
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
-    if (url.startsWith(`${ORIGIN}/`) || (devServer && url.startsWith(devServer))) return;
+    if (isOurs(url)) return;
     event.preventDefault();
     if (isWeb(url)) void shell.openExternal(url);
   });

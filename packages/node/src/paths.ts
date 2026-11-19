@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { WorkspaceRefusalCode } from "@presenter-garage/core/lib/desktop";
 
 /**
  * What both halves of reading a library need: the folder of files in
@@ -7,21 +8,33 @@ import path from "node:path";
  * has to import the other to get at it.
  */
 
-/**
- * The refusals an app has to word in its own language, rather than show the
- * English a model is given. The rest are a path or a file a person can see
- * in the message itself.
- */
-export type LibraryErrorCode = "propresenterOpen" | "cloudWorkspace" | "unverifiedWorkspace" | "lossy";
-
 /** Something a caller can act on: a wrong path, a file that will not read. Never a crash. */
 export class LibraryError extends Error {
-  readonly code?: LibraryErrorCode;
-
-  constructor(message: string, code?: LibraryErrorCode) {
+  constructor(message: string) {
     super(message);
     this.name = "LibraryError";
+  }
+}
+
+/**
+ * A workspace that cannot be written at all, which refuses a whole run. The
+ * message is English for a model; `code` is what an app words for itself.
+ */
+export class WorkspaceRefused extends LibraryError {
+  readonly code: WorkspaceRefusalCode;
+
+  constructor(message: string, code: WorkspaceRefusalCode) {
+    super(message);
+    this.name = "WorkspaceRefused";
     this.code = code;
+  }
+}
+
+/** A file the fidelity gate will not let be written (guard 1): one file's refusal, not the run's. */
+export class LossyFile extends LibraryError {
+  constructor(message: string) {
+    super(message);
+    this.name = "LossyFile";
   }
 }
 

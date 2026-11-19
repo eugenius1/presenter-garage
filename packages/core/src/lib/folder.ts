@@ -49,6 +49,11 @@ export interface FolderFile {
   read: () => Promise<Uint8Array>;
   /** Absent when the folder was read through the input fallback. */
   write?: (bytes: Uint8Array) => Promise<void>;
+  /**
+   * In the desktop app, the file's real path, and once `read` has run, the
+   * hash it was read at. A save sends both back, never bytes: see `desktop.ts`.
+   */
+  native?: { path: string; sha256?: string };
 }
 
 export interface PickedFolder {

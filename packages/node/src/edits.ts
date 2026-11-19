@@ -24,6 +24,7 @@ import {
   type WorkspaceEdit,
 } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, readFoundFile, resolveInRoots } from "./library";
+import { LossyFile, WorkspaceRefused } from "./paths";
 import { open, presentationName } from "./presentations";
 import { documentAt, isInWorkspace, workspaceAt } from "./workspace";
 import { readForPlanning, writeWorkspaceEdits } from "./workspace-write";
@@ -220,17 +221,12 @@ export async function planSlideEdits(
     }
     // A workspace document is edited as itself, and what stops that is
     // known now: refused before a person has read and approved every line.
-    let styling: string[][] | undefined;
-    try {
-      styling = stylingIn(read, fixes);
-    } catch (e) {
-      if (e instanceof AttributeRangeError) {
-        const where = e.lineIndex === undefined ? `box ${e.boxIndex}` : `box ${e.boxIndex} line ${e.lineIndex}`;
-        throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[e.reason]}. Nothing was planned.`);
-      }
-      if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
-      throw e;
+    const { styling, refusal } = planStyling(read, fixes);
+    if (refusal instanceof AttributeRangeError) {
+      const where = refusal.lineIndex === undefined ? `box ${refusal.boxIndex}` : `box ${refusal.boxIndex} line ${refusal.lineIndex}`;
+      throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[refusal.reason]}. Nothing was planned.`);
     }
+    if (refusal) throw new LibraryError(`${real}: ${refusals[refusal.reason]}. Nothing was planned.`);
     files.push(plannedFile(real, doc, read, fixes, n, styling));
     n += fixes.length;
   }
@@ -279,14 +275,40 @@ async function readForPlan(real: string): Promise<ReadForPlan> {
   const { bytes } = await readFoundFile(real);
   // Refused now rather than after a person has read and approved every line.
   if (!checkPresentationFidelity(bytes).exportSafe) {
-    throw new LibraryError(`${real}: ${refusals.lossy}. Nothing was planned.`, "lossy");
+    throw new LossyFile(`${real}: ${refusals.lossy}. Nothing was planned.`);
   }
   return { bytes, sha256: sha256(bytes) };
 }
 
-/** For a workspace document, what each fix does to its styling, which throws where the ranges cannot be moved. */
-function stylingIn(read: ReadForPlan, fixes: readonly LineFix[]): string[][] | undefined {
-  return read.root === undefined ? undefined : stylingOf(planWorkspaceEdit(read.root, fixes), fixes);
+/**
+ * For a workspace document, what each fix does to its styling, or why the
+ * edit cannot be made: ranges that cannot be moved without a guess, or a
+ * document the edit cannot be planned in. Each surface says the refusal its
+ * own way; both refuse for exactly these.
+ */
+function planStyling(
+  read: ReadForPlan,
+  fixes: readonly LineFix[]
+): { styling?: string[][]; refusal?: AttributeRangeError | FixError } {
+  if (read.root === undefined) return {};
+  try {
+    return { styling: stylingOf(planWorkspaceEdit(read.root, fixes), fixes) };
+  } catch (e) {
+    if (e instanceof AttributeRangeError || e instanceof FixError) return { refusal: e };
+    throw e;
+  }
+}
+
+/**
+ * A file the open folder holds, with the hash `planChosenFixes` will check
+ * it against: of a file's bytes, or of a workspace document's stored
+ * snapshot. Whoever shows a file to a person reads it here, so the hash it
+ * hands back is the one the plan compares.
+ */
+export async function readWithHash(real: string): Promise<{ bytes: Uint8Array; sha256: string }> {
+  const stored = await documentAt(real);
+  const { bytes } = await readFoundFile(real);
+  return { bytes, sha256: stored ? stored.document.sha256 : sha256(bytes) };
 }
 
 function plannedFile(
@@ -327,12 +349,12 @@ function plannedFile(
 export async function planChosenFixes(
   roots: readonly string[],
   chosen: readonly ChosenFile[]
-): Promise<{ plan: Plan; refused: NativeFileOutcome[] }> {
+): Promise<{ plan: Plan; refused: Omit<AppliedFile, "name">[] }> {
   const files: PlannedFile[] = [];
-  const refused: NativeFileOutcome[] = [];
+  const refused: Omit<AppliedFile, "name">[] = [];
   let n = 0;
   for (const file of chosen) {
-    const refuse = (reason: ApplyRefusal, more: Partial<NativeFileOutcome> = {}) =>
+    const refuse = (reason: ApplyRefusal, more: Partial<AppliedFile> = {}) =>
       refused.push({ path: file.path, lines: file.lines.length, written: false, reason, ...more });
 
     let real: string;
@@ -341,9 +363,9 @@ export async function planChosenFixes(
       real = await resolvePresentation(roots, file.path);
       read = await readForPlan(real);
     } catch (e) {
-      if (!(e instanceof LibraryError)) throw e;
-      if (e.code && e.code !== "lossy") throw e;
-      refuse(e.code === "lossy" ? "lossy" : "unreadable", { detail: e.message });
+      // A workspace that cannot be written refuses the run; anything else is this file's.
+      if (e instanceof WorkspaceRefused || !(e instanceof LibraryError)) throw e;
+      refuse(e instanceof LossyFile ? "lossy" : "unreadable", { detail: e.message });
       continue;
     }
     if (read.sha256 !== file.sha256) {
@@ -375,12 +397,10 @@ export async function planChosenFixes(
       continue;
     }
 
-    try {
-      stylingIn(read, fixes);
-    } catch (e) {
-      if (e instanceof AttributeRangeError) refuse("attributeRanges", { rangeReason: e.reason });
-      else if (e instanceof FixError) refuse(e.reason);
-      else throw e;
+    const { refusal } = planStyling(read, fixes);
+    if (refusal) {
+      if (refusal instanceof AttributeRangeError) refuse("attributeRanges", { rangeReason: refusal.reason });
+      else refuse(refusal.reason);
       continue;
     }
     files.push(plannedFile(real, fixable, read, fixes, n));
@@ -389,10 +409,10 @@ export async function planChosenFixes(
   return { plan: newPlan(files), refused };
 }
 
-export type { ApplyRefusal };
-
 export interface AppliedFile extends NativeFileOutcome {
   name: string;
+  /** The system's own words, in English, when there are any. */
+  detail?: string;
 }
 
 /** The apply in progress, if any; the next waits for it. */

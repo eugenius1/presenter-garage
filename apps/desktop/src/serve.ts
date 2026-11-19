@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isInside } from "@presenter-garage/node/paths";
 
 /**
  * Which file of the web app's build answers a request on the app's own
@@ -25,25 +26,25 @@ export function assetPath(webDir: string, url: string): string {
   }
   if (pathname.includes("\0")) return index;
   const file = path.join(webDir, path.normalize(pathname));
-  const rel = path.relative(webDir, file);
-  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return index;
+  if (file === webDir || !isInside(webDir, file)) return index;
   return path.extname(file) ? file : index;
 }
 
+const TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".wasm": "application/wasm",
+  ".woff2": "font/woff2",
+};
+
 /** The content type for a file of the build, which `net.fetch` on a `file:` URL does not always set. */
 export function contentType(file: string): string {
-  const types: Record<string, string> = {
-    ".html": "text/html; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-    ".mjs": "text/javascript; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".json": "application/json",
-    ".webmanifest": "application/manifest+json",
-    ".svg": "image/svg+xml",
-    ".png": "image/png",
-    ".ico": "image/x-icon",
-    ".wasm": "application/wasm",
-    ".woff2": "font/woff2",
-  };
-  return types[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+  return TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
 }

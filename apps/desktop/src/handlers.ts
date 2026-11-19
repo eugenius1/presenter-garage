@@ -2,15 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   ChosenFile,
+  ChosenLine,
   DesktopBridge,
   NativeApplyResult,
   NativeFolder,
   NativeWorkspace,
 } from "@presenter-garage/core/lib/desktop";
-import { applyPlan, everyLine, planChosenFixes } from "@presenter-garage/node/edits";
-import { findPresentations, LibraryError, openRoots, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
-import { documentAt, registeredWorkspaces, workspaceAt, workspacesDir } from "@presenter-garage/node/workspace";
-import { sha256 } from "@presenter-garage/node/write";
+import { applyPlan, everyLine, planChosenFixes, readWithHash } from "@presenter-garage/node/edits";
+import { findPresentations, LibraryError, openRoots, resolveInRoots } from "@presenter-garage/node/library";
+import { WorkspaceRefused } from "@presenter-garage/node/paths";
+import { hasCloudImprint, registeredWorkspaces, workspaceAt, workspacesDir } from "@presenter-garage/node/workspace";
 
 /**
  * What the main process does for each call the page makes, apart from
@@ -37,9 +38,7 @@ export interface ShellDeps {
   workspacesDir?: string;
 }
 
-type Handlers = { [K in keyof DesktopBridge]: (...args: Parameters<DesktopBridge[K]>) => ReturnType<DesktopBridge[K]> };
-
-export function createHandlers(deps: ShellDeps): Handlers {
+export function createHandlers(deps: ShellDeps): DesktopBridge {
   const registryDir = deps.workspacesDir ?? workspacesDir();
   /** The folder open now, as `openRoots` resolved it. Nothing outside it can be read or written. */
   let roots: string[] = [];
@@ -54,8 +53,7 @@ export function createHandlers(deps: ShellDeps): Handlers {
     const registered = workspace
       ? (await registeredWorkspaces(path.dirname(root))).find((w) => path.resolve(w.root) === root)
       : undefined;
-    const cloud =
-      registered?.cloud ?? (await fs.stat(path.join(root, "imprint.cloud")).then(() => true, () => false));
+    const cloud = registered?.cloud ?? (await hasCloudImprint(root));
     const { files, truncated } = await findPresentations(opened);
     roots = opened;
     await remember(root);
@@ -124,10 +122,7 @@ export function createHandlers(deps: ShellDeps): Handlers {
 
     async read(p: string) {
       if (typeof p !== "string") throw new LibraryError("No file named.");
-      const real = await resolveInRoots(roots, p);
-      const stored = await documentAt(real);
-      const { bytes } = await readFoundFile(real);
-      return { bytes, sha256: stored ? stored.document.sha256 : sha256(bytes) };
+      return readWithHash(await resolveInRoots(roots, p));
     },
 
     async applyFixes(files: ChosenFile[]): Promise<NativeApplyResult> {
@@ -137,15 +132,23 @@ export function createHandlers(deps: ShellDeps): Handlers {
         const { plan, refused } = await planChosenFixes(roots, files);
         const run = plan.files.length > 0 ? await applyPlan(roots, plan, everyLine(plan), deps.backupDir) : { files: [] };
         if (run.backupFolder) backupFolders.add(run.backupFolder);
+        // The page words each refusal itself, so the English the MCP server gives a model stays here.
         return {
           backupFolder: run.backupFolder,
-          files: [...refused, ...run.files.map(({ name: _name, ...outcome }) => outcome)],
+          files: [...refused, ...run.files].map(({ path: p, lines, written, backup, reason, rangeReason }) => ({
+            path: p,
+            lines,
+            written,
+            ...(backup && { backup }),
+            ...(reason && { reason }),
+            ...(rangeReason && { rangeReason }),
+          })),
         };
       } catch (e) {
         // A refusal of the whole run comes before anything is written: say
         // which, so the page can word it, rather than fail the call.
-        const code = e instanceof LibraryError && e.code !== "lossy" ? e.code : undefined;
-        return { files: [], refused: { code: code ?? "failed", detail: (e as Error).message } };
+        const code = e instanceof WorkspaceRefused ? e.code : "failed";
+        return { files: [], refused: { code, detail: (e as Error).message } };
       }
     },
 
@@ -159,28 +162,27 @@ export function createHandlers(deps: ShellDeps): Handlers {
 const isString = (v: unknown): v is string => typeof v === "string";
 const isIndex = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+
+function isChosenLine(v: unknown): v is ChosenLine {
+  return (
+    isRecord(v) && isIndex(v.boxIndex) && isIndex(v.lineIndex) && isString(v.before) && (v.after === null || isString(v.after))
+  );
+}
+
 /** The page is ours, but what crosses into the main process is checked as though it were not. */
 export function isChosenFiles(value: unknown): value is ChosenFile[] {
   return (
     Array.isArray(value) &&
     value.every(
       (file) =>
-        typeof file === "object" &&
-        file !== null &&
+        isRecord(file) &&
         isString(file.path) &&
         isString(file.sha256) &&
         Array.isArray(file.kinds) &&
         file.kinds.every(isString) &&
         Array.isArray(file.lines) &&
-        file.lines.every(
-          (line: unknown) =>
-            typeof line === "object" &&
-            line !== null &&
-            isIndex((line as Record<string, unknown>).boxIndex) &&
-            isIndex((line as Record<string, unknown>).lineIndex) &&
-            isString((line as Record<string, unknown>).before) &&
-            ((line as Record<string, unknown>).after === null || isString((line as Record<string, unknown>).after))
-        )
+        file.lines.every(isChosenLine)
     )
   );
 }

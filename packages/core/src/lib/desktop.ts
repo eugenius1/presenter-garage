@@ -98,15 +98,21 @@ export interface NativeFileOutcome {
   reason?: ApplyRefusal;
   /** For `attributeRanges`, why the formatting could not be moved. */
   rangeReason?: RangeRefusal;
-  /** The system's own words, in English, when there are any. */
-  detail?: string;
 }
+
+/**
+ * Why a ProPresenter 22 workspace cannot be written at all, which refuses a
+ * whole run before anything is written. `packages/node` throws these as
+ * `WorkspaceRefused`, so a refusal added there has a sentence here or does
+ * not compile.
+ */
+export type WorkspaceRefusalCode = "propresenterOpen" | "cloudWorkspace" | "unverifiedWorkspace";
 
 /**
  * Why nothing at all was written. Each has a sentence under
  * `runRefusals` in the dictionaries; `failed` shows `detail`.
  */
-export type RunRefusal = "propresenterOpen" | "cloudWorkspace" | "unverifiedWorkspace" | "failed";
+export type RunRefusal = WorkspaceRefusalCode | "failed";
 
 export interface NativeApplyResult {
   /** The folder this run's backups went into. */

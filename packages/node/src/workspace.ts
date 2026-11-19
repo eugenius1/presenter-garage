@@ -456,6 +456,17 @@ export const WORKSPACE_READ_ONLY =
   "Only slide text can be changed in it, with plan_slide_edits and apply_slide_edits; " +
   "make any other change in ProPresenter itself.";
 
+/**
+ * Whether a workspace's folder carries ProPresenter Cloud's marker. The
+ * registry says so too, as `cloud_uuid`; this is the half that needs no
+ * registry, asked by whatever decides whether a workspace can be written.
+ */
+export const hasCloudImprint = (root: string) =>
+  fs.stat(path.join(root, "imprint.cloud")).then(
+    () => true,
+    () => false
+  );
+
 /** Whether a path is inside a ProPresenter 22 workspace, and so is not a file that can be written. */
 export async function isInWorkspace(p: string): Promise<boolean> {
   return (await workspaceOf(p)) !== undefined;

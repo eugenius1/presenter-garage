@@ -1,7 +1,7 @@
 import { createI18n } from "@presenter-garage/core/i18n/core";
 import { applyPlan as applyShared, type AppliedFile, type Plan } from "@presenter-garage/node/edits";
 
-export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type ApplyRefusal, type Plan } from "@presenter-garage/node/edits";
+export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter-garage/node/edits";
 
 /**
  * The MCP server's half of editing slide text: the confirmation it asks the
