@@ -66,6 +66,32 @@ describe("a slide's group and macros", () => {
   });
 });
 
+describe("a slide missing what a macro usually records", () => {
+  it("reads a nameless macro, with no uuid, as switched off, and a cue with no actions as having none", () => {
+    // Plain objects, so each field is truly absent rather than a protobuf default.
+    const doc = {
+      cues: [
+        { uuid: { string: "a" }, actions: [{ macro: {} }, { macro: { identification: { parameter_uuid: {} } } }] },
+        { uuid: { string: "b" } },
+      ],
+    };
+    const read = readPresentation(doc as any);
+    expect(read.name).toBe("");
+    expect(read.slides).toEqual([
+      {
+        slideIndex: 0,
+        cueName: "",
+        groupName: undefined,
+        macros: [
+          { name: "", uuid: undefined, enabled: false },
+          { name: "", uuid: undefined, enabled: false },
+        ],
+      },
+      { slideIndex: 1, cueName: "", groupName: undefined, macros: [] },
+    ]);
+  });
+});
+
 describe("the configured groups", () => {
   it("reads each group's exact name, uuid and colour, in order", () => {
     expect(readGroups(decodeGroupsDocument(syntheticGroupsFile()))).toEqual([
@@ -89,6 +115,14 @@ describe("the configured groups", () => {
 
   it("reads nothing from an empty document", () => {
     expect(readGroups(decodeGroupsDocument(new Uint8Array()))).toEqual([]);
+    expect(readGroups({} as any)).toEqual([]);
+  });
+
+  it("reads a group with no name, uuid or colour as having none", () => {
+    expect(readGroups({ groups: [{}, { name: "Pont", uuid: {} }] } as any)).toEqual([
+      { name: "", uuid: undefined, color: undefined },
+      { name: "Pont", uuid: undefined, color: undefined },
+    ]);
   });
 });
 
@@ -156,6 +190,42 @@ describe("the configured macros", () => {
       macro_collections: [{ name: "A", macros: [{ ...louange, uuid: { string: MACROS.louange.uuid.toUpperCase() } }] }],
     });
     expect(readMacros(doc as any)).toEqual([{ ...MACROS.louange, collections: ["A"] }]);
+  });
+
+  it("reads nothing from an empty document", () => {
+    expect(readMacros(decodeMacrosDocument(new Uint8Array()))).toEqual([]);
+    expect(readMacros({} as any)).toEqual([]);
+  });
+
+  it("reads a collection or macro missing its fields, and ignores an item naming no known macro", () => {
+    const doc = {
+      macros: [{ uuid: { string: MACROS.louange.uuid } }],
+      macro_collections: [
+        {},
+        {
+          items: [
+            {},
+            { macro_id: {} },
+            { macro_id: { string: "00000000-0000-4000-8000-00000000dead" } },
+            { macro_id: { string: MACROS.louange.uuid } },
+            // Named twice, listed once.
+            { macro_id: { string: MACROS.louange.uuid.toUpperCase() } },
+          ],
+        },
+      ],
+    };
+    expect(readMacros(doc as any)).toEqual([{ name: "", uuid: MACROS.louange.uuid, collections: [""] }]);
+  });
+
+  it("lists a collection's item naming a macro held in a later collection", () => {
+    const type = messageType("rv.data.MacrosDocument");
+    const doc = type.fromObject({
+      macro_collections: [
+        { name: "First", items: [{ macro_id: { string: MACROS.bienvenue.uuid } }] },
+        { name: "Second", macros: [{ uuid: { string: MACROS.bienvenue.uuid }, name: "Bienvenue" }] },
+      ],
+    });
+    expect(readMacros(doc as any)).toEqual([{ ...MACROS.bienvenue, collections: ["Second", "First"] }]);
   });
 
   it("keeps macros with no uuid apart", () => {
