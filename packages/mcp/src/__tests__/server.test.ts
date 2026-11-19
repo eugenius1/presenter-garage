@@ -934,7 +934,7 @@ describe("editing slide text", () => {
     expect(lines()[6]).toEqual(["Refrain", "Que ton nom,", "Que ton nom,", "pour toujours ,", "sois glorifie"]);
   });
 
-  it("moves the capitals with the text, and says where an added line comes out in them", async () => {
+  it("moves the capitals with the text, and shows the styling an added line takes", async () => {
     fs.writeFileSync(
       file,
       withAttributes(syntheticTextPresentation("Song"), { 0: capsByLine(["A tidy line", "And another"]) })
@@ -943,11 +943,16 @@ describe("editing slide text", () => {
       { boxIndex: 0, lineIndex: 0, text: "new line", insert: "after" },
       { boxIndex: 1, lineIndex: 0, text: "not", insert: "after" },
     ]);
-    expect(planned.files[0].lines.map((l: Record<string, unknown>) => l.capitals)).toEqual([true, undefined]);
+    expect(planned.files[0].lines.map((l: Record<string, unknown>) => l.styling)).toEqual([
+      ["All Caps on the whole line, as on the line beside it"],
+      undefined,
+    ]);
 
     const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
     const { properties } = form(asked[0]).requestedSchema;
-    expect(properties.line1.description).toBe("Added after “A tidy line”: “new line”, in capitals as the line beside it is");
+    expect(properties.line1.description).toBe(
+      "Added after “A tidy line”: “new line”. Styling: All Caps on the whole line, as on the line beside it."
+    );
     expect(properties.line2.description).toBe("Added after “Fine here”: “not”");
     expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
     const ranges = textBoxRanges(decodePresentation(new Uint8Array(fs.readFileSync(file)))).get(0)!;
@@ -967,7 +972,7 @@ describe("editing slide text", () => {
       edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }],
     });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/box 0: a text box has formatting that an added line could only guess whether to take/);
+    expect(result.text).toMatch(/box 0 line 0: a text box has formatting that cannot be moved .*: a line would be added beside formatting other than All Caps/);
   });
 
   it("refuses an added line it cannot place, saying which", async () => {

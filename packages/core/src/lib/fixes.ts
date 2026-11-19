@@ -34,7 +34,7 @@ import {
 } from "./rtf";
 import { groupBy } from "./collections";
 import type { RawDoc } from "./decode";
-import { AttributeRangeError, rangesAfter } from "./ranges";
+import { AttributeRangeError, rangesAfter, type LineStyling } from "./ranges";
 
 /**
  * Turning findings into edits.
@@ -379,9 +379,8 @@ export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange
 
 /**
  * Why a file was not written. Carries a code; the interface supplies the words.
- * `attributeRanges` and `addedLineRanges` are an `AttributeRangeError`'s two
- * answers: a box's ranges do not fall on its lines, or whether an added line
- * takes one would be a guess.
+ * `attributeRanges` is an `AttributeRangeError`: a box's ranges cannot be
+ * moved with its text, or a line added to it, without a guess.
  */
 export type FixRefusal =
   | "lossy"
@@ -389,8 +388,7 @@ export type FixRefusal =
   | "verifyFailed"
   | "unreadable"
   | "stale"
-  | "attributeRanges"
-  | "addedLineRanges";
+  | "attributeRanges";
 
 export class FixError extends Error {
   readonly reason: FixRefusal;
@@ -441,7 +439,7 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
   try {
     planned = presentationRanges(doc, before, fixes);
   } catch (e) {
-    if (e instanceof AttributeRangeError) throw new FixError(e.addedLine ? "addedLineRanges" : "attributeRanges");
+    if (e instanceof AttributeRangeError) throw new FixError("attributeRanges");
     throw e;
   }
 
@@ -462,8 +460,10 @@ export interface PlannedRanges {
   before: Map<number, AttributeRange[]>;
   /** Each edited box's ranges once the fixes are in, by box. */
   moved: Map<number, AttributeRange[]>;
-  /** The added lines a capitalization is widened over, which read in capitals. */
-  capitals: Set<LineFix>;
+  /** What each fix does to the styling on its line, one per fix in the order of the fixes. */
+  styling: LineStyling[];
+  /** The edited boxes with a range that ran past the end of the text, cut back to it. */
+  cutBack: Set<number>;
 }
 
 /**
@@ -476,20 +476,23 @@ export interface PlannedRanges {
 export function presentationRanges(raw: RawDoc, before: PresentationDoc, fixes: readonly LineFix[]): PlannedRanges {
   const ranges = textBoxRanges(raw);
   const moved = new Map<number, AttributeRange[]>();
-  const capitals = new Set<LineFix>();
+  const styling = new Map<LineFix, LineStyling>();
+  const cutBack = new Set<number>();
   for (const boxIndex of new Set(fixes.map((fix) => fix.boxIndex))) {
     const box = before.textBoxes.find((b) => b.boxIndex === boxIndex)!;
     const present = ranges.get(boxIndex) ?? [];
     const after = rangesAfter(box, fixes, present);
     moved.set(boxIndex, present.map((range, i) => ({ ...range, ...after.moved[i] })));
-    for (const fix of after.capitals) capitals.add(fix);
+    for (const [fix, said] of after.styling) styling.set(fix, said);
+    if (after.cutBack) cutBack.add(boxIndex);
   }
-  return { before: ranges, moved, capitals };
+  return { before: ranges, moved, styling: fixes.map((fix) => styling.get(fix)!), cutBack };
 }
 
 /**
  * Throws `verifyFailed` unless every range of every box reads back where it
- * was planned: moved in the edited boxes, exactly where it was in the rest.
+ * was planned, the same styling it was: moved in the edited boxes, exactly
+ * where it was in the rest.
  */
 export function verifyRanges(after: ReadonlyMap<number, readonly AttributeRange[]>, planned: PlannedRanges): void {
   if (after.size !== planned.before.size) throw new FixError("verifyFailed");
@@ -497,7 +500,7 @@ export function verifyRanges(after: ReadonlyMap<number, readonly AttributeRange[
     const want = planned.moved.get(boxIndex) ?? was;
     const got = after.get(boxIndex);
     const same = (a: AttributeRange, b: AttributeRange) =>
-      a.index === b.index && a.start === b.start && a.end === b.end && a.caps === b.caps;
+      a.index === b.index && a.start === b.start && a.end === b.end && a.style === b.style;
     if (got?.length !== want.length || got.some((range, i) => !same(range, want[i]))) throw new FixError("verifyFailed");
   }
 }

@@ -88,21 +88,29 @@ describe("moving a .pro file's ranges with its text", () => {
     expect(ranges(bytes, 6)).toEqual(ranges(song(), 6));
   });
 
-  it("says which added lines come out in capitals", () => {
+  it("says what styling each line takes, an added line in capitals among them", () => {
     const bytes = song();
     const fixes = plan(bytes, [
       { boxIndex: 0, lineIndex: 0, text: "in capitals", insert: "after" },
       { boxIndex: 1, lineIndex: 0, text: "not", insert: "after" },
+      { boxIndex: 6, lineIndex: 0, text: "Que ton nom" },
     ]);
-    const { capitals } = presentationRanges(decodePresentation(bytes), open(bytes), fixes);
-    expect([...capitals]).toEqual([fixes[0]]);
+    const { styling } = presentationRanges(decodePresentation(bytes), open(bytes), fixes);
+    const caps = { kind: "capitalization", value: 1 };
+    expect(styling.map((s) => s.ranges)).toEqual([
+      [{ index: 0, ...caps, before: "", after: "in capitals" }],
+      [],
+      [{ index: 0, ...caps, before: "Que ton nom,", after: "Que ton nom" }],
+    ]);
   });
 
-  it("refuses a box whose ranges are not on its lines", () => {
+  it("moves a range inside a line with its text, and refuses text typed at its edge", () => {
+    // All Caps on "tidy" only, which the rule before #67 refused outright.
     const bytes = withAttributes(syntheticTextPresentation(), {
-      0: [{ range: { start: 0, end: 6 }, capitalization: "CAPITALIZATION_ALL_CAPS" }],
+      0: [{ range: { start: 2, end: 6 }, capitalization: "CAPITALIZATION_ALL_CAPS" }],
     });
-    expect(() => write(bytes, [{ boxIndex: 0, lineIndex: 0, text: "A tidier line" }])).toThrow(new FixError("attributeRanges"));
+    expect(shown(write(bytes, [{ boxIndex: 0, lineIndex: 0, text: "Oh, a tidy line" }]), 0)[0]).toBe("Oh, a TIDY line");
+    expect(() => write(bytes, [{ boxIndex: 0, lineIndex: 0, text: "A tidyish line" }])).toThrow(new FixError("attributeRanges"));
   });
 
   it("refuses an added line where whether it takes a range would be a guess", () => {
@@ -112,7 +120,7 @@ describe("moving a .pro file's ranges with its text", () => {
     });
     const fixes = plan(bytes, [{ boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }]);
     expect(() => presentationRanges(decodePresentation(bytes), open(bytes), fixes)).toThrow(AttributeRangeError);
-    expect(() => applyFixes(bytes, fixes)).toThrow(new FixError("addedLineRanges"));
+    expect(() => applyFixes(bytes, fixes)).toThrow(new FixError("attributeRanges"));
   });
 
   it("takes only All Caps for capitals, refusing a line added beside title case", () => {
@@ -121,7 +129,7 @@ describe("moving a .pro file's ranges with its text", () => {
     });
     expect(textBoxRanges(decodePresentation(bytes)).get(0)![0].caps).toBe(false);
     const fixes = plan(bytes, [{ boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }]);
-    expect(() => applyFixes(bytes, fixes)).toThrow(new FixError("addedLineRanges"));
+    expect(() => applyFixes(bytes, fixes)).toThrow(new FixError("attributeRanges"));
   });
 
   it("refuses a file whose ranges do not read back where they were planned", () => {
@@ -147,20 +155,25 @@ describe("moving a .pro file's ranges with its text", () => {
 
 /**
  * Whether each line is all in capitals, by the capitalizations among
- * `ranges`. An empty line is when one reaches it -- a placeholder's All Caps
- * over no characters -- since whatever is typed there comes out in capitals.
+ * `ranges`: every character but the spaces and tabs at either end, which
+ * show no case. An empty line is when one reaches it -- a placeholder's All
+ * Caps over no characters -- since whatever is typed there comes out in
+ * capitals.
  */
 function capsOnLines(lines: readonly string[], ranges: readonly { start: number; end: number; caps?: boolean }[]): boolean[] {
-  const caps = ranges.filter((r) => r.caps);
+  const caps = [...ranges.filter((r) => r.caps)].sort((a, b) => a.start - b.start);
   let at = 0;
   return lines.map((line) => {
     const start = at;
     at += line.length + 1;
-    // Several ranges may meet over one line; walk them in order.
-    let reached = start;
-    for (const r of [...caps].sort((a, b) => a.start - b.start)) if (r.start <= reached) reached = Math.max(reached, r.end);
     if (line.length === 0) return caps.some((r) => r.start <= start && r.end >= start);
-    return reached >= start + line.length;
+    const lead = line.length - line.trimStart().length;
+    const trail = line.length - line.trimEnd().length;
+    if (lead === line.length) return caps.some((r) => r.start <= start + line.length && r.end >= start);
+    // Several ranges may meet over one line; walk them in order.
+    let reached = start + lead;
+    for (const r of caps) if (r.start <= reached) reached = Math.max(reached, r.end);
+    return reached >= start + line.length - trail;
   });
 }
 

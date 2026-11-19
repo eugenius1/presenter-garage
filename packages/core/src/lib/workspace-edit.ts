@@ -1,6 +1,6 @@
 import { FixError, spliceBoxes, verifyLines, type LineFix } from "./fixes";
 import { readPresentation, textBoxAddresses, type PresentationDoc, type TextBoxAddress } from "./presentation";
-import { isAllCaps, rangesAfter } from "./ranges";
+import { isAllCaps, rangesAfter, type LineStyling } from "./ranges";
 import { decodeRtf, encodeRtf } from "./rtf";
 import { isObject, presentationFromWorkspace } from "./workspace";
 
@@ -43,15 +43,20 @@ export interface BoxEdit {
   rtf: Uint8Array;
   /** Only the ranges that move. */
   ranges: RangeMove[];
+  /** Attributes whose range ran past the end of the text and is cut back to it, by position in `custom_attributes`. */
+  cutBack: number[];
 }
 
 export interface WorkspaceEdit {
   boxes: BoxEdit[];
-  /** The added lines a capitalization is widened over, which read in capitals. */
-  capitals: Set<LineFix>;
+  /** One per fix, in the order of the fixes. */
+  styling: LineStyling[];
   /** The presentation as read from the document the edit was planned on, for `checkWorkspaceEdit`. */
   before: PresentationDoc;
 }
+
+// Where a box's ranges go is the rule a `.pro` file's move by too, in `ranges.ts`.
+export { AttributeRangeError, type LineStyling, type RangeRefusal } from "./ranges";
 
 /**
  * The keys that reach a field of the message in the snapshot's JSON. A field
@@ -81,7 +86,7 @@ function locate(json: Json, fields: readonly string[]): LoroKey[] | undefined {
  * walk `textBoxAddresses` makes of the message: the cue, its action, the
  * slide's element, its text.
  */
-function loroPathOf(root: Json, address: TextBoxAddress | undefined): LoroKey[] | undefined {
+export function loroPathOf(root: Json, address: TextBoxAddress | undefined): LoroKey[] | undefined {
   if (!address?.cueUuid || !isObject(root?.cues)) return undefined;
   // Keyed by the cue's uuid. Looked for by the uuid it carries as well,
   // should the two ever be spelled differently.
@@ -108,6 +113,19 @@ export function valueAt(json: Json, path: readonly LoroKey[]): Json {
   return at;
 }
 
+/** The member of an attribute's `Attribute` oneof, and its value where that is a plain one. */
+function kindOf(attribute: Json): { kind: string; value?: unknown } {
+  const oneof = isObject(attribute) ? attribute.Attribute : undefined;
+  const kind = isObject(oneof) && typeof oneof.__tag === "string" ? oneof.__tag : "unknown";
+  const value = isObject(oneof) ? oneof[kind] : undefined;
+  return value === null || typeof value !== "object" ? { kind, value } : { kind };
+}
+
+/** Whether an attribute is All Caps: its oneof, as the snapshot keeps one, tagged a capitalization of that value. */
+function isCapitalization(attribute: Json): boolean {
+  return isObject(attribute) && Object.values(attribute).some((v) => isObject(v) && v.__tag === "capitalization" && isAllCaps(v.capitalization));
+}
+
 /** An attribute's range, or nothing for one without a range, which covers no characters to move. */
 function rangeOf(attribute: Json): { start: number; end: number } | undefined {
   const range = isObject(attribute) ? attribute.range : undefined;
@@ -115,11 +133,6 @@ function rangeOf(attribute: Json): { start: number; end: number } | undefined {
   const { start = 0, end = 0 } = range;
   if (!Number.isInteger(start) || !Number.isInteger(end)) throw new FixError("lossy");
   return { start, end };
-}
-
-/** Whether an attribute is All Caps: its oneof, as the snapshot keeps one, tagged a capitalization of that value. */
-function isCapitalization(attribute: Json): boolean {
-  return isObject(attribute) && Object.values(attribute).some((v) => isObject(v) && v.__tag === "capitalization" && isAllCaps(v.capitalization));
 }
 
 /**
@@ -141,7 +154,7 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): Worksp
   const addresses = new Map(textBoxAddresses(message).map((a) => [a.boxIndex, a]));
 
   const boxes: BoxEdit[] = [];
-  const capitals = new Set<LineFix>();
+  const styling = new Map<LineFix, LineStyling>();
   for (const [boxIndex, rtf] of replacements) {
     const box = before.textBoxes.find((b) => b.boxIndex === boxIndex)!;
     const path = loroPathOf(root, addresses.get(boxIndex));
@@ -157,17 +170,25 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): Worksp
     const attributes: Json[] = Array.isArray(text.attributes?.custom_attributes) ? text.attributes.custom_attributes : [];
     const present = attributes.flatMap((attribute, index) => {
       const range = rangeOf(attribute);
-      return range ? [{ index, range: { ...range, caps: isCapitalization(attribute) } }] : [];
+      // Ranges of the same styling: the attribute apart from its range.
+      const style = stableJson({ ...attribute, range: null });
+      return range ? [{ index, ...range, caps: isCapitalization(attribute), ...kindOf(attribute), style }] : [];
     });
-    const { moved, capitals: widened } = rangesAfter(box, fixes, present.map((p) => p.range));
-    for (const fix of widened) capitals.add(fix);
-    const ranges: RangeMove[] = present.flatMap(({ index, range }, i) =>
-      moved[i].start !== range.start || moved[i].end !== range.end ? [{ index, ...moved[i] }] : []
+    const moved = rangesAfter(box, fixes, present);
+    for (const [fix, said] of moved.styling) styling.set(fix, said);
+    const ranges: RangeMove[] = present.flatMap(({ index, start, end }, i) =>
+      moved.moved[i].start !== start || moved.moved[i].end !== end ? [{ index, ...moved.moved[i] }] : []
     );
+    const length = box.lines.map((line) => line.text).join("\n").length;
+    const cutBack = present.filter(({ end }) => end > length).map(({ index }) => index);
 
-    boxes.push({ boxIndex, path, rtf: encodeRtf(rtf), ranges });
+    boxes.push({ boxIndex, path, rtf: encodeRtf(rtf), ranges, cutBack });
   }
-  return { boxes: boxes.sort((a, b) => a.boxIndex - b.boxIndex), capitals, before };
+  return {
+    boxes: boxes.sort((a, b) => a.boxIndex - b.boxIndex),
+    styling: fixes.map((fix) => styling.get(fix)!),
+    before,
+  };
 }
 
 /** The document's `root` with an edit made, as plain JSON: what the Loro document should read afterwards. */
@@ -216,6 +237,17 @@ export function checkWorkspaceEdit(before: Json, after: Json, edit: WorkspaceEdi
     throw new FixError("verifyFailed");
   }
   verifyLines(read, edit.before, fixes);
+  // Every range of every edited box within its text and the right way round,
+  // whatever the plan said: a backwards range matches a plan that has one.
+  for (const box of edit.boxes) {
+    const lines = read.textBoxes.find((b) => b.boxIndex === box.boxIndex)?.lines ?? [];
+    const length = lines.map((line) => line.text).join("\n").length;
+    const attributes = valueAt(after, box.path)?.attributes?.custom_attributes;
+    for (const attribute of Array.isArray(attributes) ? attributes : []) {
+      const range = rangeOf(attribute);
+      if (range && !(range.start >= 0 && range.start <= range.end && range.end <= length)) throw new FixError("verifyFailed");
+    }
+  }
 }
 
 /** Unsigned LEB128. */

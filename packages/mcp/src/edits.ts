@@ -15,7 +15,7 @@ import {
   type LineFix,
 } from "@presenter-garage/core/lib/fixes";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
-import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
+import { AttributeRangeError, type LineStyling } from "@presenter-garage/core/lib/ranges";
 import { planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
 import { documentAt, isInWorkspace, workspaceAt } from "@presenter-garage/node/workspace";
@@ -61,11 +61,10 @@ export interface PlannedFile {
   workspace?: { root: string; documentId: Uint8Array };
   /**
    * Each change with its number in the whole plan, which is how the
-   * confirmation names it. `capitals` is set for an added line that reads in
-   * capitals, because the All Caps range of the line beside it is widened
-   * over it.
+   * confirmation names it, and what it does to the styling on its line,
+   * in words.
    */
-  lines: { n: number; fix: LineFix; capitals?: true }[];
+  lines: { n: number; fix: LineFix; styling?: string[] }[];
 }
 
 export interface Plan {
@@ -109,10 +108,10 @@ export interface PlannedLine {
   insert?: "before" | "after";
   /** Null for an added line, which was not there before. */
   before: string | null;
-  /** Set for an added line that shows in capitals: the line beside it is All Caps, and the new line takes it. */
-  capitals?: true;
   /** Null when the line is removed. */
   after: string | null;
+  /** What the change does to the formatting ranges on the line, when it touches any; for an added line, the formatting it takes. */
+  styling?: string[];
 }
 
 export interface PlanResult {
@@ -127,6 +126,49 @@ export interface RequestedEdit extends LineChange {
 /** The app's own sentences for why a file was left alone, so the two surfaces never describe one file differently. */
 const { t } = createI18n("en");
 const refusals = t.tools.presentations.refusals;
+const rangeRefusals = t.tools.presentations.rangeRefusals;
+
+const CAPITALIZATION = ["no capitalization", "All Caps", "Small Caps", "Title Case", "Start Case"];
+
+/** A ProPresenter 22 attribute as its Text inspector names it, more or less. */
+function attributeName({ kind, value }: { kind: string; value?: unknown }): string {
+  if (kind === "capitalization") return (typeof value === "number" && CAPITALIZATION[value]) || "Capitalization";
+  const names: Record<string, string> = {
+    original_font_size: "Font size",
+    font_scale_factor: "Font scale",
+    text_gradient_fill: "Gradient fill",
+    should_preserve_foreground_color: "Kept text colour",
+    chord: "Chord",
+    cut_out_fill: "Cut-out fill",
+    media_fill: "Media fill",
+    background_effect: "Background effect",
+    character_size_mode: "Character size",
+    original_font: "Font",
+  };
+  return names[kind] ?? kind;
+}
+
+/**
+ * What one line's change does to the styling on it, a sentence per range,
+ * so the person sees every range that moves before choosing the line.
+ */
+export function describeStyling(fix: LineFix, styling: LineStyling, cutBack: boolean): string[] {
+  const quote = (text: string) => (text === "" ? "none of it" : `“${text}”`);
+  const said = styling.ranges.map((range) => {
+    const name = attributeName(range);
+    if (fix.insert) return range.after === fix.after ? `${name} on the whole line, as on the line beside it` : `${name} on ${quote(range.after ?? "")}`;
+    if (range.after === null) return `${name} on ${quote(range.before)} goes with the line`;
+    if (range.before === fix.before && range.after === fix.after) return `${name} on the whole line, as before`;
+    return `${name} on ${quote(range.before)} → on ${quote(range.after)}`;
+  });
+  if (cutBack) said.push("formatting that ran past the end of the text box is cut back to its end, which changes nothing visible");
+  return said;
+}
+
+/** Each fix's styling in words, from the plan of its whole document; `cutBack` the boxes with a range cut back to the text. */
+function stylingOf(fixes: readonly LineFix[], styling: readonly LineStyling[], cutBack: ReadonlySet<number>): string[][] {
+  return fixes.map((fix, i) => describeStyling(fix, styling[i], cutBack.has(fix.boxIndex)));
+}
 
 export async function planSlideEdits(
   roots: readonly string[],
@@ -171,19 +213,23 @@ export async function planSlideEdits(
       const where = `${insert ? ", " : " "}${changeSite(e.change)}`;
       throw new LibraryError(`${real}, box ${boxIndex}${where}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
-    // Where every attribute range goes, which the person is shown, and what
-    // stops it, known now: refused before a person has read and approved
-    // every line. A workspace document is edited as itself.
-    let capitals: Set<LineFix>;
+    // Where every attribute range goes, and so what each line does to the
+    // styling on it, which the person is shown; and what stops it, known
+    // now: refused before a person has read and approved every line. A
+    // workspace document is edited as itself.
+    let styling: string[][];
     try {
-      capitals =
-        root !== undefined
-          ? planWorkspaceEdit(root, fixes).capitals
-          : presentationRanges(raw, doc, fixes).capitals;
+      if (root !== undefined) {
+        const edit = planWorkspaceEdit(root, fixes);
+        styling = stylingOf(fixes, edit.styling, new Set(edit.boxes.filter((b) => b.cutBack.length > 0).map((b) => b.boxIndex)));
+      } else {
+        const planned = presentationRanges(raw, doc, fixes);
+        styling = stylingOf(fixes, planned.styling, planned.cutBack);
+      }
     } catch (e) {
       if (e instanceof AttributeRangeError) {
-        const why = e.addedLine ? refusals.addedLineRanges : refusals.attributeRanges;
-        throw new LibraryError(`${real}, box ${e.boxIndex}: ${why}. Nothing was planned.`);
+        const where = e.lineIndex === undefined ? `box ${e.boxIndex}` : `box ${e.boxIndex} line ${e.lineIndex}`;
+        throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[e.reason]}. Nothing was planned.`);
       }
       if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
       throw e;
@@ -193,7 +239,7 @@ export async function planSlideEdits(
       name: doc.name || presentationName(real),
       sha256: digest,
       workspace,
-      lines: fixes.map((fix) => ({ n: ++n, fix, ...(capitals.has(fix) && { capitals: true as const }) })),
+      lines: fixes.map((fix, i) => ({ n: ++n, fix, ...(styling[i].length > 0 && { styling: styling[i] }) })),
     });
   }
 
@@ -203,7 +249,7 @@ export async function planSlideEdits(
     files: plan.files.map((file) => ({
       path: file.path,
       name: file.name,
-      lines: file.lines.map(({ fix, n, capitals }) => ({
+      lines: file.lines.map(({ fix, n, styling }) => ({
         n,
         slideIndex: fix.slideIndex,
         label: fix.cueName,
@@ -213,7 +259,7 @@ export async function planSlideEdits(
         ...(fix.insert && { insert: fix.insert }),
         before: fix.insert ? null : fix.before,
         after: fix.after,
-        ...(capitals && { capitals }),
+        ...(styling && { styling }),
       })),
     })),
   };
@@ -244,7 +290,7 @@ async function readForPlan(
 /** A confirmation form: one tick box per line, all ticked, each saying what it changes. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
-  for (const file of plan.files) for (const { fix, n, capitals } of file.lines) {
+  for (const file of plan.files) for (const { fix, n, styling } of file.lines) {
     // Box and line too: a slide can hold the same line twice, and a person
     // choosing one of them has to be able to tell which.
     const where = [
@@ -258,12 +304,12 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
       type: "boolean",
       title: `${n}. ${file.name} (${where})`,
       // An added line as it would read, and the line it goes beside as it
-      // reads now, so it can be placed without the slide in front of them;
-      // and in capitals where it takes the All Caps of that line.
-      description: fix.insert
-        ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”` +
-          (capitals ? ", in capitals as the line beside it is" : "")
-        : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`,
+      // reads now, so it can be placed without the slide in front of them.
+      description:
+        (fix.insert
+          ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
+          : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`) +
+        (styling ? `. Styling: ${styling.join("; ")}.` : ""),
       default: true,
     };
   }

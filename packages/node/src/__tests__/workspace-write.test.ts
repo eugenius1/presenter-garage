@@ -245,18 +245,47 @@ suite("writing slide text into a workspace", () => {
     expect(run.outcomes[0].backup).toBeUndefined();
   });
 
-  it("refuses a box whose ranges do not fall on its lines, when planning and when applying", async () => {
-    const id = putPresentation(root, "Tabbed", presentationRoot((lines) => [{ start: 1, end: lines[0].length }]));
+  it("moves a range that starts inside a line, and cuts one past the end of the text back", async () => {
+    const id = putPresentation(
+      root,
+      "Tabbed",
+      presentationRoot((lines) => [
+        // The second line but its first character, in every box that has one.
+        ...(lines.length > 1 ? [{ start: lines[0].length + 2, end: lines[0].length + 1 + lines[1].length }] : []),
+        { start: 0, end: lines.join("\n").length + 1 },
+      ])
+    );
     ws = await open();
     const document = await documentNamed("Tabbed");
+    const planned = await readForPlanning(ws, document);
+    const box = openPresentation(planned.bytes).doc!.textBoxes[0];
+    const fixes = planLineEdits(openPresentation(planned.bytes).doc!, [
+      { boxIndex: 0, lineIndex: 0, text: `${box.lines[0].text} !` },
+    ]);
+    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
+    expect(run.outcomes[0]).toMatchObject({ written: true });
+    const after = await readForPlanning(ws, await documentNamed("Tabbed"));
+    const text = valueAt(after.root, planWorkspaceEdit(planned.root, fixes).boxes[0].path);
+    const length = [`${box.lines[0].text} !`, ...box.lines.slice(1).map((l) => l.text)].join("\n").length;
+    expect(text.attributes.custom_attributes.map((a: Json) => a.range)).toEqual([
+      { start: box.lines[0].text.length + 4, end: box.lines[0].text.length + 3 + box.lines[1].text.length },
+      { start: 0, end: length },
+    ]);
+  });
+
+  it("refuses a box whose ranges cannot be moved without a guess, when planning and when applying", async () => {
+    const id = putPresentation(root, "Partial", presentationRoot(() => [{ start: 1, end: 3 }]));
+    ws = await open();
+    const document = await documentNamed("Partial");
     expect(document.id).toEqual(id);
     const planned = await readForPlanning(ws, document);
+    // The whole first line replaced: where in "Changed" the range would start and end is a guess.
     const fixes = planLineEdits(openPresentation(planned.bytes).doc!, [{ boxIndex: 0, lineIndex: 0, text: "Changed" }]);
-    expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(/do not fall on its lines/);
+    expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(/cannot be moved with its text \(replacedAcrossEdge, line 0\)/);
 
     const before = rows();
     const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
-    expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges" });
+    expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges", detail: "box 0 line 0, replacedAcrossEdge" });
     expect(rows()).toEqual(before);
   });
 
@@ -267,11 +296,11 @@ suite("writing slide text into a workspace", () => {
     const document = await documentNamed("Gradient");
     const planned = await readForPlanning(ws, document);
     const fixes = planLineEdits(openPresentation(planned.bytes).doc!, [{ boxIndex: 0, lineIndex: 0, text: "again", insert: "after" }]);
-    expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(/would be a guess/);
+    expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(expect.objectContaining({ reason: "addedLine", lineIndex: 0 }));
 
     const before = rows();
     const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
-    expect(run.outcomes[0]).toMatchObject({ written: false, reason: "addedLineRanges" });
+    expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges", detail: "box 0 line 0, addedLine" });
     expect(rows()).toEqual(before);
   });
 
@@ -435,7 +464,7 @@ describe.skipIf(!REAL_WORKSPACE || !sqlite?.backup)("writing into a copy of a re
       const fixes = planLineEdits(doc!, [{ boxIndex: box.boxIndex, lineIndex: 0, text: `${box.lines[0].text} (garage)`, insert: "after" }]);
       const run = await write([{ path: file, documentId: document.id, sha256: planned.sha256, fixes }]);
       const { reason } = run.outcomes[0];
-      if (reason === "attributeRanges" || reason === "addedLineRanges") {
+      if (reason === "attributeRanges") {
         refused.push(reason);
         continue;
       }

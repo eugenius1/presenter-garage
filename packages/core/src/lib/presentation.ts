@@ -534,7 +534,21 @@ export function textBoxRanges(doc: RawDoc): Map<number, AttributeRange[]> {
         const range = attribute?.range;
         if (!range) return [];
         // `Attribute` is the oneof protobuf.js names after the member set.
-        return [{ index, start: range.start ?? 0, end: range.end ?? 0, caps: attribute.Attribute === "capitalization" && isAllCaps(attribute.capitalization) }];
+        const kind: string = attribute.Attribute ?? "unknown";
+        const value = attribute[kind];
+        // Ranges of the same styling: the attribute apart from its range.
+        const json = typeof attribute.toJSON === "function" ? attribute.toJSON() : attribute;
+        return [
+          {
+            index,
+            start: range.start ?? 0,
+            end: range.end ?? 0,
+            caps: kind === "capitalization" && isAllCaps(value),
+            kind,
+            ...(value !== null && typeof value !== "object" && { value }),
+            style: JSON.stringify({ ...json, range: null }),
+          },
+        ];
       })
     )
   );

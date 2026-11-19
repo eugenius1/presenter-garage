@@ -112,15 +112,15 @@ out again there either: opening a file with a line added, it showed the
 next line without its capitals and only part of the new one in them, and
 its own next edit to the box left that as it was. So `applyFixes()` moves
 a `.pro` file's ranges too, by the same rule, `rangesAfter()` in
-`packages/core/src/lib/ranges.ts`, refuses what it refuses, and reads every
-range back where it was planned (`verifyRanges()`). That covers a line
-lengthened or shortened by any fix, not only an added one
+`packages/core/src/lib/ranges.ts` (*Moving the attribute ranges* below),
+refuses what it refuses, shows the person the same styling for each line,
+and reads every range back where it was planned (`verifyRanges()`). That
+covers a line lengthened or shortened by any fix, not only an added one
 ([#56](https://github.com/eugenius1/presenter-garage/issues/56)). Over the real `.pro` library behind
 this workspace, 6,713 boxes with ranges: of 36,017 lines lengthened or
-given a line on either side, 1,153 were refused and every other left each
-line in capitals exactly where it was. Of the 447 files the text checks
-would fix, 15 are now refused for a box with ranges off its lines, where
-before they were written with the capitals moved.
+given a line on either side, 786 were refused (2 lengthenings, the rest
+added lines) and every other left each line in capitals exactly where it
+was.
 
 ### Two computers and one text box
 
@@ -155,7 +155,7 @@ lines `read_presentation` shows. It records the row's `sha256`, not a hash
 of the conversion. Everything applying would refuse for the document as it
 stands is refused here too, before anybody reads a line: a Cloud or
 unverified workspace, a document that fails the gate, and a box whose ranges
-cannot be moved.
+cannot be moved without a guess.
 
 ### Applying
 
@@ -211,24 +211,72 @@ again read-only to check each row once more.
 
 ### Moving the attribute ranges
 
-`moveRanges()`. Each end of a range has to sit on the start or the end of a
-line as the box reads now, counted in the box's characters with a line
-break as one. Characters are counted as JavaScript counts them, in UTF-16
-code units. For the accented French and English of the library tried that
-is the count ProPresenter's ranges use; a character outside the Basic
-Multilingual Plane, an emoji say, counts two here and has not been tried
-there. It goes to the same place on that line
-once the lines change length, so a range over one line stays over that
-line, and one over the whole box still covers the whole box. A removed
-line's range becomes empty, at the place the line was.
+`moveRanges()` in `packages/core/src/lib/ranges.ts`, which a `.pro` file's
+ranges move by too. A text element's `custom_attributes` each carry a range in
+the box's characters, a line break counting as one: nearly always All Caps,
+one per line, and now and then a gradient fill or an original font size.
+Characters are counted as JavaScript counts them, in UTF-16 code units. For
+the accented French and English of the library tried that is the count
+ProPresenter's ranges use; a character outside the Basic Multilingual Plane,
+an emoji say, counts two here and has not been tried there.
 
-An end anywhere else -- inside a line, or past the text -- cannot be moved
-without guessing what it was meant to cover, so that box is refused
-(`attributeRanges`). In the library tried that is 55 of the 6,713 boxes that
-carry ranges, nearly all of them lines that start with a tab the All Caps
-range leaves out. Making the rule cover them is possible, since an end
-inside a line that the edit does not touch could simply move with the lines
-before it, but it has not been needed yet.
+Every edit is an exact splice of the box's text: a changed line is the one
+splice `replaceLineText()` makes its RTF edit from (`lineSplice()`, the
+characters the old and new line share at either end left out), and a removed
+line is the line and the break after it, or the break before it where it is
+the last. Each end of each range is mapped through those splices:
+
+1. **An end in text no splice touches** moves by the change in length
+   before it, wherever it sits in its line. This is the common case: a line
+   led by a tab that the All Caps range leaves out.
+2. **An end inside removed text** goes to where that text was. A removed
+   line's range becomes empty, where the line was.
+3. **A range running past the end of the text** is first cut back to the
+   end. It covers nothing visible, so nothing on screen changes.
+4. **New text exactly at a range's start or end** -- typed there, or
+   replacing text just past it -- or replacing text the range starts or
+   ends inside, joins the range when the range covers that
+   whole line -- all of it but spaces and tabs at either end, since a
+   capital space looks like any other. Ranges of the same styling (the same
+   attribute apart from its range) count together, since ProPresenter often
+   splits one line's All Caps at a tab or a trailing space; the new text then
+   joins the first of them with characters on that line, and the rest move
+   past it, so they still meet and never overlap. New text stays out of a
+   range that only meets the line -- ending where the line starts, or
+   starting where it ends -- and out of an empty range, except over an empty
+   line, which no range has characters on: there the first range that
+   reaches it takes the new text.
+5. **Anything else** is a guess: text typed at the edge of formatting on
+   part of a line, or replacing where such formatting starts or ends. The
+   box is refused (`attributeRanges`), with the line and which of the two it
+   was, so it can be fixed by hand.
+
+Every range the rule this replaced could move -- both ends on a line's start
+or end -- is moved the same way: such an end is in text no splice touches,
+or is a case of 2 or 4.
+
+Against a copy of the Mac workspace, read-only
+(`packages/node/src/__tests__/workspace-ranges-survey.test.ts`, which skips
+without `PP_WORKSPACE_DIR`): of its 6,713 boxes with ranges, 12,335 ranges in
+all, the old rule refused 55. Trying five edits on every line of every one
+of them -- lengthened, shortened, text put in front, rewritten, removed --
+6,708 boxes now plan for every edit, and each was written in memory and
+checked as guard 4 checks it. The 5 left are formatting on one word,
+refused when the edit types at its edge. None that the old rule planned is
+refused now. Rewriting All Caps ranges to cover exactly each line, which the
+issue suggested as an option, was not needed for that and is not done.
+
+The person sees, for each line, every range whose text on that line
+changes, as the text it covers before and after, and whether a range past
+the end of the box is cut back. Each line's own splice is all that moves the
+ranges on it, so what they see holds whichever other lines they leave
+chosen. The read-back compares the whole document with the planned one, so
+it checks every range against its mapped place, the ones no edit moved
+included.
+
+Copying a gradient or font-size range over an added line, which would
+create a new container in the `custom_attributes` list, is not done here;
+see [#65](https://github.com/eugenius1/presenter-garage/issues/65).
 
 ### A line added to a box
 
@@ -241,18 +289,24 @@ formatting. Not a character already in the box is touched. Details and the
 edge cases are in `insertLineEdit()` in `packages/core/src/lib/rtf.ts`.
 
 The ranges follow the same idea: a new line is to be covered by exactly the
-ranges that cover all of the line it copies. Most of that falls out of
-moving the ranges as above -- a range over the whole box still covers the
-whole box -- and what does not is one rule:
+ranges that cover all of the line it copies. The run of added lines is one
+more splice, put in whole with its breaks at the start of the line it goes
+before or the end of the line it goes after, and mapped through the rules
+above -- a range over the whole box still covers the whole box -- with one
+difference, since only All Caps is known to carry over to a new line:
 
-- A **capitalization** range (All Caps, nearly every range there is) that
-  ends where the copied line ends, after which the line is added, or starts
-  where it starts, before which it is added, is **widened** over the new
-  lines. "Que ton nom" in capitals with "x2" added after it becomes one
-  range over both lines.
-- Any other range that would come out covering the new line and not the
-  line it copies, or the line and not the new one, or part of the new one,
-  refuses the box (`addedLineRanges`), at plan time as everything else is.
+- An **All Caps** range at that edge of the line, covering the line, is
+  **widened** over the new lines. "Que ton nom" in capitals with "x2" added
+  after it becomes one range over both lines. A range that stops among the
+  spaces and tabs at that edge, as one after a leading tab does, reaches
+  over them to the new lines, unless a range of the same styling is right at
+  the edge already, which then takes them, so none overlap.
+- A range on **part** of the line stays out of the new lines.
+- Any **other styling** over the whole line, or a range the new lines would
+  land inside without its covering the line, refuses the box
+  (`attributeRanges`, `addedLine`), at plan time as everything else is.
+- New lines beside a **blank** line, where a range runs from text on their
+  far side up to it, fall inside the range, whatever its styling.
 
 No range is ever created. A range is an attribute, a map in the box's
 `custom_attributes` list, and giving the new line one of its own would mean
@@ -263,23 +317,25 @@ ProPresenter shows such a range in capitals over both lines, and keeps it
 through its own edits, has not been checked.
 
 Planning a line beside every line of every presentation in a copy of the
-workspace above (518 documents, both sides of each of 14,046 lines):
-26,089 planned. 709 were refused by the second rule, in boxes whose ranges
-include a `text_gradient_fill` (647) or an `original_font_size` (62), which
-the capitalization rule leaves alone. 296 were refused as any edit there
-is, ranges off their lines. 995 were a line added before the empty line of
-a one-line placeholder box, which would then read as no line at all, so
-the plan refuses it: such a box is filled by writing its line 0, not by
-adding to it. The other 3 did not read back as asked and were refused.
+workspace above (474 presentations, both sides of each of 14,046 lines):
+27,094 tried, 26,310 planned, each written in memory and checked as guard 4
+checks it, 23,037 of them in capitals. 784 were refused as `addedLine`,
+nearly all in boxes whose ranges include a `text_gradient_fill` or an
+`original_font_size`. Under the rule before #67, ranges on line boundaries
+only, 26,089 planned and 1,005 were refused for their ranges. 998 more were
+not planned at all: mostly a line added before the empty line of a one-line
+placeholder box, which would then read as no line at all, so the plan
+refuses it -- such a box is filled by writing its line 0, not by adding to
+it -- and a few that would read back only beside another line.
 
 ### The four guards
 
 | Guard | How it is kept |
 | --- | --- |
-| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with its ranges on its lines. Anything else refuses that document |
+| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess. Anything else refuses that document |
 | 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made the run is rolled back and nothing is written |
-| 3. A person saw every line and chose it | Unchanged: `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. The confirmation says to quit ProPresenter first |
-| 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data` and ranges and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), and every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too). The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
+| 3. A person saw every line and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/mcp/src/edits.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
+| 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data` and ranges and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), and every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
 
 One place this differs from the design the experiments led to: that design
 had a mismatch found after `COMMIT` put the backed-up rows back. It is

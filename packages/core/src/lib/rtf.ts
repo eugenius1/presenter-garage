@@ -628,6 +628,33 @@ function insertionPoint(rtf: string, line: RtfLine, at: number): number {
 }
 
 /**
+ * The one splice that turns `before` into `after`, in the line's characters:
+ * `before.slice(start, end)` is replaced by `inserted`. Only what differs is
+ * in it -- the characters the two share at either end are not -- and it
+ * never stops between the halves of a surrogate pair. `replaceLineText`
+ * makes its RTF edit from exactly this, so the attribute ranges of a
+ * ProPresenter 22 box are moved through the same splice the text is.
+ */
+export function lineSplice(before: string, after: string): { start: number; end: number; inserted: string } {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let tail = 0;
+  while (
+    tail < before.length - start &&
+    tail < after.length - start &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]
+  ) {
+    tail++;
+  }
+  // Never stop between the halves of a surrogate pair: an escape stands for
+  // one half, and a splice between them would read back as two characters.
+  const high = (s: string, i: number) => (s.charCodeAt(i) & 0xfc00) === 0xd800;
+  if (start > 0 && high(before, start - 1)) start--;
+  if (tail > 0 && high(before, before.length - tail - 1)) tail--;
+  return { start, end: before.length - tail, inserted: after.slice(start, after.length - tail) };
+}
+
+/**
  * Splice that makes a line read `after`, or null when that cannot be done.
  *
  * Only what differs is touched: the characters the two share at either end
@@ -648,25 +675,7 @@ function insertionPoint(rtf: string, line: RtfLine, at: number): number {
  */
 export function replaceLineText(rtf: string, line: RtfLine, after: string): SourceEdit[] | null {
   if (!rtf.startsWith("{\\rtf")) return null;
-  const before = line.text;
-  let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start++;
-  let tail = 0;
-  while (
-    tail < before.length - start &&
-    tail < after.length - start &&
-    before[before.length - 1 - tail] === after[after.length - 1 - tail]
-  ) {
-    tail++;
-  }
-  // Never stop between the halves of a surrogate pair: an escape stands for
-  // one half, and a splice between them would read back as two characters.
-  const high = (s: string, i: number) => (s.charCodeAt(i) & 0xfc00) === 0xd800;
-  if (start > 0 && high(before, start - 1)) start--;
-  if (tail > 0 && high(before, before.length - tail - 1)) tail--;
-
-  const cutEnd = before.length - tail;
-  const inserted = after.slice(start, after.length - tail);
+  const { start, end: cutEnd, inserted } = lineSplice(line.text, after);
   if (start === cutEnd && inserted === "") return [];
 
   const edits = start < cutEnd ? cutsToEdits(rtf, line, [{ start, end: cutEnd }]) : [];
