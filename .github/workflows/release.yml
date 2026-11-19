@@ -1,46 +1,114 @@
 name: Release
 
-# Runs when a GitHub release is published, and does two things with the
-# commit it was cut from:
+# Makes a release from a commit on main: the Claude Desktop extension attached
+# to a GitHub release, and presenter-garage-mcp staged on npm. Two ways in:
 #
-# 1. Attaches the Claude Desktop extension to the release. Every release gets
-#    it, whatever the release is for: the app links to
-#    releases/latest/download/presenter-garage.mcpb, and "latest" is the
-#    newest release in the whole repository, so one release without the file
-#    would break that link for everyone.
-# 2. Stages presenter-garage-mcp on npm, if this version is not there yet.
-#    Staged, not published: the version waits on npmjs.com until a maintainer
-#    approves it with two-factor authentication (`npm stage approve`), so
-#    nothing reaches `npx` users on CI's word alone. A release that does not
-#    bump packages/mcp/package.json simply skips this step.
+# - The "Run workflow" button (workflow_dispatch) with patch, minor or major.
+#   It works out the next version from the latest release, builds and checks
+#   main at that version, and only then creates the release, with the
+#   extension already on it.
+# - Publishing a GitHub release by hand, tagged vX.Y.Z (or vX.Y.Z-beta.1).
+#   The same build runs on the tagged commit, and the extension is added to
+#   the release afterwards.
 #
-# npm authenticates through trusted publishing (OIDC), not a stored token,
-# and adds provenance on its own. The trusted publisher on npmjs.com names
-# this file, so renaming it breaks publishing. Setting it up, and the first
-# publish it depends on, are under "Releasing" in CONTRIBUTING.md.
+# The tag is the only place a version lives. Every package.json in the
+# repository says 0.0.0, and the build stamps the tag's version into all of
+# them before anything is built, so the server bundle, the extension's
+# manifest and the npm tarball cannot disagree. Nothing is committed back.
 #
-# Three jobs so that only the step needing a permission holds it: `build`
-# installs dependencies and runs their scripts with a read-only token, and the
-# jobs that can write to the release or publish to npm install nothing from
-# the project. No dependency cache either, so nothing another workflow saved
-# reaches the files that get published.
+# Every release gets the extension, whatever it is for: the app links to
+# releases/latest/download/presenter-garage.mcpb, and "latest" is the newest
+# release in the whole repository, so one release without the file would
+# break that link for everyone.
+#
+# npm gets the version staged, not published: it waits on npmjs.com until a
+# maintainer approves it with two-factor authentication (`npm stage
+# approve`), so nothing reaches `npx` users on CI's word alone. npm
+# authenticates this workflow through trusted publishing (OIDC), not a stored
+# token; the trusted publisher names this file, so renaming it breaks
+# publishing. See "Releasing" in CONTRIBUTING.md.
+#
+# Only the job that needs a permission holds it: `build` installs dependencies
+# and runs their scripts with a read-only token, and the jobs that can write
+# to the release or publish to npm install nothing from the project. No
+# dependency cache either, so nothing another workflow saved reaches the files
+# that get published.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: minor
 
 permissions: {}
 
+# One release at a time: two runs of the button would otherwise both read the
+# same latest release and pick the same next version.
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  build:
+  version:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.pick.outputs.tag }}
+      version: ${{ steps.pick.outputs.version }}
+      prerelease: ${{ steps.pick.outputs.prerelease }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BUMP: ${{ inputs.bump }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          semver='^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$'
+          if [ "$EVENT" = workflow_dispatch ]; then
+            if [ "$REF" != refs/heads/main ]; then
+              echo "::error::Releases are cut from main, not $REF."
+              exit 1
+            fi
+            # The newest full release; pre-releases are not counted from.
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            [[ "$latest" =~ $semver ]] || { echo "::error::The latest release, $latest, is not tagged vX.Y.Z."; exit 1; }
+            major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+            case "$BUMP" in
+              major) tag="v$((major + 1)).0.0" ;;
+              minor) tag="v$major.$((minor + 1)).0" ;;
+              *)     tag="v$major.$minor.$((patch + 1))" ;;
+            esac
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
+              echo "::error::$tag already exists."
+              exit 1
+            fi
+          else
+            tag=$RELEASE_TAG
+            [[ "$tag" =~ $semver ]] || { echo "::error::Release tags look like v1.2.3 or v1.2.3-beta.1, not $tag."; exit 1; }
+          fi
+          version=${tag#v}
+          prerelease=false
+          if [[ "$version" == *-* || "$RELEASE_PRERELEASE" == true ]]; then prerelease=true; fi
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Releasing $tag."
+
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
@@ -50,9 +118,18 @@ jobs:
 
       - run: npm ci
 
-      # The same gate CI runs, on the released commit. It also builds the
-      # server and packs the extension.
+      # Into the runner's copy only; nothing is committed. Every package moves
+      # together, as the workspace test requires.
+      - name: Stamp the version from the tag
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: npm version "$VERSION" --workspaces --include-workspace-root --no-git-tag-version
+
+      # The same gate CI runs, at the version being released. It also builds
+      # the server and packs the extension.
       - run: npm run check
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
 
       # Both files the other jobs need, gathered outside dist/: npm pack
       # rebuilds the server first, and the build empties dist/ as it starts.
@@ -64,10 +141,6 @@ jobs:
           cp dist/presenter-garage.mcpb "$RUNNER_TEMP/release/"
           npm pack --pack-destination "$RUNNER_TEMP/release"
 
-      - id: version
-        working-directory: packages/mcp
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
       - uses: actions/upload-artifact@v7
         with:
           name: release
@@ -75,7 +148,7 @@ jobs:
           if-no-files-found: error
 
   attach:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -84,14 +157,29 @@ jobs:
         with:
           name: release
 
-      - name: Attach the Claude Desktop extension
+      # From the button, the release is created here with the extension
+      # already on it, so "latest" never points at a release without it. A
+      # release made with this job's token starts no other workflow, so this
+      # one does not run a second time for it.
+      - name: Create the release
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" presenter-garage.mcpb --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+
+      - name: Attach the Claude Desktop extension
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: gh release upload "$TAG" presenter-garage.mcpb --clobber --repo "$GITHUB_REPOSITORY"
 
   publish:
-    needs: build
+    # After attach, so npm only ever gets a version whose release exists.
+    needs: [version, attach]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,9 +207,9 @@ jobs:
 
       - name: Stage the npm package
         env:
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
           # npm will not give a prerelease the `latest` tag, and should not.
-          DIST_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
+          DIST_TAG: ${{ needs.version.outputs.prerelease == 'true' && 'next' || 'latest' }}
         run: |
           # npm view sees only approved versions: re-running this before the
           # last stage is approved stages it again, and npm refuses that.
