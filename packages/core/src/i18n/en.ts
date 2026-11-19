@@ -386,6 +386,10 @@ export const en = {
           "text would be added right at the edge of formatting that covers only part of the line, and whether the new text takes it is a guess",
         replacedAcrossEdge:
           "new text would replace where formatting over part of the line starts or ends, and where it starts or ends in the new text is a guess",
+        addedLine:
+          "a line would be added beside formatting other than All Caps, or inside formatting that does not cover the line it goes beside, and whether the new line takes it is a guess",
+        dependsOnChoice:
+          "how the formatting falls on a line depends on whether another change at or near it is chosen, so it cannot be shown for every choice; plan those changes separately",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
       editRefusals: {
@@ -394,6 +398,8 @@ export const en = {
         unchanged: "the line already reads that",
         notOneLine: "the text holds a line break or another control character, so it cannot sit on one line",
         lastLine: "the last line of a text box cannot be removed, only emptied",
+        emptyLine: "an added line needs some text: a blank line between two others is what the blank-line check reports",
+        besideRemoved: "a line cannot be added beside a line the same plan removes, since it would take that line's formatting",
         unsupported: "the change would not read back as asked once written, so it is not offered",
       },
     },

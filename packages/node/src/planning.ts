@@ -2,10 +2,10 @@ import path from "node:path";
 import { createI18n } from "@presenter-garage/core/i18n/core";
 import type { ApplyRefusal, ChosenFile } from "@presenter-garage/core/lib/desktop";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
-import { EditError, examine, fixKey, planFixes, planLineEdits, type LineChange, type LineFix } from "@presenter-garage/core/lib/fixes";
+import { changeSite, EditError, examine, fixKey, planFixes, planLineEdits, type LineChange, type LineFix } from "@presenter-garage/core/lib/fixes";
 import type { PresentationDoc } from "@presenter-garage/core/lib/presentation";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
-import { AttributeRangeError } from "@presenter-garage/core/lib/workspace-edit";
+import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
 import type { AppliedFile } from "./apply";
 import { LibraryError, readFoundFile, resolveInRoots } from "./library";
 import { LossyFile, WorkspaceRefused } from "./paths";
@@ -30,11 +30,15 @@ export interface PlannedLine {
   label: string;
   group?: string;
   boxIndex: number;
+  /** The line changed, or for an added line, the line it is added beside. */
   lineIndex: number;
-  before: string;
+  /** Set for an added line: which side of line `lineIndex` it goes. */
+  insert?: "before" | "after";
+  /** Null for an added line, which was not there before. */
+  before: string | null;
   /** Null when the line is removed. */
   after: string | null;
-  /** In a ProPresenter 22 workspace, what the change does to the formatting ranges on the line, when it touches any. */
+  /** What the change does to the formatting ranges on the line, when it touches any; for an added line, the formatting it takes. */
   styling?: string[];
 }
 
@@ -92,18 +96,21 @@ export async function planSlideEdits(
   const files: PlannedFile[] = [];
   for (const [real, changes] of byFile) {
     const read = await readForPlan(real);
-    const { doc } = open(real, read.bytes);
+    const { doc, raw } = open(real, read.bytes);
     let fixes: LineFix[];
     try {
       fixes = planLineEdits(doc, changes);
     } catch (e) {
       if (!(e instanceof EditError)) throw e;
-      const { boxIndex, lineIndex } = e.change;
-      throw new LibraryError(`${real}, box ${boxIndex} line ${lineIndex}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
+      const { boxIndex, insert } = e.change;
+      // "box 0 line 1" as before for a changed line; an added one reads as a clause.
+      const where = `${insert ? ", " : " "}${changeSite(e.change)}`;
+      throw new LibraryError(`${real}, box ${boxIndex}${where}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
-    // A workspace document is edited as itself, and what stops that is
-    // known now: refused before a person has read and approved every line.
-    const { styling, refusal } = planStyling(read.root, fixes);
+    // What each line does to the styling on it, which the person is shown;
+    // and what stops it, known now: refused before a person has read and
+    // approved every line.
+    const { styling, refusal } = planStyling(read.root !== undefined ? { root: read.root } : { raw, doc }, fixes);
     if (refusal instanceof AttributeRangeError) {
       const where = refusal.lineIndex === undefined ? `box ${refusal.boxIndex}` : `box ${refusal.boxIndex} line ${refusal.lineIndex}`;
       throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[refusal.reason]}. Nothing was planned.`);
@@ -126,7 +133,8 @@ export async function planSlideEdits(
         group: fix.groupName,
         boxIndex: fix.boxIndex,
         lineIndex: fix.lineIndex,
-        before: fix.before,
+        ...(fix.insert && { insert: fix.insert }),
+        before: fix.insert ? null : fix.before,
         after: fix.after,
         ...(styling && { styling }),
       })),
@@ -268,7 +276,8 @@ export async function planChosenFixes(
       continue;
     }
 
-    const { refusal } = planStyling(read.root, fixes);
+    // The same check the MCP server makes, so the two refuse a file alike.
+    const { refusal } = planStyling(read.root !== undefined ? { root: read.root } : open(real, read.bytes), fixes);
     if (refusal) {
       if (refusal instanceof AttributeRangeError) refuse("attributeRanges", { rangeReason: refusal.reason });
       else refuse(refusal.reason);

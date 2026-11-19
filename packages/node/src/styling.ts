@@ -1,16 +1,13 @@
-import type { LineFix } from "@presenter-garage/core/lib/fixes";
-import { FixError } from "@presenter-garage/core/lib/fixes";
-import {
-  AttributeRangeError,
-  planWorkspaceEdit,
-  type LineStyling,
-  type WorkspaceEdit,
-} from "@presenter-garage/core/lib/workspace-edit";
+import type { RawDoc } from "@presenter-garage/core/lib/decode";
+import { FixError, presentationRanges, type LineFix } from "@presenter-garage/core/lib/fixes";
+import type { PresentationDoc } from "@presenter-garage/core/lib/presentation";
+import { AttributeRangeError, type LineStyling } from "@presenter-garage/core/lib/ranges";
+import { planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
 
 /**
- * What an edit to a ProPresenter 22 workspace document does to the styling
- * on its lines, in words a person reads before choosing them, or why it
- * cannot be made at all.
+ * What an edit does to the styling on its lines, in words a person reads
+ * before choosing them, or why it cannot be made at all: for a ProPresenter
+ * 22 workspace document and for a `.pro` file alike.
  */
 
 const CAPITALIZATION = ["no capitalization", "All Caps", "Small Caps", "Title Case", "Start Case"];
@@ -41,6 +38,7 @@ export function describeStyling(fix: LineFix, styling: LineStyling, cutBack: boo
   const quote = (text: string) => (text === "" ? "none of it" : `“${text}”`);
   const said = styling.ranges.map((range) => {
     const name = attributeName(range);
+    if (fix.insert) return range.after === fix.after ? `${name} on the whole line, as on the line beside it` : `${name} on ${quote(range.after ?? "")}`;
     if (range.after === null) return `${name} on ${quote(range.before)} goes with the line`;
     if (range.before === fix.before && range.after === fix.after) return `${name} on the whole line, as before`;
     return `${name} on ${quote(range.before)} → on ${quote(range.after)}`;
@@ -49,27 +47,29 @@ export function describeStyling(fix: LineFix, styling: LineStyling, cutBack: boo
   return said;
 }
 
-/** Each fix's styling in words, from the plan of its whole document. */
-function stylingOf(edit: WorkspaceEdit, fixes: readonly LineFix[]): string[][] {
-  return fixes.map((fix, i) => {
-    const box = edit.boxes.find((b) => b.boxIndex === fix.boxIndex);
-    return describeStyling(fix, edit.styling[i], (box?.cutBack.length ?? 0) > 0);
-  });
+/** Each fix's styling in words, from the plan of its whole document; `cutBack` the boxes with a range cut back to the text. */
+function stylingOf(fixes: readonly LineFix[], styling: readonly LineStyling[], cutBack: ReadonlySet<number>): string[][] {
+  return fixes.map((fix, i) => describeStyling(fix, styling[i], cutBack.has(fix.boxIndex)));
 }
 
 /**
- * For a workspace document, what each fix does to its styling, or why the
- * edit cannot be made: ranges that cannot be moved without a guess, or a
- * document the edit cannot be planned in. Each surface says the refusal its
- * own way; both refuse for exactly these.
+ * Where every attribute range goes, and so what each fix does to the styling
+ * on its line, or why the edit cannot be made: ranges that cannot be moved
+ * without a guess, or a document the edit cannot be planned in. A workspace
+ * document is planned as itself, a `.pro` file from its decoded message.
+ * Each surface says the refusal its own way; both refuse for exactly these.
  */
 export function planStyling(
-  root: unknown,
+  source: { root: unknown } | { raw: RawDoc; doc: PresentationDoc },
   fixes: readonly LineFix[]
 ): { styling?: string[][]; refusal?: AttributeRangeError | FixError } {
-  if (root === undefined) return {};
   try {
-    return { styling: stylingOf(planWorkspaceEdit(root, fixes), fixes) };
+    if ("root" in source) {
+      const edit = planWorkspaceEdit(source.root, fixes);
+      return { styling: stylingOf(fixes, edit.styling, new Set(edit.boxes.filter((b) => b.cutBack.length > 0).map((b) => b.boxIndex))) };
+    }
+    const planned = presentationRanges(source.raw, source.doc, fixes);
+    return { styling: stylingOf(fixes, planned.styling, planned.cutBack) };
   } catch (e) {
     if (e instanceof AttributeRangeError || e instanceof FixError) return { refusal: e };
     throw e;

@@ -5,8 +5,8 @@ import { isContainer, LoroDoc, LoroList, LoroMap, LoroMovableList, type Containe
 import { FixError, type FixRefusal, type LineFix } from "@presenter-garage/core/lib/fixes";
 import { encodePresentation } from "@presenter-garage/core/lib/presentation";
 import { isObject, presentationFromWorkspace } from "@presenter-garage/core/lib/workspace";
+import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
 import {
-  AttributeRangeError,
   checkWorkspaceEdit,
   encodeVersionVector,
   onlyPeerAdded,
@@ -244,14 +244,18 @@ export interface WorkspaceReplacement {
 
 /**
  * Why a presentation in a workspace was not written, beyond the refusals the
- * `.pro` path shares:
+ * `.pro` path shares (`attributeRanges` among them: a box's character
+ * ranges cannot be moved with its text, or a line added to it, without a
+ * guess, as `moveRanges()` in core says):
  *
- * - `attributeRanges`: a box's character ranges cannot be moved with its
- *   text without a guess (`moveRanges()` in core says when).
  * - `rolledBack`: this one was fine, but another in the same workspace was
  *   not, and a workspace's run is written whole or not at all.
  */
-export type WorkspaceRefusal = FixRefusal | "attributeRanges" | "rolledBack" | "backupFailed" | "readBackFailed";
+export type WorkspaceRefusal =
+  | FixRefusal
+  | "rolledBack"
+  | "backupFailed"
+  | "readBackFailed";
 
 export interface WorkspaceOutcome extends Omit<WriteOutcome, "reason"> {
   reason?: WorkspaceRefusal;

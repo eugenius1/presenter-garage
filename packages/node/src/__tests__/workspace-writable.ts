@@ -68,8 +68,12 @@ function snapshotOf(root: Json): { snapshot: Uint8Array; vv: Uint8Array } {
   return out;
 }
 
-/** The synthetic presentation as a workspace document, with an All Caps range on each line of every box, as most real boxes have. */
-export function presentationRoot(ranges?: (lines: string[]) => { start: number; end: number }[]): Json {
+/**
+ * The synthetic presentation as a workspace document, with an All Caps range
+ * on each line of every box, as most real boxes have, or the ranges given:
+ * All Caps too unless they say which attribute they are.
+ */
+export function presentationRoot(ranges?: (lines: string[]) => { start: number; end: number; attribute?: Json }[]): Json {
   const root = workspacePresentation(syntheticTextPresentation());
   // Every text element, found by what it holds rather than by the walk the
   // code under test makes, so a wrong walk there cannot hide in the fixture.
@@ -83,15 +87,15 @@ export function presentationRoot(ranges?: (lines: string[]) => { start: number; 
   for (const text of texts) {
     const lines = extractLines(decodeRtf(text.rtf_data)).map((line) => line.text);
     let at = 0;
-    const perLine = () =>
+    const perLine = (): { start: number; end: number; attribute?: Json }[] =>
       lines.map((t) => {
         const range = { start: at, end: at + t.length };
         at += t.length + 1;
         return range;
       });
     text.attributes = {
-      custom_attributes: (ranges ? ranges(lines) : perLine()).map((range) => ({
-        Attribute: { __tag: "capitalization", capitalization: 1 },
+      custom_attributes: (ranges ? ranges(lines) : perLine()).map(({ attribute, ...range }) => ({
+        Attribute: attribute ?? { __tag: "capitalization", capitalization: 1 },
         range,
       })),
     };

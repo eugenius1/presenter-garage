@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { FixError, planLineEdits } from "../fixes";
 import { readPresentation } from "../presentation";
 import { presentationFromWorkspace } from "../workspace";
+import { AttributeRangeError, moveRanges } from "../ranges";
 import {
-  AttributeRangeError,
   checkWorkspaceEdit,
   editedRoot,
   encodeVersionVector,
-  moveRanges,
   onlyPeerAdded,
   planWorkspaceEdit,
   valueAt,
@@ -417,6 +416,180 @@ describe("moveRanges", () => {
   });
 });
 
+describe("moveRanges with added lines", () => {
+  const lines = ["Que ton nom,", "pour toujours ,", "sois glorifie"];
+  // 0..12, 13..28, 29..42
+  const perLine = [
+    { start: 0, end: 12, caps: true },
+    { start: 13, end: 28, caps: true },
+    { start: 29, end: 42, caps: true },
+  ];
+  const added = (line: number, side: "before" | "after", ...texts: string[]) =>
+    new Map([[line, { before: side === "before" ? texts : [], after: side === "after" ? texts : [] }]]);
+
+  it("widens the All Caps range of the line a new line is added after over it", () => {
+    // "pour toujours ," is followed by "x2" at 29..31; the last line moves by 3.
+    expect(moveRanges(0, lines, lines, perLine, undefined, added(1, "after", "x2"))).toEqual([
+      { start: 0, end: 12 },
+      { start: 13, end: 31 },
+      { start: 32, end: 45 },
+    ]);
+  });
+
+  it("widens it backwards over a line added before, and over several in a row", () => {
+    // Refrain 0..7, (bis) 8..13, then the old lines 14..26, 27..42, 43..56.
+    expect(moveRanges(0, lines, lines, perLine, undefined, added(0, "before", "Refrain", "(bis)"))).toEqual([
+      { start: 0, end: 26 },
+      { start: 27, end: 42 },
+      { start: 43, end: 56 },
+    ]);
+  });
+
+  it("after the last line, widens to the new end of the text", () => {
+    expect(moveRanges(0, lines, lines, perLine, undefined, added(2, "after", "x2"))).toEqual([
+      { start: 0, end: 12 },
+      { start: 13, end: 28 },
+      { start: 29, end: 45 },
+    ]);
+  });
+
+  it("leaves a range alone that does not cover the line, and moves it past the new one", () => {
+    const two = [perLine[0], perLine[2]];
+    expect(moveRanges(0, lines, lines, two, undefined, added(1, "after", "x2"))).toEqual([
+      { start: 0, end: 12 },
+      { start: 32, end: 45 },
+    ]);
+  });
+
+  it("keeps a range over the whole box over the whole box, wherever a line is added", () => {
+    const whole = [{ start: 0, end: 42, caps: true }];
+    expect(moveRanges(0, lines, lines, whole, undefined, added(0, "after", "x2"))).toEqual([{ start: 0, end: 45 }]);
+    expect(moveRanges(0, lines, lines, whole, undefined, added(2, "after", "x2"))).toEqual([{ start: 0, end: 45 }]);
+    expect(moveRanges(0, lines, lines, whole, undefined, added(0, "before", "x2"))).toEqual([{ start: 0, end: 45 }]);
+  });
+
+  it("widens the range of an empty line a line is added after", () => {
+    expect(moveRanges(0, ["a", "", "b"], ["a", "", "b"], [{ start: 2, end: 2, caps: true }], undefined, added(1, "after", "new"))).toEqual([
+      { start: 2, end: 6 },
+    ]);
+  });
+
+  it("moves ranges with lines that change and lines that go, beside the added ones", () => {
+    const after = ["Que ton nom", lines[1], null];
+    const map = new Map([[0, { before: ["Refrain"], after: ["Que ton nom"] }]]);
+    // Refrain 0..7, Que ton nom 8..19, Que ton nom 20..31, pour toujours , 32..47.
+    expect(moveRanges(0, lines, after, perLine, undefined, map)).toEqual([
+      { start: 0, end: 31 },
+      { start: 32, end: 47 },
+      { start: 47, end: 47 },
+    ]);
+  });
+
+  it("refuses a range other than a capitalization that ends where the line does", () => {
+    const plain = perLine.map(({ start, end }) => ({ start, end }));
+    try {
+      moveRanges(4, lines, lines, plain, undefined, added(1, "after", "x2"));
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(AttributeRangeError);
+      expect((e as AttributeRangeError).reason).toBe("addedLine");
+    }
+    // One that covers both the line and the next takes the new line between them without a guess.
+    expect(moveRanges(4, lines, lines, [{ start: 13, end: 42 }], undefined, added(1, "after", "x2"))).toEqual([{ start: 13, end: 45 }]);
+  });
+
+  it("leaves a range that only meets the line out of a line added after it", () => {
+    // Starting at the end of line 0, so over the break and the lines after:
+    // it does not cover line 0, so the new line after it stays out too.
+    expect(moveRanges(4, lines, lines, [{ start: 12, end: 42, caps: true }], undefined, added(0, "after", "x2"))).toEqual([
+      { start: 15, end: 45 },
+    ]);
+  });
+
+  it("refuses a line added inside a range that does not cover the line it goes beside", () => {
+    // From the middle of line 0 to the middle of line 1: a line added before line 1 would land inside it.
+    expect(() => moveRanges(4, lines, lines, [{ start: 4, end: 20, caps: true }], undefined, added(1, "before", "x2"))).toThrow(
+      new AttributeRangeError(4, "addedLine", 1)
+    );
+  });
+
+  it("leaves a range on part of the line out of the lines added beside it", () => {
+    // All Caps on "nom," only, at the end of line 0.
+    expect(moveRanges(4, lines, lines, [{ start: 8, end: 12, caps: true }], undefined, added(0, "after", "x2"))).toEqual([
+      { start: 8, end: 12 },
+    ]);
+  });
+
+  it("moves an added line's neighbour's ranges by the same splice as a changed line's", () => {
+    // A range inside line 0, which the old line-boundary rule refused, now
+    // moves with the text while a line is added after it.
+    expect(moveRanges(4, lines, ["Oh Que ton nom,", lines[1], lines[2]], [{ start: 4, end: 7 }], undefined, added(0, "after", "x2"))).toEqual([
+      { start: 7, end: 10 },
+    ]);
+  });
+
+  it("does not take the empty range a removed neighbour leaves for the line's own", () => {
+    // Line 1 goes; its range collapses to where line 2 starts. A line added
+    // before line 2 is not covered by it, and line 2's own range widens.
+    const after = [lines[0], null, lines[2]];
+    expect(moveRanges(0, lines, after, perLine, undefined, added(2, "before", "x2"))).toEqual([
+      { start: 0, end: 12 },
+      { start: 13, end: 13 },
+      { start: 13, end: 29 },
+    ]);
+  });
+
+  it("reaches a range past the blanks at the line's edge, as ProPresenter leaves a tab out of All Caps", () => {
+    // All Caps from after the tab: a line added before takes it from the line's very start.
+    const tabbed = ["\tSeigneur,", "Nous"];
+    const caps = [
+      { start: 1, end: 10, caps: true },
+      { start: 11, end: 15, caps: true },
+    ];
+    expect(moveRanges(0, tabbed, tabbed, caps, ["c", "c"], added(0, "before", "x2"))).toEqual([
+      { start: 0, end: 13 },
+      { start: 14, end: 18 },
+    ]);
+    // All Caps short of a trailing space and tab: a line added after takes it from there.
+    const trailing = ["Seigneur, \t", "Nous"];
+    const ranges = [
+      { start: 0, end: 9, caps: true },
+      { start: 12, end: 16, caps: true },
+    ];
+    expect(moveRanges(0, trailing, trailing, ranges, ["c", "c"], added(0, "after", "x2"))).toEqual([
+      { start: 0, end: 14 },
+      { start: 15, end: 19 },
+    ]);
+  });
+
+  it("gives the added line to the range right at the line's edge when one of the same styling is, so none overlap", () => {
+    // One line's All Caps split at a trailing space: the piece at the end takes the new line.
+    const split = [
+      { start: 0, end: 3, caps: true },
+      { start: 3, end: 5, caps: true },
+    ];
+    expect(moveRanges(0, ["abc \t"], ["abc \t"], split, ["c", "c"], added(0, "after", "x2"))).toEqual([
+      { start: 0, end: 3 },
+      { start: 3, end: 8 },
+    ]);
+  });
+
+  it("puts lines added at an empty line inside a range over it and its neighbours, whatever the styling", () => {
+    // Title Case over a whole box ending in an empty line: a line added before that line is inside it.
+    const box = ["Que ton nom,", ""];
+    expect(moveRanges(0, box, box, [{ start: 0, end: 13 }], undefined, added(1, "before", "x2"))).toEqual([{ start: 0, end: 16 }]);
+    // And one starting at an empty first line, a line added after it.
+    const first = ["", "Que ton nom,"];
+    expect(moveRanges(0, first, first, [{ start: 0, end: 13 }], undefined, added(0, "after", "x2"))).toEqual([{ start: 0, end: 16 }]);
+  });
+
+  it("refuses lines added beside a line that goes", () => {
+    expect(() => moveRanges(0, lines, [lines[0], null, lines[2]], perLine, undefined, added(1, "after", "x2"))).toThrow(
+      AttributeRangeError
+    );
+  });
+});
+
 describe("planWorkspaceEdit", () => {
   it("finds the box in the document and says what it becomes", () => {
     const { root, doc, box } = document();
@@ -432,6 +605,33 @@ describe("planWorkspaceEdit", () => {
       { index: 1, start: 13, end: 40 },
       { index: 2, start: 41, end: 54 },
     ]);
+  });
+
+  it("widens a line's All Caps range over the lines added beside it, and moves the rest", () => {
+    const { root, doc, box } = document();
+    const fixes = planLineEdits(doc, [
+      { boxIndex: box.boxIndex, lineIndex: 1, text: "pour toujours ,", insert: "after" },
+      { boxIndex: box.boxIndex, lineIndex: 0, text: "Refrain", insert: "before" },
+    ]);
+    const edit = planWorkspaceEdit(root, fixes);
+    // Refrain 0..7, Que ton nom, 8..20, pour toujours , 21..36 and again 37..52, sois glorifie 53..66.
+    expect(edit.boxes[0].ranges).toEqual([
+      { index: 0, start: 0, end: 20 },
+      { index: 1, start: 21, end: 52 },
+      { index: 2, start: 53, end: 66 },
+    ]);
+    expect(() => checkWorkspaceEdit(root, editedRoot(root, edit.boxes), edit, fixes)).not.toThrow();
+  });
+
+  it("refuses a line added beside one whose other formatting it could only guess at", () => {
+    const { root, doc, box } = document();
+    const text = valueAt(root, planWorkspaceEdit(root, planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 0, text: "x" }])).boxes[0].path);
+    text.attributes.custom_attributes[1].Attribute = { __tag: "font_scale_factor", font_scale_factor: 0.5 };
+    const fixes = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 1, text: "again", insert: "after" }]);
+    expect(() => planWorkspaceEdit(root, fixes)).toThrow(new AttributeRangeError(box.boxIndex, "addedLine", 1));
+    // The same box takes a line added beside a line whose ranges are all capitals.
+    const elsewhere = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 2, text: "again", insert: "after" }]);
+    expect(planWorkspaceEdit(root, elsewhere).boxes[0].ranges).toEqual([{ index: 2, start: 29, end: 48 }]);
   });
 
   it("moves a range inside a line, and cuts one past the end of the text back", () => {

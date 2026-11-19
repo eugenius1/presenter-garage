@@ -23,8 +23,8 @@ export interface PlannedFile {
   workspace?: { root: string; documentId: Uint8Array };
   /**
    * Each change with its number in the whole plan, which is how the
-   * confirmation names it, and in a workspace what it does to the styling
-   * on its line, in words.
+   * confirmation names it, and what it does to the styling on its line,
+   * in words.
    */
   lines: { n: number; fix: LineFix; styling?: string[] }[];
 }

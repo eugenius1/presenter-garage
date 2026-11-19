@@ -253,9 +253,15 @@ having left every untouched box alone.
 writing text rather than cutting it: for every line of every box, text typed
 at the start, the middle and the end, accented and astral characters, RTF's
 reserved characters and a whole-line rewrite, each read back exactly with
-every other line unchanged. Without a library it runs the same contract
+every other line unchanged, and a line added before and after every line. Without a library it runs the same contract
 exhaustively — every insertion, deletion and replacement at every position —
 over hand-written documents built to hit each trap above.
+
+`packages/core/src/lib/__tests__/ranges.test.ts` holds a `.pro` file's
+attribute ranges to the text: the boxes ProPresenter 20 showed capitals
+drifting in, built with one All Caps range to a line, and over a real
+library, every line of every box with ranges lengthened and given a line on
+either side, each line left in capitals exactly where it was.
 
 ## Checked against ProPresenter
 
@@ -326,6 +332,25 @@ must carry exactly as many fallback characters as the `\ucN` in force there
 next to a removed one loses its new text. Emptying the last line of a box is
 refused: a last line with neither text nor formatting is no line at all to a
 reader, so it would read back as a removal.
+
+**Adding a line is an insertion that touches nothing.** `insertLineEdit`
+puts a new line at the old one's break, as a break of the same kind and the
+text, rather than copying the old line's instructions: copied, they would
+restyle the line after it in a box that does not repeat them per line.
+Before a line, the new one goes after that line's formatting, and needs the
+delimiter the line's text did not when the line opens on an escape
+(`\cb2\u201 ?ternel`). Before an *empty* last line it goes before that line's
+formatting instead, since text after it leaves nothing behind the break and
+the empty line vanishes -- the real-library test caught that on its first run.
+
+**Text is not only `rtf_data`.** A text element's `custom_attributes` are
+ranges of character offsets over the box's plain text, All Caps nearly
+always, one to a line, and ProPresenter does not work them out again when it
+opens a file. A writer that changes a line's length and leaves them puts the
+capitals on the wrong characters, in a `.pro` file as in a workspace. Every
+writer moves them by `rangesAfter()` in `packages/core/src/lib/ranges.ts`
+and nothing else; a box whose ranges it cannot move without a guess is
+refused, not written approximately.
 
 **`instanceof Uint8Array` fails across realms.** The array protobuf.js hands
 back is not always built from the same global as the code reading it, and

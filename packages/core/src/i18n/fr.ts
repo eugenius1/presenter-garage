@@ -399,6 +399,10 @@ export const fr: Dictionary = {
           "du texte serait ajouté juste au bord d’une mise en forme qui ne couvre qu’une partie de la ligne, et rien ne dit s’il doit la prendre",
         replacedAcrossEdge:
           "du nouveau texte remplacerait l’endroit où commence ou finit une mise en forme sur une partie de la ligne, et rien ne dit où elle doit commencer ou finir dans le nouveau texte",
+        addedLine:
+          "une ligne serait ajoutée à côté d’une mise en forme autre que Tout en majuscules, ou au milieu d’une mise en forme qui ne couvre pas la ligne voisine, et rien ne dit si la nouvelle ligne doit la prendre",
+        dependsOnChoice:
+          "la mise en forme d’une ligne dépend d’une autre modification sur cette ligne ou à côté, qui pourrait être décochée : elle ne peut donc pas être montrée pour chaque choix ; planifiez ces modifications séparément",
       },
       editRefusals: {
         noSuchLine: "il n’y a pas de zone de texte ou de ligne à cette adresse",
@@ -407,6 +411,10 @@ export const fr: Dictionary = {
         notOneLine:
           "le texte contient un saut de ligne ou un autre caractère de contrôle : il ne tient pas sur une ligne",
         lastLine: "la dernière ligne d’une zone de texte ne peut pas être supprimée, seulement vidée",
+        emptyLine:
+          "une ligne ajoutée doit contenir du texte : une ligne vide entre deux autres est justement ce que signale la vérification des lignes vides",
+        besideRemoved:
+          "impossible d’ajouter une ligne à côté d’une ligne que ce même plan supprime : elle en prendrait la mise en forme",
         unsupported:
           "la modification ne se relirait pas comme demandé une fois écrite : elle n’est donc pas proposée",
       },

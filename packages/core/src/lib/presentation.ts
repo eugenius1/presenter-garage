@@ -1,5 +1,6 @@
 import { checkTypeFidelity, messageType, type FidelityReport, type RawDoc } from "./decode";
 import { applicationInfo, basename } from "./model";
+import { isAllCaps, type Range } from "./ranges";
 import { decodeRtf, encodeRtf, extractLines, type RtfLine } from "./rtf";
 
 /**
@@ -476,17 +477,82 @@ export function readDetails(doc: RawDoc): PresentationDetails {
 }
 
 /**
- * Replace the RTF of the named boxes, leaving every other field untouched.
+ * Replace the RTF of the named boxes, and move their attribute ranges to
+ * where `ranges` says, leaving every other field untouched.
  *
  * Edits the decoded message rather than rebuilding it: the model above is a
  * projection of what the checks need, and regenerating a file from it would
  * discard everything ProPresenter writes that this app does not read.
  */
-export function writeTextBoxes(doc: RawDoc, replacements: ReadonlyMap<number, string>): void {
+export function writeTextBoxes(
+  doc: RawDoc,
+  replacements: ReadonlyMap<number, string>,
+  ranges: ReadonlyMap<number, readonly AttributeRange[]> = new Map()
+): void {
   eachTextBox(doc, (site) => {
     const replacement = replacements.get(site.boxIndex);
     if (replacement !== undefined) site.text.rtf_data = encodeRtf(replacement);
+    const attributes = customAttributes(site.text);
+    for (const { index, start, end } of ranges.get(site.boxIndex) ?? []) {
+      // Only ends that move are set, and a zero left out, as ProPresenter
+      // writes one: every range it saves starting a box has no `start`.
+      const range = attributes[index].range;
+      for (const [key, value] of [["start", start], ["end", end]] as const) {
+        if (range[key] === value) continue;
+        if (value === 0) delete range[key];
+        else range[key] = value;
+      }
+    }
   });
+}
+
+/**
+ * One of a text box's attribute ranges: its place in the box's
+ * `attributes.custom_attributes`, and the characters it covers, in the box's
+ * plain text with a line break counting as one.
+ */
+export interface AttributeRange extends Range {
+  index: number;
+}
+
+function customAttributes(text: unknown): any[] {
+  const attributes = (text as any)?.attributes?.custom_attributes;
+  return Array.isArray(attributes) ? attributes : [];
+}
+
+/**
+ * Every text box's attribute ranges, by box, an empty list for a box with
+ * none. An attribute with no range covers no characters, so has nothing to
+ * move, and is left out.
+ */
+export function textBoxRanges(doc: RawDoc): Map<number, AttributeRange[]> {
+  const out = new Map<number, AttributeRange[]>();
+  eachTextBox(doc, (site) =>
+    out.set(
+      site.boxIndex,
+      customAttributes(site.text).flatMap((attribute, index) => {
+        const range = attribute?.range;
+        if (!range) return [];
+        // `Attribute` is the oneof protobuf.js names after the member set.
+        const kind: string = attribute.Attribute ?? "unknown";
+        const value = attribute[kind];
+        // Ranges of the same styling: the attribute apart from its range.
+        const json = typeof attribute.toJSON === "function" ? attribute.toJSON() : attribute;
+        return [
+          {
+            index,
+            start: range.start ?? 0,
+            end: range.end ?? 0,
+            caps: kind === "capitalization" && isAllCaps(value),
+            kind,
+            ...(value !== null && typeof value !== "object" && { value }),
+            style: JSON.stringify({ ...json, range: null }),
+          },
+        ];
+      })
+    )
+  );
+  return out;
 }
 
 /**

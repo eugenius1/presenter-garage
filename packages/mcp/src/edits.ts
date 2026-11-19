@@ -23,15 +23,19 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
     const where = [
       `slide ${fix.slideIndex + 1}`,
       fix.groupName,
-      `text box ${fix.boxIndex + 1}, line ${fix.lineIndex + 1}`,
+      `text box ${fix.boxIndex + 1}, ${fix.insert ? `new line ${fix.insert} line` : "line"} ${fix.lineIndex + 1}`,
     ]
       .filter(Boolean)
       .join(", ");
     properties[`line${n}`] = {
       type: "boolean",
       title: `${n}. ${file.name} (${where})`,
+      // An added line as it would read, and the line it goes beside as it
+      // reads now, so it can be placed without the slide in front of them.
       description:
-        `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}` +
+        (fix.insert
+          ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
+          : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`) +
         (styling ? `. Styling: ${styling.join("; ")}.` : ""),
       default: true,
     };
