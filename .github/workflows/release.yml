@@ -46,10 +46,12 @@ on:
 
 permissions: {}
 
-# One release at a time: two runs of the button would otherwise both read the
-# same latest release and pick the same next version.
+# Runs of the button share one group, so two of them cannot read the same
+# latest release and pick the same next version. A release published by hand
+# gets a group of its own: GitHub keeps only one queued run per group and
+# cancels the one before, which would leave a release without its extension.
 concurrency:
-  group: release
+  group: release-${{ github.event.release.tag_name || 'button' }}
   cancel-in-progress: false
 
 jobs:
@@ -78,7 +80,10 @@ jobs:
               exit 1
             fi
             # The newest full release; pre-releases are not counted from.
-            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name) || {
+              echo "::error::There is no full release to count from. Publish the first one by hand."
+              exit 1
+            }
             [[ "$latest" =~ $semver ]] || { echo "::error::The latest release, $latest, is not tagged vX.Y.Z."; exit 1; }
             major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
             case "$BUMP" in
