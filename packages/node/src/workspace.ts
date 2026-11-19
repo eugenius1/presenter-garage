@@ -4,6 +4,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { LoroDoc } from "loro-crdt/base64";
 import {
+  groupsFromWorkspace,
+  macrosFromWorkspace,
   playlistDocumentFromWorkspace,
   presentationFromWorkspace,
   themeFromWorkspace,
@@ -21,8 +23,8 @@ import { isInside, LibraryError, type FoundFile, type FoundTheme } from "./paths
  *
  * Rather than teach every tool a second way to read, each document is given
  * the path its file had in the old layout -- `Libraries/<library>/<name>.pro`,
- * `Playlists/Media`, `Themes/<name>/Theme` -- and read by converting its
- * snapshot back into the bytes that file would have held. The paths are the
+ * `Playlists/Media`, `Themes/<name>/Theme`, `Configuration/Groups` -- and read
+ * by converting its snapshot back into the bytes that file would have held. The paths are the
  * ones ProPresenter's own playlists still record for their entries, so a
  * playlist's entry opens the presentation it names with nothing translated.
  * No such file exists; `library.ts` asks here before it asks the disk.
@@ -72,6 +74,8 @@ const FIXED_PATHS: Record<string, string> = {
   PlaylistLibrary: path.join("Playlists", "Library"),
   PlaylistMedia: path.join("Playlists", "Media"),
   PlaylistAudio: path.join("Playlists", "Audio"),
+  Groups: path.join("Configuration", "Groups"),
+  Macros: path.join("Configuration", "Macros"),
 };
 
 /**
@@ -100,6 +104,8 @@ const CONVERT: Record<string, (root: unknown) => Converted> = {
   PlaylistLibrary: playlistDocumentFromWorkspace,
   PlaylistMedia: playlistDocumentFromWorkspace,
   PlaylistAudio: playlistDocumentFromWorkspace,
+  Groups: groupsFromWorkspace,
+  Macros: macrosFromWorkspace,
 };
 
 type Database = import("node:sqlite").DatabaseSync;

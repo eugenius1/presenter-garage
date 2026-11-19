@@ -4,10 +4,20 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { ElicitRequestSchema, type ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
-import { SYNTHETIC, syntheticMediaFile, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import {
+  MACROS,
+  SYNTHETIC,
+  syntheticGroupsFile,
+  syntheticMacroSong,
+  syntheticMacrosFile,
+  syntheticMediaFile,
+  syntheticTextPresentation,
+} from "@presenter-garage/core/lib/__tests__/synthetic";
+import { decodeGroupsDocument, decodeMacrosDocument } from "@presenter-garage/core/lib/configuration";
 import {
   localUrl,
   treeNode,
+  workspaceDocument,
   workspacePlaylists,
   workspacePresentation,
 } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
@@ -65,6 +75,8 @@ beforeAll(async () => {
   putDocument(workspace, "Presentation", "Chants/Sainte Cène", workspacePresentation(syntheticTextPresentation("Sainte Cène")));
   putDocument(workspace, "PlaylistMedia", null, workspacePlaylists(syntheticMediaFile()));
   putDocument(workspace, "PlaylistLibrary", null, PLAYLISTS);
+  putDocument(workspace, "Groups", null, workspaceDocument("rv.data.ProGroupsDocument", decodeGroupsDocument(syntheticGroupsFile())));
+  putDocument(workspace, "Macros", null, workspaceDocument("rv.data.MacrosDocument", decodeMacrosDocument(syntheticMacrosFile())));
   ({ client } = await connect([workspace]));
 });
 
@@ -89,6 +101,38 @@ suite("a ProPresenter 22 workspace through the server", () => {
     expect(read.name).toBe("Amazing Grace");
     expect(read.slides[0]).toMatchObject({ slideIndex: 0, group: "Verse", textBoxes: [{ lines: ["A tidy line", "And another"] }] });
     expect(read.fidelity).toBe("lossy");
+  });
+
+  it("reads each slide's group and macros", async () => {
+    putDocument(workspace, "Presentation", "Chants/Macro Song", workspacePresentation(syntheticMacroSong()));
+    let result;
+    try {
+      result = await call("read_presentation", { path: "Libraries/Chants/Macro Song.pro" });
+    } finally {
+      // Taken out again, so the other tests' counts stay those of the two songs.
+      const db = new sqlite!.DatabaseSync(storeOf(workspace));
+      db.prepare("DELETE FROM workspace_streams WHERE core_path = ?").run("Chants/Macro Song");
+      db.close();
+    }
+    expect(result.text).toContain('"group":"Couplet\\u00a01"');
+    const { slides } = result.json();
+    // The workspace keeps uuids in its own case; compare without regard to it.
+    expect(slides[0].macros.map((m: any) => [m.name, m.uuid.toLowerCase()])).toEqual([["Bienvenue", MACROS.bienvenue.uuid]]);
+    expect(slides[3].macros.map((m: any) => [m.name, m.disabled])).toEqual([["Louange", undefined], ["Lumières", true]]);
+  });
+
+  it("reads the configured groups and macros from the workspace's own documents", async () => {
+    const result = await call("read_groups_and_macros");
+    expect(result.text).toContain('"name":"Couplet\\u00a01"');
+    const answer = result.json();
+    expect(answer.groupsPath).toBe(path.join(workspace, "Configuration", "Groups"));
+    expect(answer.macrosPath).toBe(path.join(workspace, "Configuration", "Macros"));
+    expect(answer.macros.map((m: any) => [m.name, m.collections])).toEqual([
+      ["Bienvenue", ["Default Collection"]],
+      ["Louange", ["Default Collection", "Louange"]],
+      ["Lumières", []],
+    ]);
+    expect(answer.unreadable).toBeUndefined();
   });
 
   it("searches and checks every document", async () => {

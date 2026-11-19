@@ -312,7 +312,7 @@ function round3(n: number): number {
 }
 
 /** Compact rgb(a) rendering, so a colour swap reads at a glance. */
-function formatColor(c: any): string {
+export function formatColor(c: any): string {
   const ch = (v: unknown) => Math.round((typeof v === "number" ? v : 0) * 255);
   const alpha = c.alpha ?? 1;
   const rgb = `${ch(c.red)},${ch(c.green)},${ch(c.blue)}`;

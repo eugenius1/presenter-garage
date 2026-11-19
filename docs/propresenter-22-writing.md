@@ -168,12 +168,22 @@ cannot be moved.
    peer id that the document has never seen, `rtf_data` set on the text
    element's map, each moved or widened range set as a new value on its
    attribute's map, and one commit with a timestamp, as ProPresenter's own carry. Only
-   values are set, in containers that are already there; no container is
-   ever created, which ProPresenter's own messages say a writer must never
-   do under a key that holds one. A range is set from JavaScript integers,
-   which Loro stores as its 64-bit integer type. That ProPresenter wrote its
-   own the same way, rather than as floating point, has not been checked
-   byte for byte: only that both read back as the same whole numbers.
+   values are set, in containers that are already there, and no container
+   is created at all, which is stricter by choice than the one rule found.
+   That rule was found by running `strings` on ProPresenter 22.0.1's
+   ProCore library (`ProCore.framework`), where a log message says an
+   imported patch "created a container under a key that already held one"
+   and that a writer at schema 22.4 or above must never do this. The same
+   message says that container's edits have left the document, and the
+   messages around it are ProPresenter repairing such an orphan: grafting
+   its elements back into the surviving container, or else keeping its
+   edits out of the document it serves. A container under a key that holds
+   none, as a new slide or a new action would need, is not what the message
+   forbids, but has not been tried against ProPresenter. A range is set
+   from JavaScript integers, which Loro stores as its 64-bit integer type.
+   That ProPresenter wrote its own the same way, rather than as floating
+   point, has not been checked byte for byte: only that both read back as
+   the same whole numbers.
 7. **Check** the new snapshot (guard 4, below).
 8. **Write** `snapshot`, `sha256`, `byte_count`, `version_vector` (as
    `encodeVersionVector()` writes it) and `updated_at_ms`,

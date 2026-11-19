@@ -4,7 +4,11 @@ An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant
 read a ProPresenter 7 library from disk, and edit its slide text. Part of
 [Presenter Garage](https://github.com/eugenius1/presenter-garage).
 
-- List and search presentations, and read their slides line by line
+- List and search presentations, and read their slides line by line, with
+  each slide's group and the macros it triggers
+- Read ProPresenter's configured groups and macros, names exactly as stored:
+  a non-breaking space shows as `\u00a0`, so `Couplet 1` and `Couplet\u00a01`
+  can be told apart
 - See what each file records about itself: when ProPresenter last edited and
   last showed it, category, notes, CCLI details, key and arrangements
 - Run the Presentations text checks on a file or a whole library

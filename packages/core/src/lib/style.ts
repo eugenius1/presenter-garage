@@ -180,13 +180,6 @@ export interface SlidePlan {
   textBoxes: string[][];
 }
 
-/** The macros a cue triggers, by name. */
-function macroNames(cue: any): string[] {
-  return (cue.actions ?? [])
-    .filter((a: any) => a.macro)
-    .map((a: any) => a.macro.identification?.parameter_name || a.name || "");
-}
-
 function slideOf(cue: any): any {
   return (cue.actions ?? []).find((a: any) => a.slide?.presentation)?.slide.presentation;
 }
@@ -282,7 +275,7 @@ export function planStyle(doc: RawDoc, style: SlideStyle, options: StyleOptions 
   if (slots === 0) throw new StyleError("noTextBox", { style: style.name });
 
   const slides = slidesInOrder(doc);
-  const macros = slides.map(({ cue }) => macroNames(cue));
+  const macros = slides.map((slide) => slide.macros.map((macro) => macro.name));
   const commonest =
     options.skipDistinctMacro === false ? undefined : commonestMacro(macros);
   const listed = new Set(options.skipSlides ?? []);

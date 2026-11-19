@@ -31,6 +31,7 @@ function boxOf(...texts: string[]): PresentationDoc {
   return {
     name: "One",
     slideCount: 1,
+    slides: [{ slideIndex: 0, cueName: "1", groupName: "Verse", macros: [] }],
     textBoxes: [
       {
         boxIndex: 0,

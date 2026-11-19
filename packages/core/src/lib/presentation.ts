@@ -42,9 +42,21 @@ export interface TextBox {
   rtf: string;
 }
 
+/** What a slide is apart from its text: the same for one with no text boxes at all. */
+export interface SlideSummary {
+  slideIndex: number;
+  /** The cue's own label. */
+  cueName: string;
+  /** The arrangement group it belongs to, exactly as the file names it. */
+  groupName?: string;
+  macros: SlideMacro[];
+}
+
 export interface PresentationDoc {
   name: string;
   slideCount: number;
+  /** Every slide, in ProPresenter's order, whether or not it holds text. */
+  slides: SlideSummary[];
   textBoxes: TextBox[];
 }
 
@@ -201,7 +213,7 @@ interface TextBoxSite {
  * would land in the wrong box. Sharing the traversal makes that impossible
  * rather than merely unlikely.
  */
-function eachTextBox(doc: RawDoc, visit: (site: TextBoxSite) => void): number {
+function eachTextBox(doc: RawDoc, visit: (site: TextBoxSite) => void): OrderedSlide[] {
   const slides = slidesInOrder(doc);
   let boxIndex = 0;
 
@@ -232,7 +244,7 @@ function eachTextBox(doc: RawDoc, visit: (site: TextBoxSite) => void): number {
     }
   });
 
-  return slides.length;
+  return slides;
 }
 
 /** Where a text box sits in its presentation, by the same walk that numbers it. */
@@ -265,11 +277,43 @@ export function textBoxAddresses(doc: RawDoc): TextBoxAddress[] {
   return out;
 }
 
+/**
+ * A macro a slide triggers: an action on its cue whose `macro` is set.
+ *
+ * Read from the slide alone. The slide records the macro's uuid and the name
+ * it had when the slide was given it, so a macro renamed since still carries
+ * its old name here; the configured list (`configuration.ts`) has the current
+ * one. ProPresenter writes the uuid lower-case in a `.pro` file and upper-case
+ * in a ProPresenter 22 workspace, so compare uuids without regard to case.
+ */
+export interface SlideMacro {
+  name: string;
+  uuid?: string;
+  /** False for an action switched off on the slide, which ProPresenter does not run. */
+  enabled: boolean;
+}
+
 /** One slide as ProPresenter numbers it. */
 export interface OrderedSlide {
   /** The raw cue, so a caller can edit it in place. */
   cue: any;
   groupName?: string;
+  /** Every macro the slide triggers, in the order of its actions; empty for none. */
+  macros: SlideMacro[];
+}
+
+/** The macros a cue triggers. A name the slide does not record falls back to the action's own. */
+function macrosOf(cue: any): SlideMacro[] {
+  return (cue.actions ?? [])
+    .filter((action: any) => action?.macro)
+    .map((action: any) => {
+      const id = action.macro.identification;
+      return {
+        name: id?.parameter_name || action.name || "",
+        uuid: id?.parameter_uuid?.string || undefined,
+        enabled: action.isEnabled === true,
+      };
+    });
 }
 
 /**
@@ -298,10 +342,10 @@ export function slidesInOrder(doc: RawDoc): OrderedSlide[] {
       const cue = byUuid.get(id?.string);
       if (!cue || placed.has(cue)) continue;
       placed.add(cue);
-      ordered.push({ cue, groupName });
+      ordered.push({ cue, groupName, macros: macrosOf(cue) });
     }
   }
-  for (const cue of cues) if (!placed.has(cue)) ordered.push({ cue });
+  for (const cue of cues) if (!placed.has(cue)) ordered.push({ cue, macros: macrosOf(cue) });
   return ordered;
 }
 
@@ -309,7 +353,7 @@ export function slidesInOrder(doc: RawDoc): OrderedSlide[] {
 export function readPresentation(doc: RawDoc): PresentationDoc {
   const textBoxes: TextBox[] = [];
 
-  const slideCount = eachTextBox(doc, (site) => {
+  const ordered = eachTextBox(doc, (site) => {
     const rtf = decodeRtf(site.text.rtf_data);
     textBoxes.push({
       boxIndex: site.boxIndex,
@@ -321,7 +365,13 @@ export function readPresentation(doc: RawDoc): PresentationDoc {
     });
   });
 
-  return { name: (doc as any).name ?? "", slideCount, textBoxes };
+  const slides = ordered.map(({ cue, groupName, macros }, slideIndex) => ({
+    slideIndex,
+    cueName: cue.name ?? "",
+    groupName,
+    macros,
+  }));
+  return { name: (doc as any).name ?? "", slideCount: slides.length, slides, textBoxes };
 }
 
 /**

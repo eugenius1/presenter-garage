@@ -31,15 +31,25 @@ import {
   decodePresentation,
   openPresentation,
   readDetails,
-  slidesInOrder,
   type PresentationDetails,
   type PresentationDoc,
   type ReadProblem,
+  type SlideMacro,
   type TextIssue,
 } from "@presenter-garage/core/lib/presentation";
 import { fold } from "@presenter-garage/core/lib/search";
+import {
+  decodeGroupsDocument,
+  decodeMacrosDocument,
+  readGroups,
+  readMacros,
+  type ConfiguredGroup,
+  type ConfiguredMacro,
+} from "@presenter-garage/core/lib/configuration";
 import { createI18n } from "@presenter-garage/core/i18n/core";
 import {
+  findGroups,
+  findMacros,
   findMediaBin,
   findPlaylists,
   findPresentations,
@@ -275,9 +285,24 @@ export interface PresentationContent extends PresentationDetails {
     slideIndex: number;
     label: string;
     group?: string;
+    /** Every macro the slide triggers; empty for none. */
+    macros: SlideMacroEntry[];
     textBoxes: { boxIndex: number; lines: string[] }[];
   }[];
 }
+
+/** A slide's macro, with `disabled` only for one switched off on the slide. */
+export interface SlideMacroEntry {
+  name: string;
+  uuid?: string;
+  disabled?: true;
+}
+
+const macroEntry = ({ name, uuid, enabled }: SlideMacro): SlideMacroEntry => ({
+  name,
+  uuid,
+  ...(enabled ? {} : { disabled: true as const }),
+});
 
 export async function readPresentationFile(roots: readonly string[], file: string): Promise<PresentationContent> {
   const { path: real, bytes, modified, converted } = await readLibraryFile(roots, file);
@@ -286,10 +311,11 @@ export async function readPresentationFile(roots: readonly string[], file: strin
   // Every slide, not only those with words: a blank or image-only slide is
   // still one ProPresenter shows, and leaving it out read as a gap in the
   // numbering with nothing to say why.
-  const slides: PresentationContent["slides"] = slidesInOrder(raw).map(({ cue, groupName }, slideIndex) => ({
+  const slides: PresentationContent["slides"] = doc.slides.map(({ slideIndex, cueName, groupName, macros }) => ({
     slideIndex,
-    label: cue.name ?? "",
+    label: cueName,
     group: groupName,
+    macros: macros.map(macroEntry),
     textBoxes: [],
   }));
   let emptyTextBoxes = 0;
@@ -715,6 +741,69 @@ export async function listThemes(roots: readonly string[]) {
     }
   }
   return { themes, unreadable };
+}
+
+export interface Configuration {
+  /** The groups a slide can be put in, in ProPresenter's order. */
+  groups: ConfiguredGroup[];
+  groupsPath?: string;
+  /** The macros a slide can trigger, in ProPresenter's order. */
+  macros: ConfiguredMacro[];
+  macrosPath?: string;
+  /** Why a list is empty because it could not be found or read; absent when both were read. */
+  unreadable?: { groups?: string; macros?: string };
+}
+
+/** One configured list, or why not. */
+async function readConfigured<T>(
+  roots: readonly string[],
+  find: (roots: readonly string[]) => Promise<string | undefined>,
+  missing: string,
+  read: (bytes: Uint8Array) => T[]
+): Promise<{ path?: string; items: T[]; problem?: string }> {
+  const file = await find(roots);
+  if (!file) return { items: [], problem: missing };
+  try {
+    // Through the roots, as every other read: `Configuration` can be a symlink leading out of them.
+    const { path: real, bytes } = await readLibraryFile(roots, file);
+    return { path: real, items: read(bytes) };
+  } catch (e) {
+    // protobuf.js says why it could not decode; a LibraryError says why it could not read.
+    return { path: file, items: [], problem: (e as Error).message };
+  }
+}
+
+/**
+ * ProPresenter's configured groups and macros: the lists a presentation's
+ * groups and macros are meant to come from.
+ *
+ * Names exactly as stored. `answer()` in the server makes a non-breaking
+ * space visible on the wire, which is what tells `Couplet 1` from
+ * `Couplet\u00a01`.
+ */
+export async function readConfiguration(roots: readonly string[]): Promise<Configuration> {
+  const [groups, macros] = await Promise.all([
+    readConfigured(roots, findGroups, "No `Configuration/Groups` beside `Libraries`, and no workspace `Groups` document.", (bytes) =>
+      readGroups(decodeGroupsDocument(bytes))
+    ),
+    readConfigured(roots, findMacros, "No `Configuration/Macros` beside `Libraries`, and no workspace `Macros` document.", (bytes) =>
+      readMacros(decodeMacrosDocument(bytes))
+    ),
+  ]);
+  if (!groups.path && !macros.path) {
+    throw new LibraryError(
+      "Found neither ProPresenter's configured groups nor its macros. Point the server at the ProPresenter " +
+        "folder (the one holding `Libraries` and `Configuration`) or at a ProPresenter 22 workspace."
+    );
+  }
+  const unreadable = groups.problem || macros.problem ? { groups: groups.problem, macros: macros.problem } : undefined;
+  return {
+    groups: groups.items,
+    groupsPath: groups.path,
+    macros: macros.items,
+    macrosPath: macros.path,
+    ...(unreadable ? { unreadable } : {}),
+  };
 }
 
 export interface StyleSource {

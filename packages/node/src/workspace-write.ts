@@ -461,8 +461,10 @@ function containerAt(doc: LoroDoc, path: readonly LoroKey[]): Container | undefi
 
 /**
  * Make the edit on the Loro document itself. Only values are set, in maps
- * that are already there: no container is ever created, which ProPresenter's
- * own messages say a writer must never do under a key that holds one.
+ * that are already there, and no container is created. The rule found in
+ * ProPresenter 22.0.1's ProCore library forbids creating one under a key that
+ * already holds one (a log message found with `strings`; see "Edit" in
+ * docs/propresenter-22-writing.md). Under a new key it is untried, so not done.
  */
 function editDocument(doc: LoroDoc, boxes: readonly BoxEdit[]): void {
   for (const box of boxes) {

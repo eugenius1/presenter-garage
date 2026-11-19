@@ -381,7 +381,7 @@ describe("planning line edits on a presentation", () => {
     // start of the next, each put back a delimiter space: composed, the new
     // line would gain a leading space. Caught before anybody is asked.
     const rtf = "{\\rtf1 \\cf0 abc\\cf2\\par\\u233 ?xyz}";
-    const one = { name: "x", slideCount: 1, textBoxes: [{ boxIndex: 0, slideIndex: 0, cueName: "1", lines: extractLines(rtf), rtf }] };
+    const one = { name: "x", slideCount: 1, slides: [], textBoxes: [{ boxIndex: 0, slideIndex: 0, cueName: "1", lines: extractLines(rtf), rtf }] };
     try {
       planLineEdits(one, [
         { boxIndex: 0, lineIndex: 0, text: null },
@@ -395,7 +395,7 @@ describe("planning line edits on a presentation", () => {
 
   it("refuses at plan time to empty a last line that would then not be read as a line", () => {
     const rtf = "{\\rtf1 one\\line two}";
-    const one = { name: "x", slideCount: 1, textBoxes: [{ boxIndex: 0, slideIndex: 0, cueName: "1", lines: extractLines(rtf), rtf }] };
+    const one = { name: "x", slideCount: 1, slides: [], textBoxes: [{ boxIndex: 0, slideIndex: 0, cueName: "1", lines: extractLines(rtf), rtf }] };
     expect(() => planLineEdits(one, [{ boxIndex: 0, lineIndex: 1, text: "" }])).toThrow(EditError);
   });
 
