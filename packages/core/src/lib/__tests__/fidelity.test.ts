@@ -116,7 +116,12 @@ describe("files that are only laid out differently", () => {
     const writer = Presentation.encode({ ...presentation(), last_date_used: null });
     writer.uint32((lastUsed << 3) | 2).bytes(Timestamp.encode({ seconds: 5 }).finish());
     writer.uint32((lastUsed << 3) | 2).bytes(Timestamp.encode({ nanos: 7 }).finish());
-    expect(checkPresentationFidelity(writer.finish()).fidelity).toBe("equivalent");
+    const bytes = writer.finish();
+    // The gate passes this only because protobuf.js merges: a decoder keeping
+    // just the second part would lose `seconds` from both sides of the compare.
+    const merged = Presentation.toObject(Presentation.decode(bytes), { longs: Number });
+    expect(merged.last_date_used).toEqual({ seconds: 5, nanos: 7 });
+    expect(checkPresentationFidelity(bytes).fidelity).toBe("equivalent");
   });
 
   it("rates a repeated scalar written unpacked equivalent", () => {
