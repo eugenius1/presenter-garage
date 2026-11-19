@@ -21,7 +21,7 @@ export const fr: Dictionary = {
 
   app: {
     title: "Presenter Garage",
-    offline: "Fonctionne hors ligne",
+    offline: "Fonctionne sur votre appareil",
     offlineHelp: "Les fichiers sont lus dans votre navigateur. Rien n'est envoyé.",
     schemaHelp: "{files} fichiers proto, générés le {date}",
     languageLabel: "Langue",
@@ -32,10 +32,6 @@ export const fr: Dictionary = {
     footnoteBefore: "Schéma {version} issu de",
     footnoteLink: "greyshirtguy/ProPresenter7-Proto",
     footnoteAfter: "Sans lien avec Renewed Vision.",
-    updateReady: "Une nouvelle version est disponible.",
-    updateNow: "Recharger",
-    updating: "Rechargement\u2026",
-    updateLater: "Ignorer",
   },
 
   assistants: {

@@ -25,7 +25,7 @@ type CopyState = "idle" | "copied" | "failed";
  *
  * Folded away by default. It is the one part of the page that is not about
  * the files in front of the reader, and the one that sends anything off the
- * machine, which it says plainly rather than leaving the "Runs offline" chip
+ * machine, which it says plainly rather than leaving the "Runs on your device" chip
  * to imply otherwise.
  */
 export function AiAssistants() {

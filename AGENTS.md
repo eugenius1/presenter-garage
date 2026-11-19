@@ -7,7 +7,7 @@ Anything a test already enforces is left to [CONTRIBUTING.md](CONTRIBUTING.md)
 CONTRIBUTING.md before changing code: conventions, architecture, and the traps
 that have cost real debugging time are all there.
 
-An installable browser app for ProPresenter 7 files. Vite, React, TypeScript,
+A browser app, and its desktop app, for ProPresenter 7 files. Vite, React, TypeScript,
 vitest. No server, no backend, nothing uploaded.
 
 ## Before every commit

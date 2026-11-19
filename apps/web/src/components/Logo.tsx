@@ -3,7 +3,7 @@
  *
  * Inline rather than an <img> so it inherits colour and stays crisp, and so it
  * cannot flash in late on a slow connection. Deliberately the same shape as the
- * favicon and the installed-app icons.
+ * favicon and the app icons.
  */
 export function Logo() {
   return (

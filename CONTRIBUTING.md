@@ -18,8 +18,7 @@ scripts reach into the packages. `npm run build` produces the static site in
 and the MCP server's bundle and extension.
 
 Pushing to `main` deploys to GitHub Pages. The site needs a real HTTP server
-even though it is entirely static — ES modules and service workers are both
-blocked on `file://`.
+even though it is entirely static — ES modules are blocked on `file://`.
 
 The desktop app is the same web app in Electron:
 
@@ -405,8 +404,8 @@ path. Chromium's picker also refuses `AppData` outright, as a system folder,
 which is where ProPresenter keeps its libraries on Windows; the shell's
 dialog has no such list.
 
-**Folder permission lapses when the last tab for the origin closes.** An
-installed app keeps it; a plain tab does not. Re-requesting needs a user
+**Folder permission lapses when the last tab for the origin closes.**
+Re-requesting needs a user
 gesture, so offer a button rather than re-requesting on load --
 `handlePermission` and `requestHandlePermission` in `apps/web/src/lib/persistence.ts`
 model this.
@@ -551,9 +550,9 @@ five:
   which carries the WebAssembly inline so the server stays one file.
   Kept out of `mcp` so the desktop app, and a command line later, share the
   one write path rather than grow a second.
-- **`web`** (`@presenter-garage/web`, private): the installable browser
-  app — React, the PWA, its stylesheet and icons, and the two browser-only
-  pieces of `lib/`, persistence and routing.
+- **`web`** (`@presenter-garage/web`, private): the browser app — React,
+  its stylesheet, and the two browser-only pieces of `lib/`, persistence and
+  routing.
 - **`mcp`** (`presenter-garage-mcp`, published to npm): the MCP server.
 - **`desktop`** (`@presenter-garage/desktop`, private): the web app in
   Electron. Its main process (`main.ts`, the calls it answers in

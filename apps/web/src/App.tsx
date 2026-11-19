@@ -3,7 +3,6 @@ import { AiAssistants } from "./components/AiAssistants";
 import { Logo } from "./components/Logo";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
-import { UpdatePrompt } from "./components/UpdatePrompt";
 import { MediaBin } from "./tools/MediaBin";
 import { Presentations } from "./tools/Presentations";
 import { PROTO_VERSION } from "@presenter-garage/core/lib/decode";
@@ -153,8 +152,6 @@ export default function App() {
             same character in both languages. */}
         . {t.app.footnoteAfter}
       </p>
-
-      <UpdatePrompt />
     </div>
   );
 }

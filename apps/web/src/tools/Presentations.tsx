@@ -389,9 +389,8 @@ export function Presentations() {
   /**
    * Pick up where the last visit left off.
    *
-   * A directory handle survives in IndexedDB, but permission may not: in an
-   * ordinary tab it lapses once the last tab for the origin closes, while an
-   * installed app keeps it. Where it is still granted the folder is simply
+   * A directory handle survives in IndexedDB, but permission may not: it
+   * lapses once the last tab for the origin closes. Where it is still granted the folder is simply
    * reread; where it is not, asking again needs a user gesture, so the folder
    * is offered as a button rather than re-requested on load.
    */

@@ -17,7 +17,7 @@ export const en = {
 
   app: {
     title: "Presenter Garage",
-    offline: "Runs offline",
+    offline: "Runs on your device",
     offlineHelp: "Files are read in your browser. Nothing is uploaded.",
     schemaHelp: "{files} proto files, built {date}",
     languageLabel: "Language",
@@ -28,10 +28,6 @@ export const en = {
     footnoteBefore: "Schema {version} from",
     footnoteLink: "greyshirtguy/ProPresenter7-Proto",
     footnoteAfter: "Not affiliated with Renewed Vision.",
-    updateReady: "A new version is available.",
-    updateNow: "Reload",
-    updating: "Reloading\u2026",
-    updateLater: "Dismiss",
   },
 
   assistants: {

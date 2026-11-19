@@ -6,7 +6,7 @@
  * container a reader can open on any machine without being told how.
  *
  * Reaching for a library here would have cost about a hundred kilobytes in a
- * bundle whose whole point is to install and work offline, to save about a
+ * bundle that is meant to stay small, to save about a
  * hundred lines. A zip is a flat container -- a header and the data for each
  * file, then a directory of where they all are -- and the browser already
  * provides the hard part: `CompressionStream("deflate-raw")` is DEFLATE, which

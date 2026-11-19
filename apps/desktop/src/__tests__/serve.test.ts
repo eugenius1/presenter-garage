@@ -42,7 +42,6 @@ describe("contentType", () => {
   it("names the types the build holds, whatever the case", () => {
     expect(contentType("a.html")).toBe("text/html; charset=utf-8");
     expect(contentType("a.JS")).toBe("text/javascript; charset=utf-8");
-    expect(contentType("manifest.webmanifest")).toBe("application/manifest+json");
     expect(contentType("a.unknown")).toBe("application/octet-stream");
   });
 });
