@@ -429,6 +429,12 @@ function layout(lines: readonly string[], fixes: readonly LineFix[]) {
 }
 
 /**
+ * The most changes near one line whose every choice `rangesAfter` tries,
+ * 2^12 of them; more are refused (`dependsOnChoice`), to be planned apart.
+ */
+const MOST_NEAR = 12;
+
+/**
  * Where a box's attribute ranges go once a set of fixes is in it, and what
  * each fix does to the styling on its line, for the person to see before
  * they choose it. `cutBack` is set when a range ran past the end of the text
@@ -436,11 +442,13 @@ function layout(lines: readonly string[], fixes: readonly LineFix[]) {
  *
  * The person may untick any line, so what each line is shown has to hold
  * whichever others stay chosen. What can change how styling falls on a
- * line, or on lines added beside it, is the changes at that line: its own,
- * and the run of lines added before it and the run added after it, each
- * run decided as a whole. So every choice among those is tried, and a line
- * that would come out otherwise than shown in one of them is refused
- * (`dependsOnChoice`) before anybody is asked. Throws `AttributeRangeError`.
+ * line, or on lines added beside it, is the changes near it: at that line
+ * (its own, the run of lines added before it, the run added after it, each
+ * run decided as a whole) and at the lines within two of it, a removed line
+ * bringing the next one nearer. So every choice among those is tried, and a
+ * line that would come out otherwise than shown in one of them, or a choice
+ * that would be refused, refuses the plan (`dependsOnChoice`) before anybody
+ * is asked. Throws `AttributeRangeError`.
  */
 export function rangesAfter(
   box: { boxIndex: number; lines: readonly { text: string }[] },
@@ -493,22 +501,53 @@ export function rangesAfter(
   };
   const all = outcome(mine);
 
-  // By line: its own change, the run added before it, the run added after it.
-  const atLine = new Map<number, [LineFix[], LineFix[], LineFix[]]>();
+  // What may be ticked apart: a line's own change, the run added before it,
+  // the run added after it.
+  const units: { line: number; fixes: LineFix[] }[] = [];
+  const unitOf = new Map<string, LineFix[]>();
   for (const fix of mine) {
-    const parts = atLine.get(fix.lineIndex) ?? [[], [], []];
-    parts[fix.insert === "before" ? 1 : fix.insert === "after" ? 2 : 0].push(fix);
-    atLine.set(fix.lineIndex, parts);
+    const key = `${fix.lineIndex} ${fix.insert ?? ""}`;
+    if (!unitOf.has(key)) {
+      unitOf.set(key, []);
+      units.push({ line: fix.lineIndex, fixes: unitOf.get(key)! });
+    }
+    unitOf.get(key)!.push(fix);
   }
+  // How far apart two lines are once the removed ones are gone: a removed
+  // line counts as where the next line that stays is.
+  const removed = new Set(mine.filter((fix) => !fix.insert && fix.after === null).map((fix) => fix.lineIndex));
+  const rank: number[] = [];
+  let kept = 0;
+  for (const i of lines.keys()) {
+    rank.push(kept);
+    if (!removed.has(i)) kept++;
+  }
+
   const said = (styling: LineStyling | undefined) => JSON.stringify(styling?.ranges);
-  for (const parts of atLine.values()) {
-    const present = parts.filter((part) => part.length > 0);
-    for (let mask = 1; mask < 1 << present.length; mask++) {
-      const chosen = present.filter((_, j) => mask & (1 << j)).flat();
-      if (chosen.length === mine.length) continue;
-      const { styling } = outcome(chosen);
-      for (const fix of chosen) {
-        if (said(styling.get(fix)) !== said(all.styling.get(fix))) {
+  const tried = new Map<string, Map<LineFix, LineStyling> | AttributeRangeError>();
+  const stylingWith = (left: ReadonlySet<number>) => {
+    const key = [...left].sort((a, b) => a - b).join(" ");
+    if (!tried.has(key)) {
+      try {
+        tried.set(key, outcome(units.flatMap((unit, u) => (left.has(u) ? [] : unit.fixes))).styling);
+      } catch (e) {
+        if (!(e instanceof AttributeRangeError)) throw e;
+        tried.set(key, e);
+      }
+    }
+    return tried.get(key)!;
+  };
+  for (const [u, unit] of units.entries()) {
+    // What can change how styling falls on a line is what happens to the
+    // ends of ranges on it and beside it, and what can move those is the
+    // changes on those lines and the lines beside them: so every choice
+    // among the changes within two lines of it, removed lines not counted.
+    const near = units.flatMap((other, v) => (v !== u && Math.abs(rank[other.line] - rank[unit.line]) <= 2 ? [v] : []));
+    if (near.length > MOST_NEAR) throw new AttributeRangeError(box.boxIndex, "dependsOnChoice", unit.line);
+    for (let mask = 1; mask < 1 << near.length; mask++) {
+      const result = stylingWith(new Set(near.filter((_, j) => mask & (1 << j))));
+      for (const fix of unit.fixes) {
+        if (result instanceof AttributeRangeError || said(result.get(fix)) !== said(all.styling.get(fix))) {
           throw new AttributeRangeError(box.boxIndex, "dependsOnChoice", fix.lineIndex);
         }
       }

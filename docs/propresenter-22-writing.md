@@ -310,11 +310,18 @@ difference, since only All Caps is known to carry over to a new line:
 
 What each line shows has to hold whichever of the others the person leaves
 ticked, and an added line's styling can hang on the change to the line it
-goes beside: All Caps over part of a line that the change makes the whole
-line. So every choice among the changes at one line -- its own, the run
-added before it, the run added after it -- is tried at plan time, and a line
-that would come out otherwise in one of them is refused (`dependsOnChoice`),
-to be planned on its own.
+goes beside (All Caps over part of a line that the change makes the whole
+line), or on a change to the next one (a last line removed, whose range
+then sits where the new line goes). So every choice among the changes near
+each line is tried at plan time -- its own, the run added before it, the
+run added after it, and those of the lines within two of it, a removed line
+not counted -- and a line that would come out otherwise in one of them, or
+a choice that would itself be refused, refuses the plan (`dependsOnChoice`),
+to be planned in parts. More than twelve such changes near one line are
+refused the same way rather than tried. A test checks this against every
+choice on thousands of small random boxes: trying the changes at the same
+line alone fails it, trying those within one line passes, and two is the
+margin.
 
 No range is ever created. A range is an attribute, a map in the box's
 `custom_attributes` list, and giving the new line one of its own would mean

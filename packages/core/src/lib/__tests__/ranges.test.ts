@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { applyFixes, EditError, FixError, planLineEdits, presentationRanges, verifyRanges, type LineChange } from "../fixes";
 import { decodePresentation, openPresentation, readPresentation, textBoxRanges, type AttributeRange } from "../presentation";
-import { AttributeRangeError } from "../ranges";
+import type { LineFix } from "../fixes";
+import { AttributeRangeError, rangesAfter, type Range } from "../ranges";
 import { hasRealLibrary, libraryFiles, readLibraryFile } from "./corpus";
 import { capsByLine, syntheticTextPresentation, textLines, withAttributes } from "./synthetic";
 
@@ -221,6 +222,90 @@ function capsOnLines(lines: readonly string[], ranges: readonly { start: number;
  * planned. A ChordPro chart, which shares the extension, is passed over as
  * the app passes it over. Only a machine with a library runs it.
  */
+/** A fix as `rangesAfter` reads it: which line, which side, what it says. */
+const fix = (lineIndex: number, after: string | null, insert?: "before" | "after"): LineFix =>
+  ({ boxIndex: 0, lineIndex, ...(insert && { insert }), after, before: "", slideIndex: 0, cueName: "", kinds: [], edits: [] }) as unknown as LineFix;
+const CAPS = { caps: true, kind: "capitalization", value: 1, style: "caps" };
+
+describe("what each line shows, whichever of the others is chosen", () => {
+  it("refuses a line added beside a change whose range a removal on the next line brings to it", () => {
+    // RTF {\rtf1\par B\par}, All Caps on "B". With the first line changed,
+    // the line added after it is not in capitals; with that change unticked,
+    // removing "B" leaves its range where the new line goes, and it would be.
+    const box = { boxIndex: 0, lines: [{ text: "" }, { text: "B" }] };
+    const fixes = [fix(0, "A"), fix(0, "new", "after"), fix(1, null)];
+    expect(() => rangesAfter(box, fixes, [{ start: 1, end: 2, ...CAPS }])).toThrow(new AttributeRangeError(0, "dependsOnChoice", 0));
+    // As the person would have left it, it was refused at apply.
+    expect(() => rangesAfter(box, [fixes[1], fixes[2]], [{ start: 1, end: 2, ...CAPS }])).toThrow(AttributeRangeError);
+  });
+
+  it("plans changes on lines far apart in a box with a range over all of it", () => {
+    const lines = ["one", "two", "three", "four", "five", "six", "seven"];
+    const box = { boxIndex: 0, lines: lines.map((text) => ({ text })) };
+    const fixes = [fix(0, "One"), fix(0, "new", "after"), fix(6, "Seven"), fix(6, "last", "after")];
+    const { styling } = rangesAfter(box, fixes, [{ start: 0, end: lines.join("\n").length, ...CAPS }]);
+    expect(fixes.map((f) => styling.get(f)!.ranges.map((r) => r.after))).toEqual([["One"], ["new"], ["Seven"], ["last"]]);
+  });
+
+  it("holds every line to what it was shown for every choice of the others, on small boxes at random", { timeout: 60_000 }, () => {
+    // What is tried at plan time is the changes near each line; this checks
+    // that against every choice there is, as an apply of it would run. It
+    // fails with only the changes at the same line tried, and passes with
+    // those within one line tried.
+    // mulberry32, seeded, so a failure comes back the same.
+    let seed = 66;
+    const random = (n: number) => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) % n;
+    };
+    const texts = ["", "A", "B", "A tidy", "\tTab", "x "];
+    let planned = 0;
+    let checked = 0;
+    for (let round = 0; round < 5000; round++) {
+      const lines = Array.from({ length: 2 + random(4) }, () => texts[random(texts.length)]);
+      const length = lines.join("\n").length;
+      const ranges: Range[] = Array.from({ length: 1 + random(2) }, () => {
+        const a = random(length + 1);
+        const b = random(length + 1);
+        return { start: Math.min(a, b), end: Math.max(a, b), ...(random(4) === 0 ? { caps: false, kind: "font", style: "font" } : CAPS) };
+      });
+      const fixes: LineFix[] = [];
+      for (const [i] of lines.entries()) {
+        if (random(4) === 0) fixes.push(fix(i, "first", "before"));
+        if (random(2) === 0) fixes.push(fix(i, random(2) === 0 ? null : texts[random(texts.length)]));
+        if (random(4) === 0) fixes.push(fix(i, "new", "after"));
+      }
+      if (fixes.length === 0) continue;
+      const box = { boxIndex: 0, lines: lines.map((text) => ({ text })) };
+      let all: ReturnType<typeof rangesAfter>;
+      try {
+        all = rangesAfter(box, fixes, ranges);
+      } catch (e) {
+        if (!(e instanceof AttributeRangeError)) throw e;
+        continue;
+      }
+      planned++;
+      // Every selection the person could leave, by the tick boxes they have.
+      for (let mask = 1; mask < 1 << fixes.length; mask++) {
+        const chosen = fixes.filter((_, j) => mask & (1 << j));
+        const at = JSON.stringify({ lines, ranges, chosen: chosen.map((f) => [f.lineIndex, f.insert, f.after]) });
+        let some: ReturnType<typeof rangesAfter>;
+        try {
+          some = rangesAfter(box, chosen, ranges);
+        } catch (e) {
+          throw new Error(`refused at apply: ${at}`, { cause: e });
+        }
+        for (const f of chosen) expect(some.styling.get(f), at).toEqual(all.styling.get(f));
+        checked++;
+      }
+    }
+    expect(planned).toBeGreaterThan(500);
+    expect(checked).toBeGreaterThan(planned);
+  });
+});
+
 describe.skipIf(!hasRealLibrary)("moving the ranges of a real library", () => {
   const files: { file: string; bytes: Uint8Array }[] = [];
 

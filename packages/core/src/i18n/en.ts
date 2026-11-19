@@ -359,7 +359,7 @@ export const en = {
         addedLine:
           "a line would be added beside formatting other than All Caps, or inside formatting that does not cover the line it goes beside, and whether the new line takes it is a guess",
         dependsOnChoice:
-          "how the formatting falls on a line depends on whether another change at the same line is chosen, so it cannot be shown for every choice; plan those changes separately",
+          "how the formatting falls on a line depends on whether another change at or near it is chosen, so it cannot be shown for every choice; plan those changes separately",
       },
       // Why a change asked for in words, rather than found by a check, cannot be made.
       editRefusals: {
