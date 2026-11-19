@@ -54,8 +54,8 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
   /** Backup folders this session's runs made, which are the only folders `showBackups` opens. */
   const backupFolders = new Set<string>();
 
-  async function openFolder(dir: string): Promise<NativeFolder> {
-    const mine = ++generation;
+  /** `mine` is taken by the caller before its own first wait, so a forget during that wait overtakes it too. */
+  async function openFolder(dir: string, mine = ++generation): Promise<NativeFolder> {
     const opened = await openRoots([dir]);
     const root = opened[0];
     const workspace = await workspaceAt(root);
@@ -109,11 +109,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     },
 
     async reopenLast() {
+      const mine = ++generation;
       const dir = await lastFolder();
       if (dir === undefined) return null;
       // Moved, renamed or on a drive not plugged in: nothing to reopen, and
       // nothing to warn about, since the person can choose it again.
-      return openFolder(dir).catch(() => null);
+      return openFolder(dir, mine).catch(() => null);
     },
 
     async forgetLast() {
@@ -133,18 +134,21 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     async openWorkspace(root: string) {
       // Only one the registry lists: the page cannot open any folder by
       // naming it, only through the dialog a person answers.
+      const mine = ++generation;
       const listed = await registeredWorkspaces(registryDir);
       if (typeof root !== "string" || !listed.some((w) => w.root === root)) {
         throw new LibraryError(`ProPresenter does not list a workspace at ${String(root)}.`);
       }
-      return openFolder(root);
+      return openFolder(root, mine);
     },
 
     async read(p: string) {
       if (typeof p !== "string") throw new LibraryError("No file named.");
       // Only what the folder's walk listed: the open folder may hold other files that are none of the page's business.
-      if (!listed.has(p)) throw new LibraryError(`Not a presentation in the open folder: ${p}`);
-      return readWithHash(await resolveInRoots(roots, p));
+      // Checked again once links are followed: a listed file since replaced by a link to another file is not that file.
+      const real = listed.has(p) ? await resolveInRoots(roots, p) : undefined;
+      if (real === undefined || !listed.has(real)) throw new LibraryError(`Not a presentation in the open folder: ${p}`);
+      return readWithHash(real);
     },
 
     async applyFixes(files: ChosenFile[]): Promise<NativeApplyResult> {

@@ -126,6 +126,10 @@ describe("a folder of .pro files", () => {
     fs.writeFileSync(beside, "x");
     await expect(bridge.read(beside)).rejects.toThrow();
     await expect(bridge.read(file)).resolves.toBeDefined();
+    // Nor through a listed file replaced, since the folder was opened, by a link to one of those.
+    fs.rmSync(file);
+    fs.symlinkSync(beside, file);
+    await expect(bridge.read(file)).rejects.toThrow();
   });
 
   it("leaves a folder closed that was forgotten while it was still opening", async () => {
@@ -337,6 +341,15 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     const folder = await bridge.openWorkspace(root);
     expect(folder.workspace).toEqual({ name: "Church", cloud: false });
     expect(folder.files.map((f) => f.relative)).toEqual(["Libraries/Default/Checked Song.pro"]);
+  });
+
+  it("stays closed when forgotten while the registry was still being asked", async () => {
+    const opening = bridge.openWorkspace(root);
+    await bridge.forgetLast();
+
+    await expect(opening).rejects.toThrow();
+    expect(JSON.parse(fs.readFileSync(path.join(tmp, "state.json"), "utf8"))).toEqual({});
+    expect(await make().reopenLast()).toBeNull();
   });
 
   it("writes the ticked lines into the database, with a backup of the rows first", async () => {
