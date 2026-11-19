@@ -227,10 +227,12 @@ the last. Each end of each range is mapped through those splices:
    capital space looks like any other. Ranges of the same styling (the same
    attribute apart from its range) count together, since ProPresenter often
    splits one line's All Caps at a tab or a trailing space; the new text then
-   joins the first of them that it can, and the rest move past it, so they
-   still meet and never overlap. New text stays out of a range that only
-   meets the line -- ending where the line starts, or starting where it ends
-   -- and out of an empty range.
+   joins the first of them with characters on that line, and the rest move
+   past it, so they still meet and never overlap. New text stays out of a
+   range that only meets the line -- ending where the line starts, or
+   starting where it ends -- and out of an empty range, except over an empty
+   line, which no range has characters on: there the first range that
+   reaches it takes the new text.
 5. **Anything else** is a guess: text typed at the edge of formatting on
    part of a line, or replacing where such formatting starts or ends. The
    box is refused (`attributeRanges`), with the line and which of the two it

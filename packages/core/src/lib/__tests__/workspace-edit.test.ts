@@ -285,6 +285,38 @@ describe("moveRanges", () => {
       ]);
     });
 
+    it("never gives new text to an empty range or one that only meets the line", () => {
+      expect(
+        moveRanges(0, ["abc"], ["Xabc"], [
+          { start: 0, end: 0 },
+          { start: 0, end: 3 },
+        ], ["caps", "caps"])
+      ).toEqual([
+        { start: 0, end: 0 },
+        { start: 0, end: 4 },
+      ]);
+      // The first line with its break, then the second: text put in front of the second is the second's.
+      expect(
+        moveRanges(0, ["ab", "cd"], ["ab", "Xcd"], [
+          { start: 0, end: 3 },
+          { start: 3, end: 5 },
+        ], ["caps", "caps"])
+      ).toEqual([
+        { start: 0, end: 3 },
+        { start: 3, end: 6 },
+      ]);
+      // Over an empty line, which no range has characters on, the first of them still takes it.
+      expect(
+        moveRanges(0, ["a", "", "b"], ["a", "new", "b"], [
+          { start: 0, end: 2 },
+          { start: 2, end: 2 },
+        ], ["caps", "caps"])
+      ).toEqual([
+        { start: 0, end: 5 },
+        { start: 5, end: 5 },
+      ]);
+    });
+
     it("refuses when they are not the same styling", () => {
       const styles = ["caps", "gradient", "gradient", "caps"];
       expect(() => moveRanges(0, split, ["Oh Louons\t le Dieu qui était", split[1]], ranges, styles)).toThrow(

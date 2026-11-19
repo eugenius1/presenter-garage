@@ -230,8 +230,8 @@ function textSplices(before: readonly string[], after: readonly (string | null)[
  *    that whole line -- all of it but spaces and tabs at either end, as an
  *    All Caps range does. Ranges of the same styling count together, since
  *    ProPresenter often splits one line's All Caps at a tab or a space; the
- *    new text then joins the first of them, and the rest move past it, so
- *    they still meet and never overlap. New text stays out of a range that
+ *    new text then joins the first of them with characters on the line, and
+ *    the rest move past it, so they still meet and never overlap. New text stays out of a range that
  *    only meets the line, ending where the line starts or starting where it
  *    ends, and out of an empty range.
  * 5. Anything else is a guess, and the box is refused (`AttributeRangeError`).
@@ -269,16 +269,23 @@ export function moveRanges(
   };
   /**
    * Of the ranges of this one's styling that the splice's new text could
-   * join, the one it does: the first by where it starts. Each of the others
-   * moves past the new text.
+   * join, whether this is the one that does -- the first by where it starts
+   * -- or one of the others, which move past the new text. Only a range
+   * with characters on the line can take it, so an empty range, or one that
+   * only meets the line, is neither, and keeps its own place below; unless
+   * no range has any, as over an empty line, which the first of them takes.
+   * Undefined when this range is not one the new text could join.
    */
-  const joins = (i: number, splice: TextSplice) => {
+  const joins = (i: number, splice: TextSplice): "first" | "other" | undefined => {
     const removes = splice.end > splice.start;
     const could = sameStyle(i).filter((r) =>
       removes ? r.end > splice.start && r.start < splice.end : r.end >= splice.start && r.start <= splice.start
     );
-    could.sort((a, b) => a.start - b.start || a.k - b.k);
-    return could[0]?.k === i;
+    const onLine = could.filter((r) => r.end > r.start && r.end > splice.line.start && r.start < splice.line.end);
+    const pool = onLine.length > 0 ? onLine : could;
+    if (!pool.some((r) => r.k === i)) return undefined;
+    pool.sort((a, b) => a.start - b.start || a.k - b.k);
+    return pool[0].k === i ? "first" : "other";
   };
 
   return cut.map((range, i) => {
@@ -298,7 +305,8 @@ export function moveRanges(
         if (splice.inserted === 0) return at;
         // New text right at this end, or in place of text this end is inside.
         // Over a whole line, the range it joins takes it in.
-        if (covers(i, splice)) return joins(i, splice) && edge === "start" ? at : at + splice.inserted;
+        const joined = covers(i, splice) ? joins(i, splice) : undefined;
+        if (joined) return joined === "first" && edge === "start" ? at : at + splice.inserted;
         // A range that only meets the line -- ending where it starts, or
         // starting where it ends -- is not on it, and leaves it out. So does
         // an empty range, which covers nothing wherever it is.
