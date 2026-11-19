@@ -317,6 +317,17 @@ describe("moveRanges", () => {
       ]);
     });
 
+    it("gives text replacing one of them to that one, and keeps the others where they meet it", () => {
+      // The tab replaced with a space.
+      expect(moveRanges(0, split, ["Louons  le Dieu qui était", split[1]], ranges, caps)).toEqual(ranges);
+      // The tab replaced with two characters.
+      expect(moveRanges(0, split, ["Louons,  le Dieu qui était", split[1]], ranges, caps).slice(0, 3)).toEqual([
+        { start: 0, end: 6 },
+        { start: 6, end: 8 },
+        { start: 8, end: 26 },
+      ]);
+    });
+
     it("refuses when they are not the same styling", () => {
       const styles = ["caps", "gradient", "gradient", "caps"];
       expect(() => moveRanges(0, split, ["Oh Louons\t le Dieu qui était", split[1]], ranges, styles)).toThrow(
@@ -353,6 +364,31 @@ describe("moveRanges", () => {
     expect(() => moveRanges(4, lines, ["Que ton grand nom,", lines[1], lines[2]], [{ start: 8, end: 12 }])).toThrow(
       expect.objectContaining({ reason: "typedAtEdge" })
     );
+  });
+
+  it("refuses new text that replaces what lies just past the edge of a range over part of a line", () => {
+    // "ton" in capitals. Typed right after it, and replacing " nom," with "s nom.": both put "s" at its end.
+    for (const changed of ["Que tons nom,", "Que tons nom."]) {
+      expect(() => moveRanges(4, lines, [changed, lines[1], lines[2]], [{ start: 4, end: 7 }])).toThrow(
+        expect.objectContaining({ reason: "typedAtEdge", lineIndex: 0 })
+      );
+    }
+    // "nom," in capitals, and the space right before it replaced with a hyphen.
+    expect(() => moveRanges(4, lines, ["Que ton-nom,", lines[1], lines[2]], [{ start: 8, end: 12 }])).toThrow(
+      expect.objectContaining({ reason: "typedAtEdge" })
+    );
+  });
+
+  it("takes in new text replacing what lies just past the edge of a range that covers the line", () => {
+    // The tab in front of the line replaced: the range that covers the words takes the new text.
+    expect(moveRanges(0, ["\tQue ton nom,"], ["XQue ton nom,"], [{ start: 1, end: 13 }])).toEqual([{ start: 0, end: 13 }]);
+    // The trailing space replaced.
+    expect(moveRanges(0, ["Que ton nom "], ["Que ton nom!"], [{ start: 0, end: 11 }])).toEqual([{ start: 0, end: 12 }]);
+    // An empty range there keeps out of it.
+    expect(moveRanges(0, ["\tQue"], ["XQue"], [{ start: 1, end: 1 }, { start: 1, end: 4 }])).toEqual([
+      { start: 1, end: 1 },
+      { start: 0, end: 4 },
+    ]);
   });
 
   it("refuses new text replacing what a range over part of a line starts or ends inside", () => {

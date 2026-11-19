@@ -221,8 +221,9 @@ the last. Each end of each range is mapped through those splices:
    line's range becomes empty, where the line was.
 3. **A range running past the end of the text** is first cut back to the
    end. It covers nothing visible, so nothing on screen changes.
-4. **New text exactly at a range's start or end**, or replacing text the
-   range starts or ends inside, joins the range when the range covers that
+4. **New text exactly at a range's start or end** -- typed there, or
+   replacing text just past it -- or replacing text the range starts or
+   ends inside, joins the range when the range covers that
    whole line -- all of it but spaces and tabs at either end, since a
    capital space looks like any other. Ranges of the same styling (the same
    attribute apart from its range) count together, since ProPresenter often

@@ -225,8 +225,9 @@ function textSplices(before: readonly string[], after: readonly (string | null)[
  * 2. An end inside removed text goes to where that text was.
  * 3. A range running past the end of the text is first cut back to the end.
  *    It covers nothing visible, so nothing on screen changes.
- * 4. Text typed exactly at a range's start or end, or replacing text the
- *    range starts or ends inside, joins the range when the range covers
+ * 4. New text exactly at a range's start or end -- typed there, or
+ *    replacing text just past it -- or replacing text the range starts or
+ *    ends inside, joins the range when the range covers
  *    that whole line -- all of it but spaces and tabs at either end, as an
  *    All Caps range does. Ranges of the same styling count together, since
  *    ProPresenter often splits one line's All Caps at a tab or a space; the
@@ -278,13 +279,14 @@ export function moveRanges(
    */
   const joins = (i: number, splice: TextSplice): "first" | "other" | undefined => {
     const removes = splice.end > splice.start;
-    const could = sameStyle(i).filter((r) =>
-      removes ? r.end > splice.start && r.start < splice.end : r.end >= splice.start && r.start <= splice.start
-    );
+    const could = sameStyle(i).filter((r) => r.end >= splice.start && r.start <= splice.end);
     const onLine = could.filter((r) => r.end > r.start && r.end > splice.line.start && r.start < splice.line.end);
     const pool = onLine.length > 0 ? onLine : could;
     if (!pool.some((r) => r.k === i)) return undefined;
-    pool.sort((a, b) => a.start - b.start || a.k - b.k);
+    // Where text is replaced, a range that held some of it comes before one
+    // that only meets it: the new text takes the place of what it held.
+    const meetsOnly = (r: { start: number; end: number }) => (removes && !(r.end > splice.start && r.start < splice.end) ? 1 : 0);
+    pool.sort((a, b) => meetsOnly(a) - meetsOnly(b) || a.start - b.start || a.k - b.k);
     return pool[0].k === i ? "first" : "other";
   };
 
@@ -293,10 +295,16 @@ export function moveRanges(
       let shift = 0;
       for (const splice of splices) {
         const removes = splice.end > splice.start;
+        // New text replacing what lies just past this range's end, or just
+        // before its start, lands right at its edge, as typed text would.
+        const atEdge =
+          removes &&
+          splice.inserted > 0 &&
+          ((edge === "end" && x === splice.start && range.start < x) || (edge === "start" && x === splice.end && range.end > x));
         // Before this splice, or where a removal begins: nothing before it moves.
-        if (x < splice.start || (x === splice.start && removes)) break;
+        if (!atEdge && (x < splice.start || (x === splice.start && removes))) break;
         // After it, or where a removal ends: by however much it changed the length.
-        if (x > splice.end || (x === splice.end && removes)) {
+        if (!atEdge && (x > splice.end || (x === splice.end && removes))) {
           shift += splice.inserted - (splice.end - splice.start);
           continue;
         }
@@ -306,14 +314,16 @@ export function moveRanges(
         // New text right at this end, or in place of text this end is inside.
         // Over a whole line, the range it joins takes it in.
         const joined = covers(i, splice) ? joins(i, splice) : undefined;
-        if (joined) return joined === "first" && edge === "start" ? at : at + splice.inserted;
+        if (joined === "first") return edge === "start" ? at : at + splice.inserted;
+        // Another range took the new text: this one ends before it, or starts after it.
+        if (joined === "other") return edge === "end" && atEdge ? at : at + splice.inserted;
         // A range that only meets the line -- ending where it starts, or
         // starting where it ends -- is not on it, and leaves it out. So does
         // an empty range, which covers nothing wherever it is.
         if (edge === "end" && x === splice.line.start) return at;
         if (edge === "start" && x === splice.line.end) return at + splice.inserted;
         if (range.start === range.end) return at;
-        throw new AttributeRangeError(boxIndex, removes ? "replacedAcrossEdge" : "typedAtEdge", splice.lineIndex);
+        throw new AttributeRangeError(boxIndex, atEdge || !removes ? "typedAtEdge" : "replacedAcrossEdge", splice.lineIndex);
       }
       return x + shift;
     };
