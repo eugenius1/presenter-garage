@@ -6,10 +6,12 @@ import {
   openPresentation,
   readPresentation,
   RUN_CLASS,
+  textBoxRanges,
   SPACE_CLASS,
   TRAILING_PUNCTUATION,
   unreadableReport,
   writeTextBoxes,
+  type AttributeRange,
   type PresentationDoc,
   type PresentationReport,
   type ReadProblem,
@@ -22,13 +24,17 @@ import {
   cutsToEdits,
   extractLines,
   hasLineControl,
+  insertLineEdit,
   lineEdit,
   replaceLineText,
+  type InsertSide,
   type RtfLine,
   type SourceEdit,
   type TextCut,
 } from "./rtf";
 import { groupBy } from "./collections";
+import type { RawDoc } from "./decode";
+import { AttributeRangeError, rangesAfter, type LineStyling } from "./ranges";
 
 /**
  * Turning findings into edits.
@@ -67,14 +73,22 @@ const ENDING = Object.fromEntries(
 export interface LineFix {
   /** Which text box, as {@link TextBox.boxIndex} numbers them. */
   boxIndex: number;
-  /** Which line within that box. */
+  /** Which line within that box; for an added line, the line it is added beside. */
   lineIndex: number;
+  /**
+   * Set for a line that is added rather than changed: it goes on this side
+   * of line `lineIndex`, which itself is left as it is.
+   */
+  insert?: InsertSide;
   slideIndex: number;
   cueName: string;
   groupName?: string;
   /** Every kind this one edit settles, in the order they are reported. */
   kinds: TextIssueKind[];
-  /** The line as it stands. */
+  /**
+   * The line as it stands. For an added line, the line it is added beside,
+   * which is what a fix planned against a file that has moved on is caught by.
+   */
   before: string;
   /** The line as it would read, or null when the line itself goes. */
   after: string | null;
@@ -87,9 +101,20 @@ export interface LineFix {
   source: string;
 }
 
-/** Box by box, line by line: the order a slide is read in. */
+/** Where a change falls around its line: lines added before it, the line itself, lines added after it. */
+const SIDE_RANK = { before: -1, after: 1 } as const;
+
+/**
+ * Box by box, line by line: the order a slide is read in.
+ *
+ * Lines added at one place keep the order they were asked for in, since
+ * the sort is stable, and that order is also the order their edits are
+ * written in -- they are zero-width edits at one offset, which
+ * `applyEdits` writes in the order given.
+ */
 function byReadingOrder(a: LineFix, b: LineFix): number {
-  return a.boxIndex - b.boxIndex || a.lineIndex - b.lineIndex;
+  const rank = (fix: LineFix) => (fix.insert ? SIDE_RANK[fix.insert] : 0);
+  return a.boxIndex - b.boxIndex || a.lineIndex - b.lineIndex || rank(a) - rank(b);
 }
 
 /** An address that names one line, for grouping findings and ticking boxes. */
@@ -209,6 +234,12 @@ export interface LineChange {
   lineIndex: number;
   /** What the line should read, on one line; null removes the line. */
   text: string | null;
+  /**
+   * Add `text` as a new line on this side of line `lineIndex` instead,
+   * leaving that line as it is. The new line takes its formatting. Several
+   * added on one side of one line go in the order they are asked for.
+   */
+  insert?: InsertSide;
 }
 
 /**
@@ -219,18 +250,35 @@ export interface LineChange {
  * - `unchanged`: the line already reads that.
  * - `notOneLine`: the text holds a line break or another control character.
  * - `lastLine`: removing the last line of a box, which has no break to take with it.
+ * - `emptyLine`: a line added with no text. A blank line between two others
+ *   is what the blank-line check reports.
+ * - `besideRemoved`: a line added beside a line the same plan removes, whose
+ *   formatting it would have taken.
  * - `unsupported`: the change would not read back as asked once spliced --
  *   emptying a last line with nothing else on it, which reads as no line at
  *   all, or a box that is not an RTF document.
  */
-export type EditRefusal = "noSuchLine" | "duplicate" | "unchanged" | "notOneLine" | "lastLine" | "unsupported";
+export type EditRefusal =
+  | "noSuchLine"
+  | "duplicate"
+  | "unchanged"
+  | "notOneLine"
+  | "lastLine"
+  | "emptyLine"
+  | "besideRemoved"
+  | "unsupported";
+
+/** Where a change is, in words: its line, or the line an added one goes beside. */
+export function changeSite(change: Pick<LineChange, "lineIndex" | "insert">): string {
+  return change.insert ? `a line added ${change.insert} line ${change.lineIndex}` : `line ${change.lineIndex}`;
+}
 
 export class EditError extends Error {
   readonly reason: EditRefusal;
   readonly change: LineChange;
 
   constructor(reason: EditRefusal, change: LineChange) {
-    super(`${reason} at box ${change.boxIndex}, line ${change.lineIndex}`);
+    super(`${reason} at box ${change.boxIndex}, ${changeSite(change)}`);
     this.name = "EditError";
     this.reason = reason;
     this.change = change;
@@ -246,35 +294,53 @@ export class EditError extends Error {
  * this is a second way into it rather than a second path. It carries no
  * `kinds`: nothing was found, somebody asked.
  *
+ * A change can also add a line (`insert`), which is a fix of its own with a
+ * tick box of its own, so the person can leave out one added line and keep
+ * the rest. Its edit adds the line and touches no character already there;
+ * see `insertLineEdit`.
+ *
  * All or nothing: one change that cannot be planned refuses the lot, since a
  * half-applied set of edits to a song is worse than none.
  *
  * Each box is spliced and read back here too, with every planned change in
- * it, so a set of edits that would only fail `applyFixes`' read-back is
- * refused before anybody is asked to approve it rather than after.
+ * it and with each on its own, as the person may untick the rest, so a set
+ * of edits that would only fail `applyFixes`' read-back is refused before
+ * anybody is asked to approve it rather than after.
  */
 export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange[]): LineFix[] {
   const boxes = new Map(doc.textBoxes.map((box) => [box.boxIndex, box]));
   const seen = new Set<string>();
+  const removed = new Set(changes.filter((c) => !c.insert && c.text === null).map(fixKey));
   const fixes: LineFix[] = [];
 
   for (const change of changes) {
     const box = boxes.get(change.boxIndex);
     const line = box?.lines[change.lineIndex];
     if (!box || !line) throw new EditError("noSuchLine", change);
-    const key = fixKey(change);
-    if (seen.has(key)) throw new EditError("duplicate", change);
-    seen.add(key);
-    if (change.text === line.text) throw new EditError("unchanged", change);
     if (change.text !== null && hasLineControl(change.text)) throw new EditError("notOneLine", change);
 
-    const edits =
-      change.text === null ? lineEdit(box.rtf, line) : replaceLineText(box.rtf, line, change.text);
-    if (edits === null) throw new EditError(change.text === null ? "lastLine" : "unsupported", change);
+    let edits: SourceEdit[] | null;
+    if (change.insert) {
+      // Not `unchanged` when it reads like its neighbour: repeating a line is
+      // the commonest reason to add one.
+      if (!change.text) throw new EditError("emptyLine", change);
+      if (removed.has(fixKey(change))) throw new EditError("besideRemoved", change);
+      const edit = insertLineEdit(box.rtf, box.lines, line.index, change.insert, change.text);
+      edits = edit && [edit];
+    } else {
+      const key = fixKey(change);
+      if (seen.has(key)) throw new EditError("duplicate", change);
+      seen.add(key);
+      if (change.text === line.text) throw new EditError("unchanged", change);
+      edits = change.text === null ? lineEdit(box.rtf, line) : replaceLineText(box.rtf, line, change.text);
+      if (edits === null && change.text === null) throw new EditError("lastLine", change);
+    }
+    if (edits === null) throw new EditError("unsupported", change);
 
     fixes.push({
       boxIndex: box.boxIndex,
       lineIndex: line.index,
+      ...(change.insert && { insert: change.insert }),
       slideIndex: box.slideIndex,
       cueName: box.cueName,
       groupName: box.groupName,
@@ -286,24 +352,43 @@ export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange
     });
   }
 
+  // Into reading order before splicing: lines added at one offset are
+  // written in the order their edits are listed, and `applyFixes` will list
+  // them in this order too.
+  fixes.sort(byReadingOrder);
+
+  const refuse = (fix: LineFix) =>
+    new EditError("unsupported", { boxIndex: fix.boxIndex, lineIndex: fix.lineIndex, text: fix.after, insert: fix.insert });
   for (const box of doc.textBoxes) {
     const mine = fixes.filter((fix) => fix.boxIndex === box.boxIndex);
     if (mine.length === 0) continue;
-    const got = extractLines(applyEdits(box.rtf, mine.flatMap((fix) => fix.edits))).map((line) => line.text);
-    const want = expected(box, mine);
-    if (got.length !== want.length || got.some((text, i) => text !== want[i])) {
-      // Named by the box's first change: which of several broke it cannot be
-      // told from the result.
-      const [first] = mine;
-      throw new EditError("unsupported", { boxIndex: first.boxIndex, lineIndex: first.lineIndex, text: first.after });
+    // Each change alone too, since the person may untick every other one: a
+    // line added before a box's one empty line reads back only while a line
+    // added after it keeps that line alive.
+    if (mine.length > 1) {
+      const alone = mine.find((fix) => !readsBack(box, [fix]));
+      if (alone) throw refuse(alone);
     }
+    // Named by the box's first change: which of several broke it cannot be
+    // told from the result.
+    if (!readsBack(box, mine)) throw refuse(mine[0]);
   }
 
-  return fixes.sort(byReadingOrder);
+  return fixes;
 }
 
-/** Why a file was not written. Carries a code; the interface supplies the words. */
-export type FixRefusal = "lossy" | "unchanged" | "verifyFailed" | "unreadable" | "stale";
+/**
+ * Why a file was not written. Carries a code; the interface supplies the words.
+ * `attributeRanges` is an `AttributeRangeError`: a box's ranges cannot be
+ * moved with its text, or a line added to it, without a guess.
+ */
+export type FixRefusal =
+  | "lossy"
+  | "unchanged"
+  | "verifyFailed"
+  | "unreadable"
+  | "stale"
+  | "attributeRanges";
 
 export class FixError extends Error {
   readonly reason: FixRefusal;
@@ -350,12 +435,74 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
   }
 
   const replacements = spliceBoxes(before, fixes);
+  let planned;
+  try {
+    planned = presentationRanges(doc, before, fixes);
+  } catch (e) {
+    if (e instanceof AttributeRangeError) throw new FixError("attributeRanges");
+    throw e;
+  }
 
-  writeTextBoxes(doc, replacements);
+  writeTextBoxes(doc, replacements, planned.moved);
   const written = encodePresentation(doc);
 
-  verifyLines(readPresentation(decodePresentation(written)), before, fixes);
+  // The gate again, on the bytes handed back rather than the ones read.
+  if (!checkPresentationFidelity(written).exportSafe) throw new FixError("lossy");
+  const reread = decodePresentation(written);
+  verifyLines(readPresentation(reread), before, fixes);
+  verifyRanges(textBoxRanges(reread), planned);
   return written;
+}
+
+/** A `.pro` file's attribute ranges, as read and as the fixes will leave them. */
+export interface PlannedRanges {
+  /** Every box's ranges as the file holds them now. */
+  before: Map<number, AttributeRange[]>;
+  /** Each edited box's ranges once the fixes are in, by box. */
+  moved: Map<number, AttributeRange[]>;
+  /** What each fix does to the styling on its line, one per fix in the order of the fixes. */
+  styling: LineStyling[];
+  /** The edited boxes with a range that ran past the end of the text, cut back to it. */
+  cutBack: Set<number>;
+}
+
+/**
+ * Where a `.pro` file's attribute ranges go once the fixes are in, by
+ * `rangesAfter`, the rule a workspace's ranges move by too. ProPresenter
+ * does not move them itself on opening the file, so left alone they would
+ * put the capitals on the wrong characters. `raw` is the decoded message
+ * `before` was read from. Throws `AttributeRangeError`.
+ */
+export function presentationRanges(raw: RawDoc, before: PresentationDoc, fixes: readonly LineFix[]): PlannedRanges {
+  const ranges = textBoxRanges(raw);
+  const moved = new Map<number, AttributeRange[]>();
+  const styling = new Map<LineFix, LineStyling>();
+  const cutBack = new Set<number>();
+  for (const boxIndex of new Set(fixes.map((fix) => fix.boxIndex))) {
+    const box = before.textBoxes.find((b) => b.boxIndex === boxIndex)!;
+    const present = ranges.get(boxIndex) ?? [];
+    const after = rangesAfter(box, fixes, present);
+    moved.set(boxIndex, present.map((range, i) => ({ ...range, ...after.moved[i] })));
+    for (const [fix, said] of after.styling) styling.set(fix, said);
+    if (after.cutBack) cutBack.add(boxIndex);
+  }
+  return { before: ranges, moved, styling: fixes.map((fix) => styling.get(fix)!), cutBack };
+}
+
+/**
+ * Throws `verifyFailed` unless every range of every box reads back where it
+ * was planned, the same styling it was: moved in the edited boxes, exactly
+ * where it was in the rest.
+ */
+export function verifyRanges(after: ReadonlyMap<number, readonly AttributeRange[]>, planned: PlannedRanges): void {
+  if (after.size !== planned.before.size) throw new FixError("verifyFailed");
+  for (const [boxIndex, was] of planned.before) {
+    const want = planned.moved.get(boxIndex) ?? was;
+    const got = after.get(boxIndex);
+    const same = (a: AttributeRange, b: AttributeRange) =>
+      a.index === b.index && a.start === b.start && a.end === b.end && a.style === b.style;
+    if (got?.length !== want.length || got.some((range, i) => !same(range, want[i]))) throw new FixError("verifyFailed");
+  }
 }
 
 /**
@@ -392,12 +539,26 @@ export function spliceBoxes(before: PresentationDoc, fixes: readonly LineFix[]):
   return replacements;
 }
 
-/** What every line of every edited box should read once the fixes are in. */
+/** Whether a box with these fixes spliced in reads exactly as `expected()` says. */
+function readsBack(box: { rtf: string; lines: RtfLine[] }, fixes: readonly LineFix[]): boolean {
+  const got = extractLines(applyEdits(box.rtf, fixes.flatMap((fix) => fix.edits))).map((line) => line.text);
+  const want = expected(box, fixes);
+  return got.length === want.length && got.every((text, i) => text === want[i]);
+}
+
+/**
+ * What every line of every edited box should read once the fixes are in:
+ * each line as changed or as it was, with the lines added before and after
+ * it in the order the fixes list them.
+ */
 function expected(box: { lines: RtfLine[] }, fixes: readonly LineFix[]): string[] {
-  const byLine = new Map(fixes.map((f) => [f.lineIndex, f]));
-  return box.lines
-    .map((line, index) => (byLine.has(index) ? byLine.get(index)!.after : line.text))
-    .filter((text): text is string => text !== null);
+  const changed = new Map(fixes.filter((f) => !f.insert).map((f) => [f.lineIndex, f.after]));
+  const added = (index: number, side: InsertSide) =>
+    fixes.filter((f) => f.insert === side && f.lineIndex === index).map((f) => f.after!);
+  return box.lines.flatMap((line, index) => {
+    const text = changed.has(index) ? changed.get(index)! : line.text;
+    return [...added(index, "before"), ...(text === null ? [] : [text]), ...added(index, "after")];
+  });
 }
 
 /**

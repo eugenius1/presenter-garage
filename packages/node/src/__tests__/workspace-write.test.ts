@@ -146,6 +146,43 @@ suite("writing slide text into a workspace", () => {
     doc.free();
   });
 
+  it("adds lines, widening the All Caps range of the line each copies, and creates no container", async () => {
+    const before = rows();
+    let box = 0;
+    const edit = await plan("Song", (doc) => {
+      box = threeLines(doc).boxIndex;
+      return [
+        { boxIndex: box, lineIndex: 1, text: "pour toujours ,", insert: "after" },
+        { boxIndex: box, lineIndex: 0, text: "Refrain", insert: "before" },
+      ];
+    });
+    const run = await write([edit]);
+
+    expect(run.outcomes.map((o) => [o.written, o.reason])).toEqual([[true, undefined]]);
+    expect(await linesOf("Song", box)).toEqual(["Refrain", "Que ton nom,", "pour toujours ,", "pour toujours ,", "sois glorifie"]);
+
+    const old = new LoroDoc();
+    old.import(before[0].snapshot);
+    const doc = new LoroDoc();
+    doc.import(rows()[0].snapshot);
+    const root = doc.toJSON().root;
+    const { message } = presentationFromWorkspace(root);
+    const { path: toBox } = planWorkspaceEdit(root, planLineEdits(readPresentation(message), [{ boxIndex: box, lineIndex: 4, text: "x" }])).boxes[0];
+    const text = valueAt(root, toBox);
+    // Refrain 0..7 joins the first line's range; the repeated line joins the second's.
+    expect(text.attributes.custom_attributes.map((a: Json) => a.range)).toEqual([
+      { start: 0, end: 20 },
+      { start: 21, end: 52 },
+      { start: 53, end: 66 },
+    ]);
+    // As many attributes as before: ranges are widened, never made.
+    // The same map in the old document: the edit sets values, so no key on the way to it moved.
+    const was = valueAt(old.toJSON().root, toBox);
+    expect(text.attributes.custom_attributes).toHaveLength(was.attributes.custom_attributes.length);
+    old.free();
+    doc.free();
+  });
+
   it("backs up the row as it was, with the file it reads as, before it changes", async () => {
     const before = rows()[0];
     const run = await write([await plan("Song", (doc) => [{ boxIndex: threeLines(doc).boxIndex, lineIndex: 0, text: "Que ton nom" }])]);
@@ -249,6 +286,21 @@ suite("writing slide text into a workspace", () => {
     const before = rows();
     const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
     expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges", detail: "box 0 line 0, replacedAcrossEdge" });
+    expect(rows()).toEqual(before);
+  });
+
+  it("refuses a line added beside formatting it would have to guess at, when planning and when applying", async () => {
+    const gradient = { __tag: "text_gradient_fill", text_gradient_fill: {} };
+    const id = putPresentation(root, "Gradient", presentationRoot((lines) => [{ start: 0, end: lines[0].length, attribute: gradient }]));
+    ws = await open();
+    const document = await documentNamed("Gradient");
+    const planned = await readForPlanning(ws, document);
+    const fixes = planLineEdits(openPresentation(planned.bytes).doc!, [{ boxIndex: 0, lineIndex: 0, text: "again", insert: "after" }]);
+    expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(expect.objectContaining({ reason: "addedLine", lineIndex: 0 }));
+
+    const before = rows();
+    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
+    expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges", detail: "box 0 line 0, addedLine" });
     expect(rows()).toEqual(before);
   });
 
@@ -399,5 +451,32 @@ describe.skipIf(!REAL_WORKSPACE || !sqlite?.backup)("writing into a copy of a re
       written++;
     }
     expect(written).toBeGreaterThan(0);
+  });
+  it("adds a line after a line of the first presentations that can take one, and reads them back as promised", { timeout: 120_000 }, async () => {
+    let written = 0;
+    const refused: string[] = [];
+    for (const file of (await ws.list("Presentation")).slice(0, 25)) {
+      const document = (await ws.find(file))!;
+      const planned = await readForPlanning(ws, document);
+      const { doc } = openPresentation(planned.bytes);
+      const box = doc?.textBoxes.find((b) => b.lines.length > 1 && b.lines[0].text.length > 0);
+      if (!box) continue;
+      const fixes = planLineEdits(doc!, [{ boxIndex: box.boxIndex, lineIndex: 0, text: `${box.lines[0].text} (garage)`, insert: "after" }]);
+      const run = await write([{ path: file, documentId: document.id, sha256: planned.sha256, fixes }]);
+      const { reason } = run.outcomes[0];
+      if (reason === "attributeRanges") {
+        refused.push(reason);
+        continue;
+      }
+      expect([run.outcomes[0].written, reason]).toEqual([true, undefined]);
+      const again = openPresentation((await readForPlanning(ws, (await ws.find(file))!)).bytes).doc!;
+      expect(again.textBoxes[box.boxIndex].lines.map((l) => l.text)).toEqual([
+        box.lines[0].text,
+        `${box.lines[0].text} (garage)`,
+        ...box.lines.slice(1).map((l) => l.text),
+      ]);
+      written++;
+    }
+    expect(written).toBeGreaterThan(refused.length);
   });
 });

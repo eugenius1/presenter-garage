@@ -10,6 +10,7 @@ import {
   type ElicitResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
+  capsByLine,
   CONFIGURED_GROUPS,
   MACROS,
   syntheticGroupsFile,
@@ -19,12 +20,13 @@ import {
   syntheticTextPresentation,
   SYNTHETIC,
   textLines,
+  withAttributes,
 } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { encodeDocument, messageType } from "@presenter-garage/core/lib/decode";
 import { decodeMediaDocument, rawItems, walkNodes } from "@presenter-garage/core/lib/model";
 import { applyOperations } from "@presenter-garage/core/lib/operations";
 import { decodePlaylistsDocument, headerEntry, mediaEntry, presentationEntry } from "@presenter-garage/core/lib/playlists";
-import { decodePresentation, encodePresentation, slidesInOrder } from "@presenter-garage/core/lib/presentation";
+import { decodePresentation, encodePresentation, slidesInOrder, textBoxRanges } from "@presenter-garage/core/lib/presentation";
 import { syntheticPresentationFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { findPresentations, openRoots, readFoundFile, readLibraryFile, resolveInRoots } from "@presenter-garage/node/library";
 import { parseArgs } from "../args";
@@ -907,6 +909,78 @@ describe("editing slide text", () => {
       expect.objectContaining({ n: 1, slideIndex: 0, group: "Verse", before: "A tidy line", after: "A tidier line" }),
     ]);
     expect(fs.readFileSync(file)).toEqual(before);
+  });
+
+  it("adds lines, shows each as it would read and where it goes, and writes only those left ticked", async () => {
+    const planned = await plan([
+      { boxIndex: 6, lineIndex: 0, text: "Que ton nom,", insert: "after" },
+      { boxIndex: 6, lineIndex: 2, text: "(bis)", insert: "after" },
+      { boxIndex: 6, lineIndex: 0, text: "Refrain", insert: "before" },
+    ]);
+    // In reading order, each saying which side of which line it goes, with no line before it.
+    expect(planned.files[0].lines.map((l: Record<string, unknown>) => [l.n, l.lineIndex, l.insert, l.before, l.after])).toEqual([
+      [1, 0, "before", null, "Refrain"],
+      [2, 0, "after", null, "Que ton nom,"],
+      [3, 2, "after", null, "(bis)"],
+    ]);
+
+    reply = () => ({ action: "accept", content: { line1: true, line2: true, line3: false } });
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    const { properties } = form(asked[0]).requestedSchema;
+    expect(properties.line2.description).toBe("Added after “Que ton nom,”: “Que ton nom,”");
+    expect((properties.line1 as { title?: string }).title).toMatch(/text box 7, new line before line 1\)/);
+
+    expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
+    expect(lines()[6]).toEqual(["Refrain", "Que ton nom,", "Que ton nom,", "pour toujours ,", "sois glorifie"]);
+  });
+
+  it("moves the capitals with the text, and shows the styling an added line takes", async () => {
+    fs.writeFileSync(
+      file,
+      withAttributes(syntheticTextPresentation("Song"), { 0: capsByLine(["A tidy line", "And another"]) })
+    );
+    const planned = await plan([
+      { boxIndex: 0, lineIndex: 0, text: "new line", insert: "after" },
+      { boxIndex: 1, lineIndex: 0, text: "not", insert: "after" },
+    ]);
+    expect(planned.files[0].lines.map((l: Record<string, unknown>) => l.styling)).toEqual([
+      ["All Caps on the whole line, as on the line beside it"],
+      undefined,
+    ]);
+
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    const { properties } = form(asked[0]).requestedSchema;
+    expect(properties.line1.description).toBe(
+      "Added after “A tidy line”: “new line”. Styling: All Caps on the whole line, as on the line beside it."
+    );
+    expect(properties.line2.description).toBe("Added after “Fine here”: “not”");
+    expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
+    const ranges = textBoxRanges(decodePresentation(new Uint8Array(fs.readFileSync(file)))).get(0)!;
+    // "A tidy line" and the new line under one range, "And another" moved past it.
+    expect(ranges.map((r) => [r.start, r.end])).toEqual([
+      [0, 20],
+      [21, 32],
+    ]);
+  });
+
+  it("refuses at plan time an added line whether a range covers would be a guess", async () => {
+    fs.writeFileSync(
+      file,
+      withAttributes(syntheticTextPresentation("Song"), { 0: [{ range: { start: 0, end: 11 }, original_font_size: 120 }] })
+    );
+    const result = await edit("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 0, lineIndex: 0, text: "new", insert: "after" }],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/box 0 line 0: a text box has formatting that cannot be moved .*: a line would be added beside formatting other than All Caps/);
+  });
+
+  it("refuses an added line it cannot place, saying which", async () => {
+    const result = await edit("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 0, lineIndex: 1, text: "", insert: "after" }],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/box 0, a line added after line 1: an added line needs some text.*Nothing was planned/);
   });
 
   it("asks the person, then writes what they confirmed and backs up the original first", async () => {

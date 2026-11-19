@@ -56,7 +56,7 @@
     { "name": "read_playlists", "description": "Read the presentation playlists: every service and the songs, headers and media in it." },
     { "name": "list_themes", "description": "List the themes and the slide styles each offers." },
     { "name": "preview_style", "description": "Preview giving a presentation the look of a theme slide or another slide, without changing it." },
-    { "name": "plan_slide_edits", "description": "Work out changes to slide text, line by line, without writing anything." },
+    { "name": "plan_slide_edits", "description": "Work out changes to slide text, line by line: changing, removing or adding lines, without writing anything." },
     { "name": "apply_slide_edits", "description": "Apply planned slide text changes once you confirm each line, backing up every file first." }
   ],
   "compatibility": {

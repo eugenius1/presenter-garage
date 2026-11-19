@@ -17,8 +17,10 @@ read a ProPresenter 7 library from disk, and edit its slide text. Part of
   media in it
 - List the themes, and preview giving a presentation the look of a theme slide
   or of another presentation's slide, slide by slide
-- Edit slide text line by line: you confirm every line in your app before
-  anything is written, and each file is backed up outside your library first
+- Edit slide text line by line -- change a line, remove one, or add one
+  beside another, which takes that line's formatting: you confirm every line
+  in your app before anything is written, and each file is backed up outside
+  your library first
 
 It reads nothing outside the folders you give it, and writes outside them only
 the backups it makes before changing a file. Editing needs a

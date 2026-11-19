@@ -570,9 +570,13 @@ export function unicodeSkipAt(rtf: string, index: number): number {
   return skip;
 }
 
-/** Whether a UTF-16 code unit is a control character other than a tab, which cannot sit on one line of a slide. */
+/**
+ * Whether a UTF-16 code unit is a control character other than a tab, or a
+ * line break by Unicode's own count -- next line, line and paragraph
+ * separator -- which cannot sit on one line of a slide.
+ */
 function isLineControl(code: number): boolean {
-  return (code < 0x20 && code !== 0x09) || code === 0x7f;
+  return (code < 0x20 && code !== 0x09) || code === 0x7f || code === 0x85 || code === 0x2028 || code === 0x2029;
 }
 
 /** Whether text holds a line break or another control character, so it cannot sit on one line. */
@@ -696,6 +700,111 @@ export function replaceLineText(rtf: string, line: RtfLine, after: string): Sour
   const removals = edits.map((e) => (e.start === at ? { start: e.start, end: e.end } : e));
   const delimiter = endsWithControlWord(rtf, at) ? " " : "";
   return [{ start: at, end: at, insert: delimiter + encoded }, ...removals];
+}
+
+/** Which side of an existing line a new line goes. */
+export type InsertSide = "before" | "after";
+
+/**
+ * A break spelled to stand anywhere: a control word with its delimiter
+ * space, a control symbol as it is, since a space after a control symbol
+ * is text.
+ */
+function breakSource(rtf: string, line: RtfLine | undefined): string | undefined {
+  if (line?.breakStart === undefined) return undefined;
+  const source = rtf.slice(line.breakStart, line.breakEnd);
+  const word = /^\\[a-zA-Z]+(-?\d+)?/.exec(source);
+  return word ? `${word[0]} ` : source;
+}
+
+/** Whether text written straight after a control word would run into it: a letter, a digit, a hyphen, or a space it would take as its delimiter. */
+function extendsControlWord(text: string): boolean {
+  return /^[a-zA-Z0-9 -]/.test(text);
+}
+
+/**
+ * Splice that adds a new line beside `lines[index]`, reading `text`, or null
+ * when that cannot be done.
+ *
+ * The new line is the old one's formatting with new text, and is made
+ * without touching a character of any line already there:
+ *
+ * - **After** a line, it goes at that line's break, as a break of the same
+ *   kind followed by the text: `one\par two` becomes `one\par new\par two`.
+ *   Nothing is written between the two, so the new line reads in exactly
+ *   the state the old one ended in -- paragraph and character formatting
+ *   alike -- and the line after it starts in exactly the state it did,
+ *   which copying the old line's own instructions would not promise. After
+ *   the last line, which has no break, it goes before the brace that closes
+ *   the document.
+ * - **Before** a line, it goes where text typed at that line's start would,
+ *   after its formatting, as the text followed by a break: the state the old
+ *   line starts in. Before an empty last line it goes before that line's
+ *   formatting instead, which is all that keeps it a line.
+ *
+ * The break is the one already between the two lines the new one goes
+ * between, or failing that any break in the box, or `\par` in a box that
+ * has none, which is what ProPresenter writes. Every break in a real
+ * library of 8,079 boxes is `\par` or a backslash and a newline, and no
+ * box mixes the two.
+ *
+ * Several lines at one place are several of these at one offset, which
+ * `applyEdits` writes in the order given, so any of them can be left out
+ * and the rest still read in order. Null for text that is empty or will not
+ * sit on one line, a payload that is not an RTF document, a `\ucN` no writer
+ * uses, and the two cases below where a line before another cannot be
+ * written so that every subset of them reads back.
+ *
+ * As with {@link replaceLineText}, whether a set of edits reads back once
+ * composed is for the caller to check by reading the result.
+ */
+export function insertLineEdit(
+  rtf: string,
+  lines: readonly RtfLine[],
+  index: number,
+  side: InsertSide,
+  text: string
+): SourceEdit | null {
+  const line = lines[index];
+  if (!rtf.startsWith("{\\rtf") || !line || text === "") return null;
+  const brk =
+    breakSource(rtf, side === "after" ? line : lines[index - 1]) ??
+    breakSource(rtf, lines.find((l) => l.breakStart !== undefined)) ??
+    "\\par ";
+
+  let at: number;
+  if (side === "before") {
+    // An empty last line is a line only because something follows the break
+    // before it; text added after its formatting would take that away, and
+    // it would read as no line at all. So before its formatting, where the
+    // line before it ended. An empty box has no line before to go after.
+    const trailing = index > 0 && line.spans.length === 0 && line.breakStart === undefined;
+    at = trailing ? line.sourceStart : insertionPoint(rtf, line, 0);
+  } else if (line.breakStart !== undefined) at = line.breakStart;
+  else {
+    at = rtf.lastIndexOf("}");
+    if (at < (line.spans.at(-1)?.sourceEnd ?? line.sourceStart)) return null;
+  }
+
+  const skip = unicodeSkipAt(rtf, at);
+  if (skip < 0 || skip > 8) return null;
+  const encoded = encodeRtfText(text, skip);
+  if (encoded === null) return null;
+
+  // Starting with a backslash, the break needs nothing before it, and the
+  // text after it is delimited by it.
+  if (side === "after") return { start: at, end: at, insert: brk + encoded };
+
+  // Before a line, a control word may end right where the new text goes:
+  // `\cb2\u201 ?ternel`, a line opening on an escape. The new text then
+  // needs a delimiter of its own exactly as the line's text did not, and
+  // the break after it must end bare, as that word did, so that the next
+  // new line or the old text follows it as it followed the word. A control
+  // symbol cannot end bare -- a space after it is text -- and a hyphen
+  // after a bare `\par` could be read as its parameter: both refused.
+  if (!endsWithControlWord(rtf, at)) return { start: at, end: at, insert: encoded + brk };
+  if (!brk.endsWith(" ") || rtf[at] === "-") return null;
+  return { start: at, end: at, insert: (extendsControlWord(encoded) ? " " : "") + encoded + brk.trimEnd() };
 }
 
 /**

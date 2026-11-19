@@ -1,6 +1,7 @@
 import { FixError, spliceBoxes, verifyLines, type LineFix } from "./fixes";
 import { readPresentation, textBoxAddresses, type PresentationDoc, type TextBoxAddress } from "./presentation";
-import { decodeRtf, encodeRtf, lineSplice } from "./rtf";
+import { isAllCaps, rangesAfter, type LineStyling } from "./ranges";
+import { decodeRtf, encodeRtf } from "./rtf";
 import { isObject, presentationFromWorkspace } from "./workspace";
 
 /**
@@ -46,30 +47,6 @@ export interface BoxEdit {
   cutBack: number[];
 }
 
-/**
- * What one changed line does to the styling on it, for the person to see
- * before choosing it: each attribute range on the line, as the text it
- * covers there now and once the line changes. Only ranges whose text on the
- * line changes are listed. A line's own splice is all that moves the ranges
- * on it, so this holds whichever other lines the person leaves chosen.
- */
-export interface LineStyling {
-  boxIndex: number;
-  lineIndex: number;
-  ranges: {
-    /** Position in the box's `custom_attributes`. */
-    index: number;
-    /** The attribute's member of the `Attribute` oneof, `capitalization` say. */
-    kind: string;
-    /** The member's value where it is a plain one: `1`, All Caps, for a capitalization. */
-    value?: unknown;
-    /** The part of the line the range covers now, `""` for none of it. */
-    before: string;
-    /** The part it covers once the line changes; null where the line is removed. */
-    after: string | null;
-  }[];
-}
-
 export interface WorkspaceEdit {
   boxes: BoxEdit[];
   /** One per fix, in the order of the fixes. */
@@ -78,38 +55,8 @@ export interface WorkspaceEdit {
   before: PresentationDoc;
 }
 
-/**
- * Why a box's attribute ranges cannot be moved with its text:
- *
- * - `malformed`: a range that starts after it ends, or before the text, or
- *   that its edit would leave so.
- * - `typedAtEdge`: text is added exactly at a range's start or end, on a
- *   line the range does not cover, so whether the range should take it in
- *   is a guess.
- * - `replacedAcrossEdge`: a range starts or ends inside text that is
- *   replaced with other text, on a line it does not cover, so where in the
- *   new text it should start or end is a guess.
- */
-export type RangeRefusal = "malformed" | "typedAtEdge" | "replacedAcrossEdge";
-
-/** Thrown when a box's attribute ranges cannot be moved with its text without a guess. */
-export class AttributeRangeError extends Error {
-  readonly boxIndex: number;
-  readonly reason: RangeRefusal;
-  /** The line whose change it is, where it is one line's. */
-  readonly lineIndex?: number;
-
-  constructor(boxIndex: number, reason: RangeRefusal, lineIndex?: number) {
-    super(
-      `The attribute ranges of text box ${boxIndex} cannot be moved with its text (${reason}` +
-        `${lineIndex === undefined ? "" : `, line ${lineIndex}`})`
-    );
-    this.name = "AttributeRangeError";
-    this.boxIndex = boxIndex;
-    this.reason = reason;
-    this.lineIndex = lineIndex;
-  }
-}
+// Where a box's ranges go is the rule a `.pro` file's move by too, in `ranges.ts`.
+export { AttributeRangeError, type LineStyling, type RangeRefusal } from "./ranges";
 
 /**
  * The keys that reach a field of the message in the snapshot's JSON. A field
@@ -166,201 +113,17 @@ export function valueAt(json: Json, path: readonly LoroKey[]): Json {
   return at;
 }
 
-/**
- * One change to a box's text, in its characters as ProPresenter counts them
- * (UTF-16 code units, a line break as one): `[start, end)` of the text as it
- * reads now is replaced by `inserted` characters.
- */
-interface TextSplice {
-  start: number;
-  end: number;
-  inserted: number;
-  lineIndex: number;
-  /** The line as it reads now, without its break. */
-  line: { start: number; end: number };
-  /** The line's characters other than the spaces and tabs at either end. */
-  visible: { start: number; end: number };
-}
-
-const isBlank = (c: string) => c === " " || c === "\t";
-
-/**
- * Each line's change as a splice of the whole box's text, in order. A
- * changed line is the same splice `replaceLineText` makes its RTF edit
- * from; a removed line takes its break with it, as `lineEdit` does, or the
- * break before it where it is the last.
- */
-function textSplices(before: readonly string[], after: readonly (string | null)[]): TextSplice[] {
-  const splices: TextSplice[] = [];
-  for (const [lineIndex, line] of lineBounds(before).entries()) {
-    const text = before[lineIndex];
-    const next = after[lineIndex];
-    let lead = 0;
-    while (lead < text.length && isBlank(text[lead])) lead++;
-    let trail = 0;
-    while (trail < text.length - lead && isBlank(text[text.length - 1 - trail])) trail++;
-    const visible = { start: line.start + lead, end: Math.max(line.end - trail, line.start + lead) };
-    if (next === null && lineIndex === before.length - 1) {
-      // The last line has no break after it, so it takes the one before it
-      // -- before the whole run of removed lines it ends, each of which took
-      // its own break, the last of them this line's.
-      let start = line.start;
-      while (splices.at(-1)?.end === start && splices.at(-1)?.inserted === 0) start = splices.pop()!.start;
-      splices.push({ start: Math.max(start - 1, 0), end: line.end, inserted: 0, lineIndex, line, visible });
-    } else if (next === null) {
-      splices.push({ start: line.start, end: line.end + 1, inserted: 0, lineIndex, line, visible });
-    } else if (next !== text) {
-      const { start, end: cut, inserted } = lineSplice(text, next);
-      splices.push({ start: line.start + start, end: line.start + cut, inserted: inserted.length, lineIndex, line, visible });
-    }
-  }
-  return splices;
-}
-
-/**
- * Where an attribute range's ends go when lines change, mapped through the
- * exact splice each changed line is:
- *
- * 1. An end in text no splice touches moves by the change in length before
- *    it, wherever it sits in its line.
- * 2. An end inside removed text goes to where that text was.
- * 3. A range running past the end of the text is first cut back to the end.
- *    It covers nothing visible, so nothing on screen changes.
- * 4. New text exactly at a range's start or end -- typed there, or
- *    replacing text just past it -- or replacing text the range starts or
- *    ends inside, joins the range when the range covers
- *    that whole line -- all of it but spaces and tabs at either end, as an
- *    All Caps range does. Ranges of the same styling count together, since
- *    ProPresenter often splits one line's All Caps at a tab or a space; the
- *    new text then joins the first of them with characters on the line, and
- *    the rest move past it, so they still meet and never overlap. New text stays out of a range that
- *    only meets the line, ending where the line starts or starting where it
- *    ends, and out of an empty range.
- * 5. Anything else is a guess, and the box is refused (`AttributeRangeError`).
- *
- * Every range a line-boundary rule could move is moved the same way here:
- * an end on a line's start or end is in text no splice touches, or is a
- * case of 2 or 4.
- *
- * `after` has one entry per line of `before`: its new text, or null where
- * the line is removed. Ranges are in the box's characters as it reads now.
- * `styles` says which ranges are the same styling: those with equal
- * entries. Without it every range is a styling of its own.
- */
-export function moveRanges(
-  boxIndex: number,
-  before: readonly string[],
-  after: readonly (string | null)[],
-  ranges: readonly { start: number; end: number }[],
-  styles?: readonly unknown[]
-): { start: number; end: number }[] {
-  const splices = textSplices(before, after);
-  const length = before.reduce((sum, text) => sum + text.length, Math.max(before.length - 1, 0));
-  if (ranges.some(({ start, end }) => !(start >= 0 && start <= end))) throw new AttributeRangeError(boxIndex, "malformed");
-  const cut = ranges.map(({ start, end }) => ({ start: Math.min(start, length), end: Math.min(end, length) }));
-  const style = (i: number) => (styles ? styles[i] : i);
-  const sameStyle = (i: number) => cut.flatMap((range, k) => (style(k) === style(i) ? [{ ...range, k }] : []));
-
-  /** Whether ranges of this one's styling, together, cover the splice's line. */
-  const covers = (i: number, splice: TextSplice) => {
-    let reached = splice.visible.start;
-    for (const range of sameStyle(i).sort((a, b) => a.start - b.start)) {
-      if (range.start <= reached) reached = Math.max(reached, range.end);
-    }
-    return reached >= splice.visible.end;
-  };
-  /**
-   * Of the ranges of this one's styling that the splice's new text could
-   * join, whether this is the one that does -- the first by where it starts
-   * -- or one of the others, which move past the new text. Only a range
-   * with characters on the line can take it, so an empty range, or one that
-   * only meets the line, is neither, and keeps its own place below; unless
-   * no range has any, as over an empty line, which the first of them takes.
-   * Undefined when this range is not one the new text could join.
-   */
-  const joins = (i: number, splice: TextSplice): "first" | "other" | undefined => {
-    const removes = splice.end > splice.start;
-    const could = sameStyle(i).filter((r) => r.end >= splice.start && r.start <= splice.end);
-    const onLine = could.filter((r) => r.end > r.start && r.end > splice.line.start && r.start < splice.line.end);
-    const pool = onLine.length > 0 ? onLine : could;
-    if (!pool.some((r) => r.k === i)) return undefined;
-    // Where text is replaced, a range that held some of it comes before one
-    // that only meets it: the new text takes the place of what it held.
-    const meetsOnly = (r: { start: number; end: number }) => (removes && !(r.end > splice.start && r.start < splice.end) ? 1 : 0);
-    pool.sort((a, b) => meetsOnly(a) - meetsOnly(b) || a.start - b.start || a.k - b.k);
-    return pool[0].k === i ? "first" : "other";
-  };
-
-  return cut.map((range, i) => {
-    const map = (x: number, edge: "start" | "end") => {
-      let shift = 0;
-      for (const splice of splices) {
-        const removes = splice.end > splice.start;
-        // New text replacing what lies just past this range's end, or just
-        // before its start, lands right at its edge, as typed text would.
-        const atEdge =
-          removes &&
-          splice.inserted > 0 &&
-          ((edge === "end" && x === splice.start && range.start < x) || (edge === "start" && x === splice.end && range.end > x));
-        // Before this splice, or where a removal begins: nothing before it moves.
-        if (!atEdge && (x < splice.start || (x === splice.start && removes))) break;
-        // After it, or where a removal ends: by however much it changed the length.
-        if (!atEdge && (x > splice.end || (x === splice.end && removes))) {
-          shift += splice.inserted - (splice.end - splice.start);
-          continue;
-        }
-        const at = splice.start + shift;
-        // Inside removed text with nothing put in its place: where it was.
-        if (splice.inserted === 0) return at;
-        // New text right at this end, or in place of text this end is inside.
-        // Over a whole line, the range it joins takes it in.
-        const joined = covers(i, splice) ? joins(i, splice) : undefined;
-        if (joined === "first") return edge === "start" ? at : at + splice.inserted;
-        // Another range took the new text: this one ends before it, or starts after it.
-        if (joined === "other") return edge === "end" && atEdge ? at : at + splice.inserted;
-        // An empty range covers nothing wherever it is, and stays before the
-        // new text: both its ends, so it never comes out backwards.
-        if (range.start === range.end) return at;
-        // A range that only meets the line -- ending where it starts, or
-        // starting where it ends -- is not on it, and leaves it out.
-        if (edge === "end" && x === splice.line.start) return at;
-        if (edge === "start" && x === splice.line.end) return at + splice.inserted;
-        throw new AttributeRangeError(boxIndex, atEdge || !removes ? "typedAtEdge" : "replacedAcrossEdge", splice.lineIndex);
-      }
-      return x + shift;
-    };
-    const moved = { start: map(range.start, "start"), end: map(range.end, "end") };
-    // Each end is mapped on its own; a range they leave backwards is never written.
-    if (moved.end < moved.start) throw new AttributeRangeError(boxIndex, "malformed");
-    return moved;
-  });
-}
-
-/** Each line's start and end in a box's text, or null for a line that is not there. */
-function lineBounds(lines: readonly string[]): { start: number; end: number }[];
-function lineBounds(lines: readonly (string | null)[]): ({ start: number; end: number } | null)[];
-function lineBounds(lines: readonly (string | null)[]): ({ start: number; end: number } | null)[] {
-  let at = 0;
-  return lines.map((text) => {
-    if (text === null) return null;
-    const bounds = { start: at, end: at + text.length };
-    at = bounds.end + 1;
-    return bounds;
-  });
-}
-
-/** The part of a line a range covers, `""` for none; an empty line counts as covered by a range around it. */
-function coveredOn(text: string, line: { start: number; end: number }, range: { start: number; end: number }): string {
-  if (range.start > line.end || range.end < line.start) return "";
-  return text.slice(Math.max(range.start, line.start) - line.start, Math.min(range.end, line.end) - line.start);
-}
-
 /** The member of an attribute's `Attribute` oneof, and its value where that is a plain one. */
 function kindOf(attribute: Json): { kind: string; value?: unknown } {
   const oneof = isObject(attribute) ? attribute.Attribute : undefined;
   const kind = isObject(oneof) && typeof oneof.__tag === "string" ? oneof.__tag : "unknown";
   const value = isObject(oneof) ? oneof[kind] : undefined;
   return value === null || typeof value !== "object" ? { kind, value } : { kind };
+}
+
+/** Whether an attribute is All Caps: its oneof, as the snapshot keeps one, tagged a capitalization of that value. */
+function isCapitalization(attribute: Json): boolean {
+  return isObject(attribute) && Object.values(attribute).some((v) => isObject(v) && v.__tag === "capitalization" && isAllCaps(v.capitalization));
 }
 
 /** An attribute's range, or nothing for one without a range, which covers no characters to move. */
@@ -379,7 +142,9 @@ function rangeOf(attribute: Json): { start: number; end: number } | undefined {
  * `FixError("stale")` when a box no longer holds what the fix was planned
  * against, `FixError("lossy")` when a box the person was shown cannot be
  * found in the document holding exactly the RTF the plan read, and
- * `AttributeRangeError` when a box's ranges cannot be moved with its text.
+ * `AttributeRangeError` when a box's ranges cannot be moved with its text,
+ * or whether a line added to it takes one would be a guess (`rangesAfter`,
+ * the rule a `.pro` file's ranges move by too).
  */
 export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): WorkspaceEdit {
   if (fixes.length === 0) throw new FixError("unchanged");
@@ -402,37 +167,20 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): Worksp
       throw new FixError("lossy");
     }
 
-    const byLine = new Map(fixes.filter((fix) => fix.boxIndex === boxIndex).map((fix) => [fix.lineIndex, fix.after]));
-    const lines = box.lines.map((line) => line.text);
-    const after = lines.map((was, i) => (byLine.has(i) ? byLine.get(i)! : was));
     const attributes: Json[] = Array.isArray(text.attributes?.custom_attributes) ? text.attributes.custom_attributes : [];
     const present = attributes.flatMap((attribute, index) => {
       const range = rangeOf(attribute);
-      return range ? [{ index, range }] : [];
+      // Ranges of the same styling: the attribute apart from its range.
+      const style = stableJson({ ...attribute, range: null });
+      return range ? [{ index, ...range, caps: isCapitalization(attribute), ...kindOf(attribute), style }] : [];
     });
-    // Ranges of the same styling: the attribute apart from its range.
-    const styles = present.map(({ index }) => stableJson({ ...attributes[index], range: null }));
-    const moved = moveRanges(boxIndex, lines, after, present.map((p) => p.range), styles);
-    const ranges: RangeMove[] = present.flatMap(({ index, range }, i) =>
-      moved[i].start !== range.start || moved[i].end !== range.end ? [{ index, ...moved[i] }] : []
+    const moved = rangesAfter(box, fixes, present);
+    for (const [fix, said] of moved.styling) styling.set(fix, said);
+    const ranges: RangeMove[] = present.flatMap(({ index, start, end }, i) =>
+      moved.moved[i].start !== start || moved.moved[i].end !== end ? [{ index, ...moved.moved[i] }] : []
     );
-    const length = lines.join("\n").length;
-    const cutBack = present.filter(({ range }) => range.end > length).map(({ index }) => index);
-
-    const was = lineBounds(lines);
-    const now = lineBounds(after);
-    for (const fix of fixes.filter((f) => f.boxIndex === boxIndex)) {
-      const i = fix.lineIndex;
-      const on = present.flatMap(({ index, range }, k) => {
-        const shown = {
-          ...kindOf(attributes[index]),
-          before: coveredOn(lines[i], was[i]!, { start: Math.min(range.start, length), end: Math.min(range.end, length) }),
-          after: now[i] && coveredOn(after[i]!, now[i]!, moved[k]),
-        };
-        return shown.before === shown.after || (shown.before === "" && !shown.after) ? [] : [{ index, ...shown }];
-      });
-      styling.set(fix, { boxIndex, lineIndex: i, ranges: on });
-    }
+    const length = box.lines.map((line) => line.text).join("\n").length;
+    const cutBack = present.filter(({ end }) => end > length).map(({ index }) => index);
 
     boxes.push({ boxIndex, path, rtf: encodeRtf(rtf), ranges, cutBack });
   }

@@ -8,11 +8,11 @@ import {
   checkWorkspaceEdit,
   editedRoot,
   loroPathOf,
-  moveRanges,
   planWorkspaceEdit,
   stableJson,
   valueAt,
 } from "@presenter-garage/core/lib/workspace-edit";
+import { moveRanges } from "@presenter-garage/core/lib/ranges";
 import { openDatabase } from "../workspace";
 import { storeOf } from "./workspace-db";
 

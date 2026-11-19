@@ -234,6 +234,42 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     expect(read.slides[6].textBoxes[0].lines).toEqual(["Que ton nom", "pour toujours ,", "sois glorifie"]);
   });
 
+  it("adds a line, widening the All Caps range of the line it copies", async () => {
+    const song = "Libraries/Default/Song.pro";
+    const planned = (
+      await edit("plan_slide_edits", { edits: [{ path: song, boxIndex: 6, lineIndex: 2, text: "sois glorifie", insert: "after" }] })
+    ).json();
+    expect(planned.files[0].lines[0]).toMatchObject({
+      lineIndex: 2,
+      insert: "after",
+      before: null,
+      after: "sois glorifie",
+      styling: ["All Caps on the whole line, as on the line beside it"],
+    });
+
+    const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
+    expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
+    const { properties } = (asked.at(-1)!.params as { requestedSchema: { properties: Record<string, { description: string }> } }).requestedSchema;
+    expect(properties.line1.description).toBe(
+      "Added after “sois glorifie”: “sois glorifie”. Styling: All Caps on the whole line, as on the line beside it."
+    );
+    const read = (await edit("read_presentation", { path: song })).json();
+    expect(read.slides[6].textBoxes[0].lines.slice(-2)).toEqual(["sois glorifie", "sois glorifie"]);
+  });
+
+  it("refuses before anybody is asked a line added beside formatting it would have to guess at", async () => {
+    // A gradient over the whole of a one-line box: whether a new line takes it is not known.
+    const gradient = { __tag: "text_gradient_fill", text_gradient_fill: {} };
+    putPresentation(root, "Gradient", presentationRoot((lines) => [{ start: 0, end: lines.join("\n").length, attribute: gradient }]));
+    const before = asked.length;
+    const refused = await edit("plan_slide_edits", {
+      edits: [{ path: "Libraries/Default/Gradient.pro", boxIndex: 4, lineIndex: 0, text: "x2", insert: "after" }],
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toMatch(/box 4 line 0: a text box has formatting that cannot be moved .*: a line would be added beside formatting other than All Caps/);
+    expect(asked.length).toBe(before);
+  });
+
   it("shows the person what each change does to the styling on its line, and writes it", async () => {
     const styled = "Libraries/Default/Styled.pro";
     const planned = (await edit("plan_slide_edits", { edits: [{ path: styled, boxIndex: 6, lineIndex: 0, text: "Que ton nom" }] })).json();

@@ -4,21 +4,19 @@ import { createI18n } from "@presenter-garage/core/i18n/core";
 import { groupBy } from "@presenter-garage/core/lib/collections";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 import {
+  changeSite,
   EditError,
   FixError,
   fixFiles,
   planLineEdits,
+  presentationRanges,
   type FixRefusal,
   type LineChange,
   type LineFix,
 } from "@presenter-garage/core/lib/fixes";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
-import {
-  AttributeRangeError,
-  planWorkspaceEdit,
-  type LineStyling,
-  type WorkspaceEdit,
-} from "@presenter-garage/core/lib/workspace-edit";
+import { AttributeRangeError, type LineStyling } from "@presenter-garage/core/lib/ranges";
+import { planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
 import { documentAt, isInWorkspace, workspaceAt } from "@presenter-garage/node/workspace";
 import {
@@ -63,8 +61,8 @@ export interface PlannedFile {
   workspace?: { root: string; documentId: Uint8Array };
   /**
    * Each change with its number in the whole plan, which is how the
-   * confirmation names it, and in a workspace what it does to the styling
-   * on its line, in words.
+   * confirmation names it, and what it does to the styling on its line,
+   * in words.
    */
   lines: { n: number; fix: LineFix; styling?: string[] }[];
 }
@@ -104,11 +102,15 @@ export interface PlannedLine {
   label: string;
   group?: string;
   boxIndex: number;
+  /** The line changed, or for an added line, the line it is added beside. */
   lineIndex: number;
-  before: string;
+  /** Set for an added line: which side of line `lineIndex` it goes. */
+  insert?: "before" | "after";
+  /** Null for an added line, which was not there before. */
+  before: string | null;
   /** Null when the line is removed. */
   after: string | null;
-  /** In a ProPresenter 22 workspace, what the change does to the formatting ranges on the line, when it touches any. */
+  /** What the change does to the formatting ranges on the line, when it touches any; for an added line, the formatting it takes. */
   styling?: string[];
 }
 
@@ -154,6 +156,7 @@ export function describeStyling(fix: LineFix, styling: LineStyling, cutBack: boo
   const quote = (text: string) => (text === "" ? "none of it" : `“${text}”`);
   const said = styling.ranges.map((range) => {
     const name = attributeName(range);
+    if (fix.insert) return range.after === fix.after ? `${name} on the whole line, as on the line beside it` : `${name} on ${quote(range.after ?? "")}`;
     if (range.after === null) return `${name} on ${quote(range.before)} goes with the line`;
     if (range.before === fix.before && range.after === fix.after) return `${name} on the whole line, as before`;
     return `${name} on ${quote(range.before)} → on ${quote(range.after)}`;
@@ -162,12 +165,9 @@ export function describeStyling(fix: LineFix, styling: LineStyling, cutBack: boo
   return said;
 }
 
-/** Each fix's styling in words, from the plan of its whole document. */
-function stylingOf(edit: WorkspaceEdit, fixes: readonly LineFix[]): string[][] {
-  return fixes.map((fix, i) => {
-    const box = edit.boxes.find((b) => b.boxIndex === fix.boxIndex);
-    return describeStyling(fix, edit.styling[i], (box?.cutBack.length ?? 0) > 0);
-  });
+/** Each fix's styling in words, from the plan of its whole document; `cutBack` the boxes with a range cut back to the text. */
+function stylingOf(fixes: readonly LineFix[], styling: readonly LineStyling[], cutBack: ReadonlySet<number>): string[][] {
+  return fixes.map((fix, i) => describeStyling(fix, styling[i], cutBack.has(fix.boxIndex)));
 }
 
 export async function planSlideEdits(
@@ -202,36 +202,44 @@ export async function planSlideEdits(
   const files: PlannedFile[] = [];
   for (const [real, changes] of byFile) {
     const { bytes, sha256: digest, workspace, root } = await readForPlan(real);
-    const { doc } = open(real, bytes);
+    const { doc, raw } = open(real, bytes);
     let fixes: LineFix[];
     try {
       fixes = planLineEdits(doc, changes);
     } catch (e) {
       if (!(e instanceof EditError)) throw e;
-      const { boxIndex, lineIndex } = e.change;
-      throw new LibraryError(`${real}, box ${boxIndex} line ${lineIndex}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
+      const { boxIndex, insert } = e.change;
+      // "box 0 line 1" as before for a changed line; an added one reads as a clause.
+      const where = `${insert ? ", " : " "}${changeSite(e.change)}`;
+      throw new LibraryError(`${real}, box ${boxIndex}${where}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
-    // A workspace document is edited as itself, and what stops that is
-    // known now: refused before a person has read and approved every line.
-    let styling: string[][] | undefined;
-    if (root !== undefined) {
-      try {
-        styling = stylingOf(planWorkspaceEdit(root, fixes), fixes);
-      } catch (e) {
-        if (e instanceof AttributeRangeError) {
-          const where = e.lineIndex === undefined ? `box ${e.boxIndex}` : `box ${e.boxIndex} line ${e.lineIndex}`;
-          throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[e.reason]}. Nothing was planned.`);
-        }
-        if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
-        throw e;
+    // Where every attribute range goes, and so what each line does to the
+    // styling on it, which the person is shown; and what stops it, known
+    // now: refused before a person has read and approved every line. A
+    // workspace document is edited as itself.
+    let styling: string[][];
+    try {
+      if (root !== undefined) {
+        const edit = planWorkspaceEdit(root, fixes);
+        styling = stylingOf(fixes, edit.styling, new Set(edit.boxes.filter((b) => b.cutBack.length > 0).map((b) => b.boxIndex)));
+      } else {
+        const planned = presentationRanges(raw, doc, fixes);
+        styling = stylingOf(fixes, planned.styling, planned.cutBack);
       }
+    } catch (e) {
+      if (e instanceof AttributeRangeError) {
+        const where = e.lineIndex === undefined ? `box ${e.boxIndex}` : `box ${e.boxIndex} line ${e.lineIndex}`;
+        throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[e.reason]}. Nothing was planned.`);
+      }
+      if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
+      throw e;
     }
     files.push({
       path: real,
       name: doc.name || presentationName(real),
       sha256: digest,
       workspace,
-      lines: fixes.map((fix, i) => ({ n: ++n, fix, ...(styling && styling[i].length > 0 && { styling: styling[i] }) })),
+      lines: fixes.map((fix, i) => ({ n: ++n, fix, ...(styling[i].length > 0 && { styling: styling[i] }) })),
     });
   }
 
@@ -248,7 +256,8 @@ export async function planSlideEdits(
         group: fix.groupName,
         boxIndex: fix.boxIndex,
         lineIndex: fix.lineIndex,
-        before: fix.before,
+        ...(fix.insert && { insert: fix.insert }),
+        before: fix.insert ? null : fix.before,
         after: fix.after,
         ...(styling && { styling }),
       })),
@@ -287,15 +296,19 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
     const where = [
       `slide ${fix.slideIndex + 1}`,
       fix.groupName,
-      `text box ${fix.boxIndex + 1}, line ${fix.lineIndex + 1}`,
+      `text box ${fix.boxIndex + 1}, ${fix.insert ? `new line ${fix.insert} line` : "line"} ${fix.lineIndex + 1}`,
     ]
       .filter(Boolean)
       .join(", ");
     properties[`line${n}`] = {
       type: "boolean",
       title: `${n}. ${file.name} (${where})`,
+      // An added line as it would read, and the line it goes beside as it
+      // reads now, so it can be placed without the slide in front of them.
       description:
-        `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}` +
+        (fix.insert
+          ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
+          : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`) +
         (styling ? `. Styling: ${styling.join("; ")}.` : ""),
       default: true,
     };
