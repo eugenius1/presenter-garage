@@ -179,6 +179,33 @@ describe("a folder of .pro files", () => {
     expect(fs.readFileSync(file)).toEqual(before);
   });
 
+  it("refuses, file by file, what cannot be planned, and writes the rest", async () => {
+    const file = song("Checked Song");
+    const other = song("Other Song");
+    const before = fs.readFileSync(other);
+    shown.push(library);
+    await bridge.pickFolder();
+    const good = await chosen(file);
+    const twice = await chosen(other, (lines) => [lines[0], lines[0]]);
+    const outside = { ...good, path: path.join(tmp, "Elsewhere.pro") };
+    const none = { ...(await chosen(other)), lines: [] };
+
+    const run = await bridge.applyFixes([good, twice, outside, none]);
+
+    expect(run.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: file, written: true }),
+        // A line sent twice is not written twice; the file is left alone.
+        expect.objectContaining({ path: other, written: false, reason: "stale" }),
+        expect.objectContaining({ path: outside.path, written: false, reason: "unreadable" }),
+        expect.objectContaining({ path: other, written: false, reason: "unchanged" }),
+      ])
+    );
+    expect(fs.readFileSync(other)).toEqual(before);
+    // Nothing the page is told carries the server's English.
+    for (const outcome of run.files) expect(outcome).not.toHaveProperty("detail");
+  });
+
   it("refuses a file the fidelity gate rates lossy (guard 1)", async () => {
     const file = song("Checked Song");
     const before = fs.readFileSync(file);
