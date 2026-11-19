@@ -167,7 +167,8 @@ suite("writing slide text into a workspace", () => {
     doc.import(rows()[0].snapshot);
     const root = doc.toJSON().root;
     const { message } = presentationFromWorkspace(root);
-    const text = valueAt(root, planWorkspaceEdit(root, planLineEdits(readPresentation(message), [{ boxIndex: box, lineIndex: 4, text: "x" }])).boxes[0].path);
+    const { path: toBox } = planWorkspaceEdit(root, planLineEdits(readPresentation(message), [{ boxIndex: box, lineIndex: 4, text: "x" }])).boxes[0];
+    const text = valueAt(root, toBox);
     // Refrain 0..7 joins the first line's range; the repeated line joins the second's.
     expect(text.attributes.custom_attributes.map((a: Json) => a.range)).toEqual([
       { start: 0, end: 20 },
@@ -175,7 +176,8 @@ suite("writing slide text into a workspace", () => {
       { start: 53, end: 66 },
     ]);
     // As many attributes as before: ranges are widened, never made.
-    const was = valueAt(old.toJSON().root, planWorkspaceEdit(old.toJSON().root, planLineEdits(readPresentation(presentationFromWorkspace(old.toJSON().root).message), [{ boxIndex: box, lineIndex: 0, text: "x" }])).boxes[0].path);
+    // The same map in the old document: the edit sets values, so no key on the way to it moved.
+    const was = valueAt(old.toJSON().root, toBox);
     expect(text.attributes.custom_attributes).toHaveLength(was.attributes.custom_attributes.length);
     old.free();
     doc.free();

@@ -289,7 +289,7 @@ describe("adding a line", () => {
     const source = rtf("\\cb3 one");
     const lines = extractLines(source);
     expect(insertLineEdit(source, lines, 0, "after", "")).toBeNull();
-    expect(insertLineEdit(source, lines, 0, "after", "two\\nlines".replace("\\n", "\n"))).toBeNull();
+    expect(insertLineEdit(source, lines, 0, "after", "two\nlines")).toBeNull();
     expect(insertLineEdit(source, lines, 1, "after", "x")).toBeNull();
     expect(insertLineEdit("", extractLines(""), 0, "after", "x")).toBeNull();
     // A hyphen after a bare control word could become a new break's parameter.

@@ -264,13 +264,17 @@ export type EditRefusal =
   | "besideRemoved"
   | "unsupported";
 
+/** Where a change is, in words: its line, or the line an added one goes beside. */
+export function changeSite(change: Pick<LineChange, "lineIndex" | "insert">): string {
+  return change.insert ? `a line added ${change.insert} line ${change.lineIndex}` : `line ${change.lineIndex}`;
+}
+
 export class EditError extends Error {
   readonly reason: EditRefusal;
   readonly change: LineChange;
 
   constructor(reason: EditRefusal, change: LineChange) {
-    const where = change.insert ? `a line added ${change.insert} line ${change.lineIndex}` : `line ${change.lineIndex}`;
-    super(`${reason} at box ${change.boxIndex}, ${where}`);
+    super(`${reason} at box ${change.boxIndex}, ${changeSite(change)}`);
     this.name = "EditError";
     this.reason = reason;
     this.change = change;

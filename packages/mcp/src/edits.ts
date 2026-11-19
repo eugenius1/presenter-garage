@@ -4,6 +4,7 @@ import { createI18n } from "@presenter-garage/core/i18n/core";
 import { groupBy } from "@presenter-garage/core/lib/collections";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 import {
+  changeSite,
   EditError,
   FixError,
   fixFiles,
@@ -156,8 +157,9 @@ export async function planSlideEdits(
       fixes = planLineEdits(doc, changes);
     } catch (e) {
       if (!(e instanceof EditError)) throw e;
-      const { boxIndex, lineIndex, insert } = e.change;
-      const where = insert ? `, a line added ${insert} line ${lineIndex}` : ` line ${lineIndex}`;
+      const { boxIndex, insert } = e.change;
+      // "box 0 line 1" as before for a changed line; an added one reads as a clause.
+      const where = `${insert ? ", " : " "}${changeSite(e.change)}`;
       throw new LibraryError(`${real}, box ${boxIndex}${where}: ${t.tools.presentations.editRefusals[e.reason]}. Nothing was planned.`);
     }
     // A workspace document is edited as itself, and what stops that is
@@ -245,7 +247,7 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
       // An added line as it would read, and the line it goes beside as it
       // reads now, so it can be placed without the slide in front of them.
       description: fix.insert
-        ? `Added ${fix.insert} “${fix.before}”: “${fix.after}”`
+        ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
         : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`,
       default: true,
     };

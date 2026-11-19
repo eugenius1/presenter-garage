@@ -756,7 +756,7 @@ export function insertLineEdit(
   if (!rtf.startsWith("{\\rtf") || !line || text === "") return null;
   const brk =
     breakSource(rtf, side === "after" ? line : lines[index - 1]) ??
-    lines.map((l) => breakSource(rtf, l)).find((b) => b !== undefined) ??
+    breakSource(rtf, lines.find((l) => l.breakStart !== undefined)) ??
     "\\par ";
 
   let at: number;
