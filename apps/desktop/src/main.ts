@@ -19,8 +19,13 @@ import { assetPath, contentType } from "./serve";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCHEME = "app";
 const ORIGIN = `${SCHEME}://garage`;
-/** Set by `scripts/dev.mjs` to load the web app's dev server instead of its build. Never in a packaged app. */
-const devServer = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL;
+/**
+ * Set by `scripts/dev.mjs` to load the web app's dev server instead of its
+ * build. Never in a packaged app. Kept as an origin plus `/`, so a call from
+ * another port or host sharing its prefix is not taken for the page's.
+ */
+const devServer =
+  !app.isPackaged && process.env.VITE_DEV_SERVER_URL ? `${new URL(process.env.VITE_DEV_SERVER_URL).origin}/` : undefined;
 /** Set by `scripts/smoke.mjs`: load the page, check it came up with its bridge, and quit with the answer. */
 const smoke = process.env.PRESENTER_GARAGE_SMOKE === "1";
 
@@ -35,7 +40,9 @@ protocol.registerSchemesAsPrivileged([
  * process; two copies of the app would each keep their own queue, and both
  * could pass their checks on the same song before either wrote it.
  */
-if (!smoke && !app.requestSingleInstanceLock()) app.quit();
+// `exit`, not `quit`: a quit waits for its events, and meanwhile `whenReady`
+// would register a second set of handlers and open a second window.
+if (!smoke && !app.requestSingleInstanceLock()) app.exit(0);
 
 /** Whether a URL is the app's own page: its build, or in development the web app's dev server. */
 const isOurs = (url: string) => url.startsWith(`${ORIGIN}/`) || (devServer !== undefined && url.startsWith(devServer));
@@ -141,8 +148,11 @@ function runSmoke(window: BrowserWindow): void {
 }
 
 void app.whenReady().then(() => {
-  // The page needs no camera, notifications or anything else a site can ask for.
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  // The page needs no camera, notifications or anything else a site can ask
+  // for, only to copy the MCP server's command for the person to paste.
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) =>
+    callback(permission === "clipboard-sanitized-write")
+  );
 
   const webDir = path.join(here, "web");
   protocol.handle(SCHEME, async (request) => {

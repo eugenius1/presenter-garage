@@ -53,10 +53,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     const registered = workspace
       ? (await registeredWorkspaces(path.dirname(root))).find((w) => path.resolve(w.root) === root)
       : undefined;
-    const cloud = registered?.cloud ?? (await hasCloudImprint(root));
+    // Either says Cloud, as the write path's own check (`checkWritableWorkspace`) takes either.
+    const cloud = registered?.cloud === true || (await hasCloudImprint(root));
     const { files, truncated } = await findPresentations(opened);
     roots = opened;
-    await remember(root);
+    // Remembering is a convenience: a folder that opened is open, whether or not it could be noted.
+    await remember(root).catch(() => undefined);
     return {
       root,
       name: registered?.name ?? path.basename(root),

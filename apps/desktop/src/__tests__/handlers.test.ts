@@ -292,6 +292,11 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect(store()).toEqual(before);
   });
 
+  it("treats a workspace carrying Cloud's marker as Cloud, whatever the registry says", async () => {
+    fs.writeFileSync(path.join(root, "imprint.cloud"), "");
+    expect((await bridge.openWorkspace(root)).workspace?.cloud).toBe(true);
+  });
+
   it("reads a Cloud workspace, and writes nothing to it", async () => {
     fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
     root = createWritableWorkspace(tmp, { cloud: true });
