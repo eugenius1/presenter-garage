@@ -7,15 +7,31 @@ import { buildLibrary, decodeMediaDocument } from "@presenter-garage/core/lib/mo
 import { decodePlaylistsDocument } from "@presenter-garage/core/lib/playlists";
 import { decodePresentation, openPresentation, readPresentation } from "@presenter-garage/core/lib/presentation";
 import {
+  CONFIGURED_GROUPS,
   SYNTHETIC,
+  syntheticGroupsFile,
+  syntheticMacrosFile,
   syntheticMediaFile,
   syntheticPresentationFile,
   syntheticTextPresentation,
   textLines,
 } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { workspacePlaylists, workspacePresentation } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
-import { presentationFromWorkspace } from "@presenter-garage/core/lib/workspace";
+import { workspaceDocument } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
 import {
+  decodeGroupsDocument,
+  decodeMacrosDocument,
+  readGroups,
+  readMacros,
+} from "@presenter-garage/core/lib/configuration";
+import {
+  groupsFromWorkspace,
+  macrosFromWorkspace,
+  presentationFromWorkspace,
+} from "@presenter-garage/core/lib/workspace";
+import {
+  findGroups,
+  findMacros,
   findMediaBin,
   findPlaylists,
   findPresentations,
@@ -88,6 +104,8 @@ beforeEach(async (context) => {
   put("PlaylistLibrary", null, { node_states: {}, type: 1 }, 1);
   put("Theme", "Lyric Styles/White Box/Theme", { slides: [{ name: "Lyrics", base_slide: { uuid: "s-1", elements: [] } }] });
   put("Stage", null, { layouts: [] });
+  put("Groups", null, workspaceDocument("rv.data.ProGroupsDocument", decodeGroupsDocument(syntheticGroupsFile())));
+  put("Macros", null, workspaceDocument("rv.data.MacrosDocument", decodeMacrosDocument(syntheticMacrosFile())));
 
   roots = await openRoots([workspace]);
 });
@@ -213,6 +231,33 @@ describe("a workspace as a library", () => {
     expect(playlists).toBe(inWorkspace("Playlists", "Library"));
     // The shared document, not the per-computer one stored beside it.
     expect(decodePlaylistsDocument((await readFoundFile(playlists!)).bytes).root_node).toBeTruthy();
+  });
+
+  it("finds the configured groups and macros where they used to be", async () => {
+    const groups = await findGroups(roots);
+    expect(groups).toBe(inWorkspace("Configuration", "Groups"));
+    expect(readGroups(decodeGroupsDocument((await readFoundFile(groups!)).bytes)).map((g) => g.name)).toEqual(
+      CONFIGURED_GROUPS.map((g) => g.name)
+    );
+
+    const macros = await findMacros(roots);
+    expect(macros).toBe(inWorkspace("Configuration", "Macros"));
+    expect(readMacros(decodeMacrosDocument((await readFoundFile(macros!)).bytes)).map((m) => m.name)).toEqual([
+      "Bienvenue",
+      "Louange",
+      "Lumières",
+    ]);
+  });
+
+  it("finds them in a folder of files, beside Libraries", async () => {
+    const show = path.join(tmp, "ProPresenter");
+    fs.mkdirSync(path.join(show, "Configuration"), { recursive: true });
+    fs.mkdirSync(path.join(show, "Libraries"));
+    fs.writeFileSync(path.join(show, "Configuration", "Groups"), syntheticGroupsFile());
+    // Pointed at the folder above the ProPresenter folder, as at the media bin.
+    const folder = await openRoots([tmp]);
+    expect(await findGroups(folder)).toBe(path.join(show, "Configuration", "Groups"));
+    expect(await findMacros(folder)).toBeUndefined();
   });
 
   it("lists themes under the names ProPresenter shows", async () => {
@@ -422,7 +467,7 @@ const REAL_WORKSPACE = process.env.PP_WORKSPACE_DIR;
 const REAL_LEGACY = process.env.PP_LEGACY_LIBRARY_DIR;
 
 describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the library it was made from", () => {
-  it("reads every presentation's slides, groups and text as the old file did", async () => {
+  it("reads every presentation's slides, groups, macros and text as the old file did", async () => {
     const real = await openRoots([REAL_WORKSPACE!]);
     const { files } = await findPresentations(real);
     expect(files.length).toBeGreaterThan(0);
@@ -449,7 +494,11 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
 
     const shape = (bytes: Uint8Array) => {
       const doc = readPresentation(decodePresentation(bytes));
-      return [doc.slideCount, doc.textBoxes.map((b) => [b.slideIndex, b.boxIndex, b.groupName, b.lines.map((l) => l.text)])];
+      return [
+        doc.slideCount,
+        doc.slides.map((s) => [s.groupName, s.macros.map((m) => [m.name, m.uuid?.toLowerCase(), m.enabled])]),
+        doc.textBoxes.map((b) => [b.slideIndex, b.boxIndex, b.groupName, b.lines.map((l) => l.text)]),
+      ];
     };
     const different: string[] = [];
     let compared = 0;
@@ -480,4 +529,35 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
     // Media is identified by an asset id from version 22, beside its path.
     expect([...unmapped].filter((key) => !key.startsWith("rv.data.Media."))).toEqual([]);
   }, 120_000);
+
+  it("reads the configured groups and macros as the old Configuration folder held them", async () => {
+    const configuration = path.join(path.dirname(REAL_LEGACY!), "Configuration");
+    const real = await openRoots([REAL_WORKSPACE!]);
+    const read = async (find: typeof findGroups) => (await readFoundFile((await find(real))!)).bytes;
+    // Uuids change case in the upgrade; names, order and everything else must not.
+    const lower = <T extends { uuid?: string }>(list: T[]) => list.map((e) => ({ ...e, uuid: e.uuid?.toLowerCase() }));
+
+    const groups = lower(readGroups(decodeGroupsDocument(await read(findGroups))));
+    expect(groups.length).toBeGreaterThan(0);
+    expect(groups).toEqual(lower(readGroups(decodeGroupsDocument(fs.readFileSync(path.join(configuration, "Groups"))))));
+
+    const macros = lower(readMacros(decodeMacrosDocument(await read(findMacros))));
+    expect(macros.length).toBeGreaterThan(0);
+    expect(macros).toEqual(lower(readMacros(decodeMacrosDocument(fs.readFileSync(path.join(configuration, "Macros"))))));
+
+    const db = await openDatabase(storeOf(REAL_WORKSPACE!));
+    const unmapped: Record<string, string[]> = {};
+    for (const [kind, convert] of [
+      ["Groups", groupsFromWorkspace],
+      ["Macros", macrosFromWorkspace],
+    ] as const) {
+      const row = db.prepare("SELECT snapshot FROM workspace_streams WHERE kind = ? AND scope = 0").get(kind);
+      const doc = new LoroDoc();
+      doc.import(row!.snapshot as Uint8Array);
+      unmapped[kind] = convert((doc.toJSON() as { root: unknown }).root).unmapped;
+      doc.free();
+    }
+    db.close();
+    expect(unmapped).toEqual({ Groups: [], Macros: [] });
+  });
 });

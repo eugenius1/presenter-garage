@@ -282,6 +282,20 @@ export function findPlaylists(roots: readonly string[]): Promise<string | undefi
 }
 
 /**
+ * ProPresenter's configured groups, `Configuration/Groups` inside the
+ * ProPresenter folder, beside `Libraries`; in a ProPresenter 22 workspace,
+ * its `Groups` document, which is given that path.
+ */
+export function findGroups(roots: readonly string[]): Promise<string | undefined> {
+  return findShowFile(roots, "Configuration", "Groups");
+}
+
+/** ProPresenter's configured macros, `Configuration/Macros`, found as `findGroups` finds the groups. */
+export function findMacros(roots: readonly string[]): Promise<string | undefined> {
+  return findShowFile(roots, "Configuration", "Macros");
+}
+
+/**
  * Every theme under the roots: `Themes/<name>/Theme` in the ProPresenter folder.
  *
  * Symlinks are not followed, for the same reason as `findPresentations`, and

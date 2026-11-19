@@ -176,7 +176,9 @@ PP_LIBRARY_DIR=/path/to/ProPresenter/Libraries npm test
 `PP_MEDIA_FILE` is the media-bin playlist the diff and audit tests work from;
 `PP_LIBRARY_DIR` is the folder of `.pro` files the presentation checker works
 from. They default to `~/dev/me/ProPresenter/Media` and
-`~/dev/me/ProPresenter/Libraries`, and every test that needs a real file skips
+`~/dev/me/ProPresenter/Libraries`. `PP_CONFIGURATION_DIR` is the
+`Configuration` folder holding ProPresenter's configured `Groups` and
+`Macros`, and defaults to the one beside `PP_LIBRARY_DIR`. Every test that needs a real file skips
 cleanly when none is present, so CI stays green without them. They work by decoding a real library,
 mutating a clone (moving an item, renaming a playlist, mirroring an image,
 disabling an effect) and asserting the diff reports exactly that change and
@@ -193,6 +195,8 @@ PP_LEGACY_LIBRARY_DIR=/path/to/old/ProPresenter/Libraries npm test
 `PP_WORKSPACE_DIR` is a workspace folder, or any folder holding a copy of its
 `DocumentStore/workspace-v1.sqlite3`; `PP_LEGACY_LIBRARY_DIR` is the
 `Libraries` folder it was upgraded from, which the upgrade leaves in place.
+The configured groups and macros are compared too, against the
+`Configuration` folder beside it.
 Copy the database with its `-wal` and `-shm` files while ProPresenter is
 closed, or the copy can miss what was saved last.
 

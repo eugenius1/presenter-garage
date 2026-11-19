@@ -522,7 +522,7 @@ export interface Examined {
 export function unreadable(filename: string, problem: ReadProblem, detail?: string): Examined {
   return {
     report: unreadableReport(filename, problem, detail),
-    fixable: { name: filename, slideCount: 0, textBoxes: [] },
+    fixable: { name: filename, slideCount: 0, slides: [], textBoxes: [] },
   };
 }
 

@@ -12,6 +12,7 @@ import {
   previewStyle,
   readMediaBin,
   readPlaylists,
+  readConfiguration,
   readPresentationFile,
   searchText,
 } from "./tools";
@@ -59,6 +60,28 @@ const MEDIA_BIN_INPUT = {
 };
 
 /**
+ * Characters that show as nothing, or as an ordinary space: non-breaking and
+ * other Unicode spaces, zero-width characters, bidirectional marks,
+ * embeddings and isolates (U+2066-U+2069), the other invisible format
+ * controls up to U+206F, the soft hyphen and the byte-order mark.
+ */
+const INVISIBLE = /[\u00a0\u00ad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff]/g;
+
+/**
+ * JSON with every invisible character written as its `\uXXXX` escape.
+ *
+ * A reader of the text sees `Couplet\u00a01` where a raw non-breaking space
+ * would look exactly like `Couplet 1`, and ProPresenter treats the two as
+ * different group names. Parsed, the escape is the character itself, so
+ * nothing is lost: a name or a line handed back reads exactly as stored.
+ * Safe to do to the whole text because those characters can only be inside
+ * a JSON string, where an escape means the same thing.
+ */
+export function toJson(value: unknown): string {
+  return JSON.stringify(value).replace(INVISIBLE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/**
  * Wrap a tool's answer for the wire.
  *
  * A `LibraryError` is something the model can act on -- a wrong path, a file
@@ -67,7 +90,7 @@ const MEDIA_BIN_INPUT = {
  */
 async function answer(run: () => Promise<unknown>) {
   try {
-    return { content: [{ type: "text" as const, text: JSON.stringify(await run()) }] };
+    return { content: [{ type: "text" as const, text: toJson(await run()) }] };
   } catch (e) {
     if (!(e instanceof LibraryError)) throw e;
     return { isError: true, content: [{ type: "text" as const, text: e.message }] };
@@ -133,11 +156,12 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
     {
       title: "Read a presentation",
       description:
-        "Read a presentation's slides: label, arrangement group and the text of every text box, line " +
-        "by line. Also reports `fidelity` (whether the file would survive being written back; always " +
-        "'lossy' in a ProPresenter 22 workspace, which has no files, though its slide text can still be " +
-        "edited with plan_slide_edits) and what " +
-        "the file records about itself: ProPresenter's `lastModified` and `lastUsed` (when it was last " +
+        "Read a presentation's slides: label, arrangement group, the macros each triggers (`name` as the " +
+        "slide records it, `uuid`, and `disabled` for one switched off) and the text of every text box, line " +
+        "by line. Names and text are exact; an invisible character such as a non-breaking space is written " +
+        "as its escape, e.g. `\\u00a0`. Also reports `fidelity` (whether the file would survive being " +
+        "written back; always 'lossy' in a ProPresenter 22 workspace, which has no files, though its slide " +
+        "text can still be edited with plan_slide_edits) and what the file records about itself: ProPresenter's `lastModified` and `lastUsed` (when it was last " +
         "shown; absent if never), category, notes, CCLI details, music key, arrangements, and the " +
         "ProPresenter version that saved it. Prefer `lastModified` for when it was last edited: it is " +
         "ProPresenter's own record, kept inside the file, so copies, syncs and backups keep it. " +
@@ -147,6 +171,23 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       annotations: READ_ONLY,
     },
     ({ path: file }) => answer(() => readPresentationFile(roots, file))
+  );
+
+  server.registerTool(
+    "read_groups_and_macros",
+    {
+      title: "Read the configured groups and macros",
+      description:
+        "Read ProPresenter's own configured lists: the groups a slide can be put in (name, uuid, colour) and " +
+        "the macros a slide can trigger (name, uuid, the collections listing it), each in ProPresenter's order. " +
+        "A presentation's group matches a configured one by name alone, never by uuid, so names are given " +
+        "exactly as stored: a non-breaking space is written `\\u00a0`, so `Couplet\\u00a01` and `Couplet 1` " +
+        "are different names. A slide's macro matches by uuid, compared without regard to case; the name a " +
+        "slide records is the macro's name when the slide was given it. `unreadable` says why a list is empty.",
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    () => answer(() => readConfiguration(roots))
   );
 
   server.registerTool(

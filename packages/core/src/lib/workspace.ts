@@ -248,6 +248,28 @@ export function playlistDocumentFromWorkspace(root: Json): Converted {
 
 /** A theme, from the `root` of a `Theme` snapshot. Nothing in it changed shape. */
 export function themeFromWorkspace(root: Json): Converted {
+  return plainFromWorkspace("rv.data.Template.Document", root);
+}
+
+/** A message whose snapshot differs from it in none but the general ways. */
+function plainFromWorkspace(typeName: string, root: Json): Converted {
   const converter = new Converter();
-  return finish("rv.data.Template.Document", converter, converter.message(messageType("rv.data.Template.Document"), root));
+  return finish(typeName, converter, converter.message(messageType(typeName), root));
+}
+
+/** ProPresenter's configured groups, from the `root` of the `Groups` snapshot. */
+export function groupsFromWorkspace(root: Json): Converted {
+  return plainFromWorkspace("rv.data.ProGroupsDocument", root);
+}
+
+/**
+ * ProPresenter's configured macros, from the `root` of the `Macros` snapshot.
+ *
+ * Each macro is held inside its collection, under the collection's `macros`,
+ * where the old file listed them all at the top and had each collection name
+ * its own by uuid. Both are fields of the message, so the conversion is the
+ * general one; `readMacros()` in `configuration.ts` reads either shape.
+ */
+export function macrosFromWorkspace(root: Json): Converted {
+  return plainFromWorkspace("rv.data.MacrosDocument", root);
 }

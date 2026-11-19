@@ -183,6 +183,13 @@ And these in particular documents:
   `identity_schema_version` and `source`.
 - **Dates.** `last_date_used`, `last_modified_date` and `application_info`
   are not in a presentation any more, and have not been found elsewhere.
+- **The configured macros.** `Macros` holds each macro inside its
+  collection, under the collection's `macros`, where the old
+  `Configuration/Macros` listed every macro at the top and had each
+  collection name its own by uuid. Both are fields of the old message, so
+  only the reading has to know. `Groups` and `Macros` write their uuids
+  upper-case, where a `.pro` file and the old `Configuration` files have
+  them lower-case: compare uuids without regard to case.
 
 `packages/core/src/lib/workspace.ts` undoes these, so a document becomes the
 message its old file decoded to.
@@ -193,8 +200,10 @@ Two libraries, each read from its new workspace and from the folder it was
 upgraded from, and compared presentation by presentation: 474 on macOS in a
 local workspace, and 1,227 on Windows in a Cloud workspace that had been in
 use for a week. Every slide, its group, and every line of every text box
-matched, leaving aside the 41 Windows presentations edited since the upgrade. So did the media bin's playlists and items, and the
-presentation playlists. The differences that remain are ProPresenter's own:
+matched, leaving aside the 41 Windows presentations edited since the upgrade,
+and so did the macros each slide triggers. So did the media bin's playlists
+and items, the presentation playlists, and on Windows the configured groups
+and macros, name for name and uuid for uuid. The differences that remain are ProPresenter's own:
 names stored in composed rather than decomposed Unicode, media paths moved
 into the workspace, and some effect defaults rewritten.
 

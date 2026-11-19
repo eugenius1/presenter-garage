@@ -15,8 +15,10 @@ export async function loadProtoRoot() {
   const root = new protobuf.Root();
   root.resolvePath = (_origin, target) =>
     target.startsWith("google/protobuf/") ? path.join(PROTOBUFJS_DIR, target) : path.join(PROTO_DIR, target);
-  // `template.proto` is not reachable from the root: themes are a document of
-  // their own, which nothing in a playlist or a presentation imports.
-  await root.load(["propresenter.proto", "template.proto"], { keepCase: true });
+  // `template.proto` and `macros.proto` are not reachable from the root:
+  // themes and the configured macros are documents of their own, which nothing
+  // in a playlist or a presentation imports. (The configured groups are in
+  // `groups.proto`, which a presentation's own groups already bring in.)
+  await root.load(["propresenter.proto", "template.proto", "macros.proto"], { keepCase: true });
   return root;
 }

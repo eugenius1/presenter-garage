@@ -120,3 +120,8 @@ export function workspacePlaylists(bytes: Uint8Array): Json {
     live_video_playlist_nodes: [],
   };
 }
+
+/** The `root` of a snapshot holding `message`, for a document that changed in none but the general ways. */
+export function workspaceDocument(typeName: string, message: Json): Json {
+  return toWorkspace(messageType(typeName), message);
+}
