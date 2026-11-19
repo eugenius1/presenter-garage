@@ -81,7 +81,8 @@ export interface WorkspaceEdit {
 /**
  * Why a box's attribute ranges cannot be moved with its text:
  *
- * - `malformed`: a range that starts after it ends, or before the text.
+ * - `malformed`: a range that starts after it ends, or before the text, or
+ *   that its edit would leave so.
  * - `typedAtEdge`: text is added exactly at a range's start or end, on a
  *   line the range does not cover, so whether the range should take it in
  *   is a guess.
@@ -317,17 +318,21 @@ export function moveRanges(
         if (joined === "first") return edge === "start" ? at : at + splice.inserted;
         // Another range took the new text: this one ends before it, or starts after it.
         if (joined === "other") return edge === "end" && atEdge ? at : at + splice.inserted;
+        // An empty range covers nothing wherever it is, and stays before the
+        // new text: both its ends, so it never comes out backwards.
+        if (range.start === range.end) return at;
         // A range that only meets the line -- ending where it starts, or
-        // starting where it ends -- is not on it, and leaves it out. So does
-        // an empty range, which covers nothing wherever it is.
+        // starting where it ends -- is not on it, and leaves it out.
         if (edge === "end" && x === splice.line.start) return at;
         if (edge === "start" && x === splice.line.end) return at + splice.inserted;
-        if (range.start === range.end) return at;
         throw new AttributeRangeError(boxIndex, atEdge || !removes ? "typedAtEdge" : "replacedAcrossEdge", splice.lineIndex);
       }
       return x + shift;
     };
-    return { start: map(range.start, "start"), end: map(range.end, "end") };
+    const moved = { start: map(range.start, "start"), end: map(range.end, "end") };
+    // Each end is mapped on its own; a range they leave backwards is never written.
+    if (moved.end < moved.start) throw new AttributeRangeError(boxIndex, "malformed");
+    return moved;
   });
 }
 
@@ -484,6 +489,17 @@ export function checkWorkspaceEdit(before: Json, after: Json, edit: WorkspaceEdi
     throw new FixError("verifyFailed");
   }
   verifyLines(read, edit.before, fixes);
+  // Every range of every edited box within its text and the right way round,
+  // whatever the plan said: a backwards range matches a plan that has one.
+  for (const box of edit.boxes) {
+    const lines = read.textBoxes.find((b) => b.boxIndex === box.boxIndex)?.lines ?? [];
+    const length = lines.map((line) => line.text).join("\n").length;
+    const attributes = valueAt(after, box.path)?.attributes?.custom_attributes;
+    for (const attribute of Array.isArray(attributes) ? attributes : []) {
+      const range = rangeOf(attribute);
+      if (range && !(range.start >= 0 && range.start <= range.end && range.end <= length)) throw new FixError("verifyFailed");
+    }
+  }
 }
 
 /** Unsigned LEB128. */

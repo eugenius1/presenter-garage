@@ -328,6 +328,18 @@ describe("moveRanges", () => {
       ]);
     });
 
+    it("keeps an empty range at a line's end before text added there, the right way round", () => {
+      expect(
+        moveRanges(0, ["abc"], ["abcX"], [
+          { start: 0, end: 3 },
+          { start: 3, end: 3 },
+        ], ["caps", "caps"])
+      ).toEqual([
+        { start: 0, end: 4 },
+        { start: 3, end: 3 },
+      ]);
+    });
+
     it("refuses when they are not the same styling", () => {
       const styles = ["caps", "gradient", "gradient", "caps"];
       expect(() => moveRanges(0, split, ["Oh Louons\t le Dieu qui était", split[1]], ranges, styles)).toThrow(
@@ -539,6 +551,18 @@ describe("checkWorkspaceEdit", () => {
     const after = editedRoot(root, edit.boxes.map((b) => ({ ...b, ranges: [{ index: 0, start: 7, end: 11 }] })));
     expect(() => checkWorkspaceEdit(root, editedRoot(root, edit.boxes), edit, fixes)).not.toThrow();
     expect(() => checkWorkspaceEdit(root, after, edit, fixes)).toThrow(new FixError("verifyFailed"));
+  });
+
+  it("refuses a document with a backwards range or one past its text, even when the plan has it", () => {
+    const { root, fixes, edit } = planned();
+    for (const range of [
+      { start: 5, end: 4 },
+      { start: 0, end: 99 },
+    ]) {
+      const boxes = edit.boxes.map((b) => ({ ...b, ranges: [{ index: 0, ...range }] }));
+      const after = editedRoot(root, boxes);
+      expect(() => checkWorkspaceEdit(root, after, { ...edit, boxes }, fixes)).toThrow(new FixError("verifyFailed"));
+    }
   });
 
   it("refuses a document whose ranges were left behind", () => {
