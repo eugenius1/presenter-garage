@@ -31,6 +31,7 @@ import { parseArgs } from "../args";
 import { connect } from "./connect";
 import { applyPlan, planSlideEdits, PlanStore } from "../edits";
 import { auditMediaBin } from "../tools";
+import { toJson } from "../server";
 
 /**
  * The server end to end, over an in-memory pipe, against a library built on
@@ -224,6 +225,29 @@ describe("read_presentation", () => {
   it("refuses an absolute path elsewhere", async () => {
     const result = await call("read_presentation", { path: path.join(tmp, "secret.txt") });
     expect(result.isError).toBe(true);
+  });
+});
+
+describe("invisible characters in an answer", () => {
+  it("are written as escapes a reader sees, and parse back to the very same text", () => {
+    const names = [
+      "Couplet\u00a01",
+      // A bidirectional isolate around a name: shows nothing, and is not the plain name.
+      "\u2066Couplet 1\u2069",
+      "\u2067Refrain\u2068\u2069",
+      "Pont\u200b",
+      "\ufeffTag",
+    ];
+    const text = toJson({ names });
+    expect(text).toContain("Couplet\\u00a01");
+    expect(text).toContain("\\u2066Couplet 1\\u2069");
+    expect(text).toContain("\\u2067Refrain\\u2068\\u2069");
+    expect(text).toMatch(/^[\x20-\x7e]*$/);
+    expect(JSON.parse(text)).toEqual({ names });
+  });
+
+  it("leave ordinary text, accents included, as it is", () => {
+    expect(toJson({ name: "Pré-refrain 2" })).toBe('{"name":"Pré-refrain 2"}');
   });
 });
 

@@ -61,10 +61,11 @@ const MEDIA_BIN_INPUT = {
 
 /**
  * Characters that show as nothing, or as an ordinary space: non-breaking and
- * other Unicode spaces, zero-width characters, bidirectional controls, the
- * soft hyphen and the byte-order mark.
+ * other Unicode spaces, zero-width characters, bidirectional marks,
+ * embeddings and isolates (U+2066-U+2069), the other invisible format
+ * controls up to U+206F, the soft hyphen and the byte-order mark.
  */
-const INVISIBLE = /[\u00a0\u00ad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u2064\u3000\ufeff]/g;
+const INVISIBLE = /[\u00a0\u00ad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff]/g;
 
 /**
  * JSON with every invisible character written as its `\uXXXX` escape.
