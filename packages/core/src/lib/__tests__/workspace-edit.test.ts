@@ -140,6 +140,18 @@ describe("moveRanges", () => {
       { start: 0, end: 28 },
     ]);
     expect(moveRanges(0, ["only"], [null], [{ start: 0, end: 4 }])).toEqual([{ start: 0, end: 0 }]);
+    // The last two lines together: one break before them goes, not two.
+    expect(moveRanges(0, lines, [lines[0], null, null], [...perLine, { start: 0, end: 42 }])).toEqual([
+      { start: 0, end: 12 },
+      { start: 12, end: 12 },
+      { start: 12, end: 12 },
+      { start: 0, end: 12 },
+    ]);
+    expect(moveRanges(0, lines, [null, null, null], perLine)).toEqual([
+      { start: 0, end: 0 },
+      { start: 0, end: 0 },
+      { start: 0, end: 0 },
+    ]);
   });
 
   it("keeps both ends of a range over an empty line on that line once it has text", () => {

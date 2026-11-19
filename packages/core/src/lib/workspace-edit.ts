@@ -191,38 +191,27 @@ const isBlank = (c: string) => c === " " || c === "\t";
  */
 function textSplices(before: readonly string[], after: readonly (string | null)[]): TextSplice[] {
   const splices: TextSplice[] = [];
-  let at = 0;
-  for (const [lineIndex, text] of before.entries()) {
+  for (const [lineIndex, line] of lineBounds(before).entries()) {
+    const text = before[lineIndex];
     const next = after[lineIndex];
-    const end = at + text.length;
     let lead = 0;
     while (lead < text.length && isBlank(text[lead])) lead++;
     let trail = 0;
     while (trail < text.length - lead && isBlank(text[text.length - 1 - trail])) trail++;
-    const line = { start: at, end };
-    const visible = { start: at + lead, end: Math.max(end - trail, at + lead) };
-    if (next === null) {
-      const last = lineIndex === before.length - 1;
-      splices.push({
-        start: last ? Math.max(at - 1, 0) : at,
-        end: last ? end : end + 1,
-        inserted: 0,
-        lineIndex,
-        line,
-        visible,
-      });
+    const visible = { start: line.start + lead, end: Math.max(line.end - trail, line.start + lead) };
+    if (next === null && lineIndex === before.length - 1) {
+      // The last line has no break after it, so it takes the one before it
+      // -- before the whole run of removed lines it ends, each of which took
+      // its own break, the last of them this line's.
+      let start = line.start;
+      while (splices.at(-1)?.end === start && splices.at(-1)?.inserted === 0) start = splices.pop()!.start;
+      splices.push({ start: Math.max(start - 1, 0), end: line.end, inserted: 0, lineIndex, line, visible });
+    } else if (next === null) {
+      splices.push({ start: line.start, end: line.end + 1, inserted: 0, lineIndex, line, visible });
     } else if (next !== text) {
       const { start, end: cut, inserted } = lineSplice(text, next);
-      splices.push({
-        start: at + start,
-        end: at + cut,
-        inserted: inserted.length,
-        lineIndex,
-        line,
-        visible,
-      });
+      splices.push({ start: line.start + start, end: line.start + cut, inserted: inserted.length, lineIndex, line, visible });
     }
-    at = end + 1;
   }
   return splices;
 }
@@ -325,6 +314,8 @@ export function moveRanges(
 }
 
 /** Each line's start and end in a box's text, or null for a line that is not there. */
+function lineBounds(lines: readonly string[]): { start: number; end: number }[];
+function lineBounds(lines: readonly (string | null)[]): ({ start: number; end: number } | null)[];
 function lineBounds(lines: readonly (string | null)[]): ({ start: number; end: number } | null)[] {
   let at = 0;
   return lines.map((text) => {
