@@ -13,7 +13,12 @@ import {
   type LineFix,
 } from "@presenter-garage/core/lib/fixes";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
-import { AttributeRangeError, planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
+import {
+  AttributeRangeError,
+  planWorkspaceEdit,
+  type LineStyling,
+  type WorkspaceEdit,
+} from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, readFoundFile, resolveInRoots } from "@presenter-garage/node/library";
 import { documentAt, isInWorkspace, workspaceAt } from "@presenter-garage/node/workspace";
 import {
@@ -56,8 +61,12 @@ export interface PlannedFile {
   sha256: string;
   /** Set for a document of a ProPresenter 22 workspace, which is written into its database rather than over a file. */
   workspace?: { root: string; documentId: Uint8Array };
-  /** Each change with its number in the whole plan, which is how the confirmation names it. */
-  lines: { n: number; fix: LineFix }[];
+  /**
+   * Each change with its number in the whole plan, which is how the
+   * confirmation names it, and in a workspace what it does to the styling
+   * on its line, in words.
+   */
+  lines: { n: number; fix: LineFix; styling?: string[] }[];
 }
 
 export interface Plan {
@@ -99,6 +108,8 @@ export interface PlannedLine {
   before: string;
   /** Null when the line is removed. */
   after: string | null;
+  /** In a ProPresenter 22 workspace, what the change does to the formatting ranges on the line, when it touches any. */
+  styling?: string[];
 }
 
 export interface PlanResult {
@@ -113,6 +124,51 @@ export interface RequestedEdit extends LineChange {
 /** The app's own sentences for why a file was left alone, so the two surfaces never describe one file differently. */
 const { t } = createI18n("en");
 const refusals = t.tools.presentations.refusals;
+const rangeRefusals = t.tools.presentations.rangeRefusals;
+
+const CAPITALIZATION = ["no capitalization", "All Caps", "Small Caps", "Title Case", "Start Case"];
+
+/** A ProPresenter 22 attribute as its Text inspector names it, more or less. */
+function attributeName({ kind, value }: { kind: string; value?: unknown }): string {
+  if (kind === "capitalization") return (typeof value === "number" && CAPITALIZATION[value]) || "Capitalization";
+  const names: Record<string, string> = {
+    original_font_size: "Font size",
+    font_scale_factor: "Font scale",
+    text_gradient_fill: "Gradient fill",
+    should_preserve_foreground_color: "Kept text colour",
+    chord: "Chord",
+    cut_out_fill: "Cut-out fill",
+    media_fill: "Media fill",
+    background_effect: "Background effect",
+    character_size_mode: "Character size",
+    original_font: "Font",
+  };
+  return names[kind] ?? kind;
+}
+
+/**
+ * What one line's change does to the styling on it, a sentence per range,
+ * so the person sees every range that moves before choosing the line.
+ */
+export function describeStyling(fix: LineFix, styling: LineStyling, cutBack: boolean): string[] {
+  const quote = (text: string) => (text === "" ? "none of it" : `“${text}”`);
+  const said = styling.ranges.map((range) => {
+    const name = attributeName(range);
+    if (range.after === null) return `${name} on ${quote(range.before)} goes with the line`;
+    if (range.before === fix.before && range.after === fix.after) return `${name} on the whole line, as before`;
+    return `${name} on ${quote(range.before)} → on ${quote(range.after)}`;
+  });
+  if (cutBack) said.push("formatting that ran past the end of the text box is cut back to its end, which changes nothing visible");
+  return said;
+}
+
+/** Each fix's styling in words, from the plan of its whole document. */
+function stylingOf(edit: WorkspaceEdit, fixes: readonly LineFix[]): string[][] {
+  return fixes.map((fix, i) => {
+    const box = edit.boxes.find((b) => b.boxIndex === fix.boxIndex);
+    return describeStyling(fix, edit.styling[i], (box?.cutBack.length ?? 0) > 0);
+  });
+}
 
 export async function planSlideEdits(
   roots: readonly string[],
@@ -157,12 +213,14 @@ export async function planSlideEdits(
     }
     // A workspace document is edited as itself, and what stops that is
     // known now: refused before a person has read and approved every line.
+    let styling: string[][] | undefined;
     if (root !== undefined) {
       try {
-        planWorkspaceEdit(root, fixes);
+        styling = stylingOf(planWorkspaceEdit(root, fixes), fixes);
       } catch (e) {
         if (e instanceof AttributeRangeError) {
-          throw new LibraryError(`${real}, box ${e.boxIndex}: ${refusals.attributeRanges}. Nothing was planned.`);
+          const where = e.lineIndex === undefined ? `box ${e.boxIndex}` : `box ${e.boxIndex} line ${e.lineIndex}`;
+          throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[e.reason]}. Nothing was planned.`);
         }
         if (e instanceof FixError) throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
         throw e;
@@ -173,7 +231,7 @@ export async function planSlideEdits(
       name: doc.name || presentationName(real),
       sha256: digest,
       workspace,
-      lines: fixes.map((fix) => ({ n: ++n, fix })),
+      lines: fixes.map((fix, i) => ({ n: ++n, fix, ...(styling && styling[i].length > 0 && { styling: styling[i] }) })),
     });
   }
 
@@ -183,7 +241,7 @@ export async function planSlideEdits(
     files: plan.files.map((file) => ({
       path: file.path,
       name: file.name,
-      lines: file.lines.map(({ fix, n }) => ({
+      lines: file.lines.map(({ fix, n, styling }) => ({
         n,
         slideIndex: fix.slideIndex,
         label: fix.cueName,
@@ -192,6 +250,7 @@ export async function planSlideEdits(
         lineIndex: fix.lineIndex,
         before: fix.before,
         after: fix.after,
+        ...(styling && { styling }),
       })),
     })),
   };
@@ -222,7 +281,7 @@ async function readForPlan(
 /** A confirmation form: one tick box per line, all ticked, each saying what it changes. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
-  for (const file of plan.files) for (const { fix, n } of file.lines) {
+  for (const file of plan.files) for (const { fix, n, styling } of file.lines) {
     // Box and line too: a slide can hold the same line twice, and a person
     // choosing one of them has to be able to tell which.
     const where = [
@@ -235,7 +294,9 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
     properties[`line${n}`] = {
       type: "boolean",
       title: `${n}. ${file.name} (${where})`,
-      description: `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`,
+      description:
+        `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}` +
+        (styling ? `. Styling: ${styling.join("; ")}.` : ""),
       default: true,
     };
   }

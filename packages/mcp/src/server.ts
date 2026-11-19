@@ -344,7 +344,9 @@ function registerEditTools(server: McpServer, roots: readonly string[], backupDi
         "Work out changes to the text of slides, writing nothing. Each edit names a line by the `path`, " +
         "`boxIndex` and `lineIndex` read_presentation or search_text gave it, and the whole text the line " +
         "should read afterwards, or null to remove the line. Only what differs is touched, so formatting " +
-        "elsewhere on the line is kept. Returns a `planId` and every line as it is and as it would read. " +
+        "elsewhere on the line is kept. Returns a `planId` and every line as it is and as it would read; " +
+        "in a ProPresenter 22 workspace a line's `styling` says what the change does to formatting ranges on it " +
+        "(All Caps, say), which the person sees too. " +
         "If any edit cannot be made, nothing is planned and the error says which. " +
         "Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm.",
       inputSchema: {

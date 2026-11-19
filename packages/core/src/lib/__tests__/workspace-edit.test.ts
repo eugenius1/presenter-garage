@@ -149,22 +149,179 @@ describe("moveRanges", () => {
     ]);
   });
 
-  it("refuses a range that starts or ends inside a line", () => {
-    expect(() => moveRanges(4, lines, lines, [{ start: 1, end: 12 }])).toThrow(AttributeRangeError);
-    expect(() => moveRanges(4, lines, lines, [{ start: 0, end: 5 }])).toThrow(AttributeRangeError);
+  it("moves an end inside a line the edit does not touch with the lines before it", () => {
+    // A range over "ton nom," and one over "toujours", inside their lines.
+    const after = ["Que", lines[1], lines[2]];
+    expect(moveRanges(0, lines, after, [{ start: 4, end: 12 }, { start: 18, end: 26 }])).toEqual([
+      { start: 3, end: 3 },
+      { start: 9, end: 17 },
+    ]);
   });
 
-  it("refuses a range beyond the text, or backwards", () => {
-    expect(() => moveRanges(4, lines, lines, [{ start: 29, end: 43 }])).toThrow(AttributeRangeError);
-    expect(() => moveRanges(4, lines, lines, [{ start: 12, end: 0 }])).toThrow(AttributeRangeError);
+  it("leaves a range inside a line alone when the change is elsewhere on the line", () => {
+    // "Que" stays in capitals while "nom," becomes "Nom,".
+    expect(moveRanges(0, lines, ["Que ton Nom,", lines[1], lines[2]], [{ start: 0, end: 3 }])).toEqual([{ start: 0, end: 3 }]);
+    // And a range after the change moves by what it changed.
+    expect(moveRanges(0, lines, ["Que grand ton nom,", lines[1], lines[2]], [{ start: 8, end: 12 }])).toEqual([
+      { start: 14, end: 18 },
+    ]);
   });
 
-  it("names the box it refused", () => {
-    try {
-      moveRanges(4, lines, lines, [{ start: 1, end: 12 }]);
-    } catch (e) {
-      expect((e as AttributeRangeError).boxIndex).toBe(4);
-    }
+  describe("a line led by a tab the range leaves out", () => {
+    const tabbed = ["\tQue ton nom,", "pour toujours"];
+    // 1..13 is the first line without its tab, 14..27 the second.
+    const ranges = [
+      { start: 1, end: 13 },
+      { start: 14, end: 27 },
+    ];
+
+    it("keeps the tab out when the line is shortened, lengthened or rewritten", () => {
+      expect(moveRanges(0, tabbed, ["\tQue ton nom", tabbed[1]], ranges)).toEqual([
+        { start: 1, end: 12 },
+        { start: 13, end: 26 },
+      ]);
+      expect(moveRanges(0, tabbed, ["\tQue ton nom, Seigneur", tabbed[1]], ranges)).toEqual([
+        { start: 1, end: 22 },
+        { start: 23, end: 36 },
+      ]);
+      // Rewritten after the tab: nothing in common at the end, so the whole of it is replaced.
+      expect(moveRanges(0, tabbed, ["\tBéni soit-il", tabbed[1]], ranges)).toEqual([
+        { start: 1, end: 13 },
+        { start: 14, end: 27 },
+      ]);
+    });
+
+    it("takes in text typed at the start of the words, since the range covers the line", () => {
+      expect(moveRanges(0, tabbed, ["\tOh Que ton nom,", tabbed[1]], ranges)).toEqual([
+        { start: 1, end: 16 },
+        { start: 17, end: 30 },
+      ]);
+    });
+
+    it("moves with the tab removed, and covers new text that replaces the tab", () => {
+      expect(moveRanges(0, tabbed, ["Que ton nom,", tabbed[1]], ranges)).toEqual([
+        { start: 0, end: 12 },
+        { start: 13, end: 26 },
+      ]);
+      // Tab and words replaced at once: the range started inside what was replaced.
+      expect(moveRanges(0, tabbed, ["Béni soit-il", tabbed[1]], ranges)).toEqual([
+        { start: 0, end: 12 },
+        { start: 13, end: 26 },
+      ]);
+    });
+
+    it("moves with the line removed", () => {
+      expect(moveRanges(0, tabbed, [null, tabbed[1]], ranges)).toEqual([
+        { start: 0, end: 0 },
+        { start: 0, end: 13 },
+      ]);
+    });
+  });
+
+  it("cuts a range past the end of the text back to the end before moving it", () => {
+    expect(moveRanges(0, lines, lines, [{ start: 29, end: 43 }])).toEqual([{ start: 29, end: 42 }]);
+    expect(moveRanges(0, lines, lines, [{ start: 50, end: 60 }])).toEqual([{ start: 42, end: 42 }]);
+    // Typed at the end of the last line, which the cut-back range covers: it takes it in.
+    expect(moveRanges(0, lines, [lines[0], lines[1], "sois glorifié !"], [{ start: 29, end: 43 }])).toEqual([
+      { start: 29, end: 44 },
+    ]);
+  });
+
+  it("takes in text typed at either edge of a range that covers the line", () => {
+    expect(moveRanges(0, lines, ["Oh Que ton nom,", lines[1], lines[2]], perLine)).toEqual([
+      { start: 0, end: 15 },
+      { start: 16, end: 31 },
+      { start: 32, end: 45 },
+    ]);
+    expect(moveRanges(0, lines, ["Que ton nom, Seigneur", lines[1], lines[2]], perLine)[0]).toEqual({ start: 0, end: 21 });
+  });
+
+  it("takes in text that replaces the end of a range over the whole box", () => {
+    expect(moveRanges(0, lines, [lines[0], lines[1], "sois béni"], [{ start: 0, end: 42 }])).toEqual([{ start: 0, end: 38 }]);
+  });
+
+  describe("a line's styling split into several ranges", () => {
+    // All Caps on "Louons", on the tab, and on the rest of the line, as ProPresenter often stores it.
+    const split = ["Louons\t le Dieu qui était", "Adorons"];
+    const ranges = [
+      { start: 0, end: 6 },
+      { start: 6, end: 7 },
+      { start: 7, end: 25 },
+      { start: 26, end: 33 },
+    ];
+    const caps = ranges.map(() => "caps");
+
+    it("counts them together as covering the line, and gives new text to the first that can take it", () => {
+      expect(moveRanges(0, split, ["Oh Louons\t le Dieu qui était", split[1]], ranges, caps)).toEqual([
+        { start: 0, end: 9 },
+        { start: 9, end: 10 },
+        { start: 10, end: 28 },
+        { start: 29, end: 36 },
+      ]);
+      expect(moveRanges(0, split, ["Louons\t le Dieu qui était !", split[1]], ranges, caps).slice(2)).toEqual([
+        { start: 7, end: 27 },
+        { start: 28, end: 35 },
+      ]);
+    });
+
+    it("keeps them meeting, never overlapping, when the whole line is rewritten", () => {
+      expect(moveRanges(0, split, ["Changed line", split[1]], ranges, caps)).toEqual([
+        { start: 0, end: 12 },
+        { start: 12, end: 12 },
+        { start: 12, end: 12 },
+        { start: 13, end: 20 },
+      ]);
+    });
+
+    it("refuses when they are not the same styling", () => {
+      const styles = ["caps", "gradient", "gradient", "caps"];
+      expect(() => moveRanges(0, split, ["Oh Louons\t le Dieu qui était", split[1]], ranges, styles)).toThrow(
+        expect.objectContaining({ reason: "typedAtEdge" })
+      );
+      // Without saying which are the same, each range is a styling of its own.
+      expect(() => moveRanges(0, split, ["Oh Louons\t le Dieu qui était", split[1]], ranges)).toThrow(AttributeRangeError);
+    });
+  });
+
+  it("leaves text typed at a line's edge out of a range that only meets the line", () => {
+    // The first line and its break; then the second line from its break on.
+    const ranges = [
+      { start: 0, end: 13 },
+      { start: 12, end: 28 },
+    ];
+    expect(moveRanges(0, lines, [lines[0], "Oh pour toujours ,", lines[2]], ranges)[0]).toEqual({ start: 0, end: 13 });
+    expect(moveRanges(0, lines, ["Que ton nom, Seigneur", lines[1], lines[2]], ranges)[1]).toEqual({ start: 21, end: 37 });
+  });
+
+  it("leaves an empty range empty, wherever text is typed", () => {
+    expect(moveRanges(0, lines, ["Que grand ton nom,", lines[1], lines[2]], [{ start: 4, end: 4 }])).toEqual([{ start: 4, end: 4 }]);
+    expect(moveRanges(0, lines, [lines[0], "Oh pour toujours ,", lines[2]], [{ start: 13, end: 13 }])).toEqual([
+      { start: 13, end: 13 },
+    ]);
+  });
+
+  it("refuses text typed at the edge of a range over part of a line", () => {
+    // "ton" in capitals, and "ton" typed again right after it.
+    expect(() => moveRanges(4, lines, ["Que tonton nom,", lines[1], lines[2]], [{ start: 4, end: 7 }])).toThrow(
+      expect.objectContaining({ name: "AttributeRangeError", boxIndex: 4, reason: "typedAtEdge", lineIndex: 0 })
+    );
+    // "nom," in capitals, and "grand " typed right before it.
+    expect(() => moveRanges(4, lines, ["Que ton grand nom,", lines[1], lines[2]], [{ start: 8, end: 12 }])).toThrow(
+      expect.objectContaining({ reason: "typedAtEdge" })
+    );
+  });
+
+  it("refuses new text replacing what a range over part of a line starts or ends inside", () => {
+    // "ton" in capitals; "ton nom" becomes "notre Dieu", so where "ton" ends in it is a guess.
+    const after = ["Que notre Dieu,", lines[1], lines[2]];
+    expect(() => moveRanges(4, lines, after, [{ start: 4, end: 7 }])).toThrow(
+      expect.objectContaining({ reason: "replacedAcrossEdge", lineIndex: 0 })
+    );
+  });
+
+  it("refuses a range that is backwards or starts before the text", () => {
+    expect(() => moveRanges(4, lines, lines, [{ start: 12, end: 0 }])).toThrow(expect.objectContaining({ reason: "malformed" }));
+    expect(() => moveRanges(4, lines, lines, [{ start: -1, end: 3 }])).toThrow(AttributeRangeError);
   });
 });
 
@@ -185,9 +342,63 @@ describe("planWorkspaceEdit", () => {
     ]);
   });
 
-  it("refuses a box whose ranges do not fall on its lines", () => {
-    const { root, doc, box } = document([{ start: 1, end: 12 }]);
+  it("moves a range inside a line, and cuts one past the end of the text back", () => {
+    const { root, doc, box } = document([
+      { start: 4, end: 7 },
+      { start: 29, end: 43 },
+    ]);
     const fixes = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 1, text: "pour toujours" }]);
+    const [planned] = planWorkspaceEdit(root, fixes).boxes;
+    expect(planned.ranges).toEqual([{ index: 1, start: 27, end: 40 }]);
+    expect(planned.cutBack).toEqual([1]);
+  });
+
+  it("says what each line's change does to the styling on it", () => {
+    const { root, doc, box } = document([
+      { start: 0, end: 12 },
+      { start: 13, end: 28 },
+      { start: 29, end: 43 },
+      { start: 4, end: 7 },
+    ]);
+    const fixes = planLineEdits(doc, [
+      { boxIndex: box.boxIndex, lineIndex: 0, text: "Que ton nom" },
+      { boxIndex: box.boxIndex, lineIndex: 2, text: "sois glorifié" },
+    ]);
+    const { styling } = planWorkspaceEdit(root, fixes);
+    expect(styling).toEqual([
+      {
+        boxIndex: box.boxIndex,
+        lineIndex: 0,
+        ranges: [{ index: 0, kind: "capitalization", value: 1, before: "Que ton nom,", after: "Que ton nom" }],
+      },
+      {
+        boxIndex: box.boxIndex,
+        lineIndex: 2,
+        ranges: [{ index: 2, kind: "capitalization", value: 1, before: "sois glorifie", after: "sois glorifié" }],
+      },
+    ]);
+  });
+
+  it("counts ranges of the same attribute together, and only those", () => {
+    // All Caps on "Que " and on "ton nom," apart: together they cover the line.
+    const { root, doc, box } = document([
+      { start: 0, end: 4 },
+      { start: 4, end: 12 },
+    ]);
+    const fixes = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 0, text: "Oh Que ton nom," }]);
+    expect(planWorkspaceEdit(root, fixes).boxes[0].ranges).toEqual([
+      { index: 0, start: 0, end: 7 },
+      { index: 1, start: 7, end: 15 },
+    ]);
+    // The same with the second a gradient instead: neither covers the line alone.
+    const text = valueAt(root, planWorkspaceEdit(root, fixes).boxes[0].path);
+    text.attributes.custom_attributes[1].Attribute = { __tag: "text_gradient_fill", text_gradient_fill: {} };
+    expect(() => planWorkspaceEdit(root, fixes)).toThrow(AttributeRangeError);
+  });
+
+  it("refuses a box whose ranges cannot be moved without a guess", () => {
+    const { root, doc, box } = document([{ start: 4, end: 7 }]);
+    const fixes = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 0, text: "Que notre Dieu," }]);
     expect(() => planWorkspaceEdit(root, fixes)).toThrow(AttributeRangeError);
   });
 
@@ -237,6 +448,16 @@ describe("checkWorkspaceEdit", () => {
     const { root, fixes, edit } = planned();
     const after = editedRoot(root, edit.boxes);
     after.name = "Renamed";
+    expect(() => checkWorkspaceEdit(root, after, edit, fixes)).toThrow(new FixError("verifyFailed"));
+  });
+
+  it("refuses a document with a range one character from where it was mapped", () => {
+    const { root, doc, box } = document([{ start: 4, end: 7 }]);
+    const fixes = planLineEdits(doc, [{ boxIndex: box.boxIndex, lineIndex: 0, text: "Oh Que ton nom," }]);
+    const edit = planWorkspaceEdit(root, fixes);
+    expect(edit.boxes[0].ranges).toEqual([{ index: 0, start: 7, end: 10 }]);
+    const after = editedRoot(root, edit.boxes.map((b) => ({ ...b, ranges: [{ index: 0, start: 7, end: 11 }] })));
+    expect(() => checkWorkspaceEdit(root, editedRoot(root, edit.boxes), edit, fixes)).not.toThrow();
     expect(() => checkWorkspaceEdit(root, after, edit, fixes)).toThrow(new FixError("verifyFailed"));
   });
 
