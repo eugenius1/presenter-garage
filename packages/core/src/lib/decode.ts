@@ -135,8 +135,9 @@ export function newUuid(): { string: string } {
  *                original was encoded non-canonically (redundant default
  *                values, unusual field ordering). Nothing is lost, so export
  *                is still safe.
- * - `lossy`      decoded content differs. Some field is not covered by the
- *                schema and would be dropped. Export must be refused.
+ * - `lossy`      the original carries a field the schema does not cover, or
+ *                decoded content differs. Something would be dropped. Export
+ *                must be refused.
  */
 export type Fidelity = "identical" | "equivalent" | "lossy";
 
@@ -177,14 +178,80 @@ export function canonicalObject(
   return JSON.stringify(plain);
 }
 
+/** Wire types, as the low three bits of a tag. */
+const WIRE_LENGTH_DELIMITED = 2;
+
+/** protobuf.js's own wire type for each scalar, and for those it reads packed. */
+const BASIC_WIRE_TYPES: Record<string, number> = protobuf.types.basic;
+const PACKABLE_WIRE_TYPES: Record<string, number> = protobuf.types.packed;
+
+/**
+ * Whether protobuf.js reads every field on the wire, at every depth.
+ *
+ * Comparing two decodes cannot answer this: protobuf.js drops an undeclared
+ * field from both, so a file carrying one decodes the same as its re-encoding
+ * and would pass as merely non-canonical. Only the bytes still hold it. So this
+ * walks them beside the schema and fails on anything protobuf.js would not keep:
+ *
+ * - a field number the message does not declare
+ * - a declared field on a wire type its decoder does not read that way, which
+ *   protobuf.js skips
+ * - a map or a group: the schema declares neither, so this does not walk their
+ *   contents and refuses them rather than vouch for what is inside
+ *
+ * Reads from `reader.pos` to `end` and leaves the reader at `end` on success.
+ */
+function wireCoveredBySchema(type: protobuf.Type, reader: protobuf.Reader, end: number): boolean {
+  while (reader.pos < end) {
+    const tag = reader.uint32();
+    const id = tag >>> 3;
+    const wireType = tag & 7;
+    const field = type.fieldsById[id]?.resolve();
+    if (!field || field.map) return false;
+
+    if (field.resolvedType instanceof protobuf.Type) {
+      if (wireType !== WIRE_LENGTH_DELIMITED) return false;
+      const length = reader.uint32();
+      const subEnd = reader.pos + length;
+      if (subEnd > end || !wireCoveredBySchema(field.resolvedType, reader, subEnd)) return false;
+      continue;
+    }
+
+    const isEnum = field.resolvedType instanceof protobuf.Enum;
+    const expected = isEnum ? 0 : (BASIC_WIRE_TYPES[field.type] as number | undefined);
+    const packed =
+      field.repeated &&
+      wireType === WIRE_LENGTH_DELIMITED &&
+      (isEnum || PACKABLE_WIRE_TYPES[field.type] !== undefined);
+    if (wireType !== expected && !packed) return false;
+    reader.skipType(wireType);
+  }
+  return reader.pos === end;
+}
+
+/** Whether every field in `bytes` is one the schema declares and protobuf.js keeps. */
+function coveredBySchema(type: protobuf.Type, bytes: Uint8Array): boolean {
+  try {
+    const reader = protobuf.Reader.create(bytes);
+    return wireCoveredBySchema(type, reader, reader.len);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The safety gate on every path that writes a file.
  *
  * protobuf.js discards fields the schema does not declare. Since the schema is
  * reverse-engineered from the application, a field ProPresenter writes but the
  * protos omit would silently vanish on re-encode and corrupt the library. This
- * decodes, re-encodes, and then checks both the bytes and the decoded content
- * so a merely non-canonical original is not mistaken for data loss.
+ * decodes, re-encodes, and when the bytes differ checks both that the original
+ * carries nothing the schema leaves out and that the decoded content matches,
+ * so a merely non-canonical original is not mistaken for data loss and a lossy
+ * one is not mistaken for merely non-canonical.
+ *
+ * Byte-identical output needs neither check: anything protobuf.js dropped would
+ * be missing from it.
  *
  * Takes the message type rather than assuming one: a presentation is a
  * different root message from a playlist, and needs exactly the same gate
@@ -198,7 +265,7 @@ export function checkTypeFidelity(type: protobuf.Type, bytes: Uint8Array): Fidel
 
   const fidelity: Fidelity = sameBytes
     ? "identical"
-    : canonical(type, bytes) === canonical(type, reEncoded)
+    : coveredBySchema(type, bytes) && canonical(type, bytes) === canonical(type, reEncoded)
       ? "equivalent"
       : "lossy";
 
