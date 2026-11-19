@@ -213,6 +213,16 @@ function withAdded(source: string, lineIndex: number, side: InsertSide, texts: r
   return lines;
 }
 
+/**
+ * Whether `got` reads as `want`. A line added before a box's one empty line
+ * leaves nothing after its break, so that line reads as gone: the one honest
+ * mismatch, refused by planLineEdits. Every other line must still match.
+ */
+function readsAsAdded(got: readonly string[], want: readonly string[], vanishes: boolean): boolean {
+  const same = (w: readonly string[]) => got.length === w.length && got.every((t, i) => t === w[i]);
+  return same(want) || (vanishes && same(want.slice(0, -1)));
+}
+
 describe("adding a line", () => {
   it("goes at the line's break, so neither neighbour's formatting moves", () => {
     const source = rtf("\\pard\\qc\\cb3 one\\par\\pard\\cb3 two");
@@ -314,10 +324,8 @@ describe("adding a line", () => {
             }
             const got = extractLines(applyEdits(source, edits as SourceEdit[])).map((l) => l.text);
             const want = withAdded(source, index, side, texts);
-            // Before a bare last line with nothing on it, which then reads as no
-            // line at all: the one honest mismatch, refused by planLineEdits.
-            const vanished = side === "before" && lines.length === 1 && lines[0].text === "" && got.length === want.length - 1;
-            if (!vanished && (got.length !== want.length || got.some((t, i) => t !== want[i]))) {
+            const vanishes = side === "before" && lines.length === 1 && lines[0].text === "";
+            if (!readsAsAdded(got, want, vanishes)) {
               failures.push(`line ${index} ${side} ${JSON.stringify(texts)}: got ${JSON.stringify(got)}`);
             }
           }
@@ -462,6 +470,16 @@ describe("planning line edits on a presentation", () => {
     ).toBe("besideRemoved");
     // Before an empty placeholder, which would then read as no line at all.
     expect(refuse([{ boxIndex: 5, lineIndex: 0, text: "x", insert: "before" }])).toBe("unsupported");
+    // Nor with a line added after it, which keeps the placeholder alive only
+    // while that one stays ticked; the line after it, alone, is fine.
+    const both: LineChange[] = [
+      { boxIndex: 5, lineIndex: 0, text: "x", insert: "before" },
+      { boxIndex: 5, lineIndex: 0, text: "y", insert: "after" },
+    ];
+    expect(() => planLineEdits(doc(), both)).toThrow(
+      expect.objectContaining({ reason: "unsupported", change: expect.objectContaining({ insert: "before" }) })
+    );
+    expect(refuse([both[1]])).toBe("planned");
     // A line that reads like its neighbour is the point, not a no-op.
     expect(refuse([{ boxIndex: 0, lineIndex: 0, text: "A tidy line", insert: "after" }])).toBe("planned");
   });
@@ -573,8 +591,8 @@ describe.skipIf(!hasRealLibrary)("adding a line beside every line of a real libr
             }
             const got = extractLines(applyEdits(source, edits as SourceEdit[])).map((l) => l.text);
             const want = withAdded(source, index, side, texts);
-            const vanished = side === "before" && lines.length === 1 && line.text === "" && got.length === want.length - 1;
-            if (!vanished && (got.length !== want.length || got.some((x, n) => x !== want[n]))) {
+            const vanishes = side === "before" && lines.length === 1 && line.text === "";
+            if (!readsAsAdded(got, want, vanishes)) {
               failures.push(`${file} line ${index} ${side} ${JSON.stringify(texts)}: ${JSON.stringify(got)}`);
             }
           }

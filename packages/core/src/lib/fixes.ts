@@ -299,8 +299,9 @@ export class EditError extends Error {
  * half-applied set of edits to a song is worse than none.
  *
  * Each box is spliced and read back here too, with every planned change in
- * it, so a set of edits that would only fail `applyFixes`' read-back is
- * refused before anybody is asked to approve it rather than after.
+ * it and with each on its own, as the person may untick the rest, so a set
+ * of edits that would only fail `applyFixes`' read-back is refused before
+ * anybody is asked to approve it rather than after.
  */
 export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange[]): LineFix[] {
   const boxes = new Map(doc.textBoxes.map((box) => [box.boxIndex, box]));
@@ -352,22 +353,21 @@ export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange
   // them in this order too.
   fixes.sort(byReadingOrder);
 
+  const refuse = (fix: LineFix) =>
+    new EditError("unsupported", { boxIndex: fix.boxIndex, lineIndex: fix.lineIndex, text: fix.after, insert: fix.insert });
   for (const box of doc.textBoxes) {
     const mine = fixes.filter((fix) => fix.boxIndex === box.boxIndex);
     if (mine.length === 0) continue;
-    const got = extractLines(applyEdits(box.rtf, mine.flatMap((fix) => fix.edits))).map((line) => line.text);
-    const want = expected(box, mine);
-    if (got.length !== want.length || got.some((text, i) => text !== want[i])) {
-      // Named by the box's first change: which of several broke it cannot be
-      // told from the result.
-      const [first] = mine;
-      throw new EditError("unsupported", {
-        boxIndex: first.boxIndex,
-        lineIndex: first.lineIndex,
-        text: first.after,
-        insert: first.insert,
-      });
+    // Each change alone too, since the person may untick every other one: a
+    // line added before a box's one empty line reads back only while a line
+    // added after it keeps that line alive.
+    if (mine.length > 1) {
+      const alone = mine.find((fix) => !readsBack(box, [fix]));
+      if (alone) throw refuse(alone);
     }
+    // Named by the box's first change: which of several broke it cannot be
+    // told from the result.
+    if (!readsBack(box, mine)) throw refuse(mine[0]);
   }
 
   return fixes;
@@ -468,6 +468,13 @@ export function spliceBoxes(before: PresentationDoc, fixes: readonly LineFix[]):
  * each line as changed or as it was, with the lines added before and after
  * it in the order the fixes list them.
  */
+/** Whether a box with these fixes spliced in reads exactly as `expected()` says. */
+function readsBack(box: { rtf: string; lines: RtfLine[] }, fixes: readonly LineFix[]): boolean {
+  const got = extractLines(applyEdits(box.rtf, fixes.flatMap((fix) => fix.edits))).map((line) => line.text);
+  const want = expected(box, fixes);
+  return got.length === want.length && got.every((text, i) => text === want[i]);
+}
+
 function expected(box: { lines: RtfLine[] }, fixes: readonly LineFix[]): string[] {
   const changed = new Map(fixes.filter((f) => !f.insert).map((f) => [f.lineIndex, f.after]));
   const added = (index: number, side: InsertSide) =>
