@@ -181,6 +181,25 @@ describe("a folder of .pro files", () => {
     expect(fs.readFileSync(other)).toEqual(before);
   });
 
+  it("opens a folder chosen in a dialog that was up when the last one was forgotten", async () => {
+    song("Checked Song");
+    let answer: (dir: string) => void = () => {};
+    bridge = createHandlers({
+      chooseFolder: () => new Promise<string>((resolve) => (answer = resolve)),
+      showFolder: async () => undefined,
+      stateFile: path.join(tmp, "state.json"),
+      backupDir: backups,
+      workspacesDir: path.join(tmp, "Workspaces"),
+    });
+    const picking = bridge.pickFolder();
+    await bridge.forgetLast();
+    answer(library);
+
+    const folder = (await picking)!;
+    expect(folder.root).toBe(fs.realpathSync(library));
+    await expect(bridge.read(folder.files[0].path)).resolves.toBeDefined();
+  });
+
   it.skipIf(!sqlite)("keeps a workspace opened while the folder dialog was still up", async () => {
     putPresentation(createWritableWorkspace(tmp), "Checked Song", presentationRoot(() => []));
     song("Checked Song");

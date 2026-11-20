@@ -5,9 +5,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Presentations } from "../Presentations";
 import { I18nProvider } from "../../i18n";
-import { checkPresentation, decodePresentation, readPresentation } from "@presenter-garage/core/lib/presentation";
-import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
-import { examine, planFixes } from "@presenter-garage/core/lib/fixes";
+import {
+  checkPresentation,
+  decodePresentation,
+  encodePresentation,
+  readPresentation,
+  writeTextBoxes,
+} from "@presenter-garage/core/lib/presentation";
+import { rtfWithHeader, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { applyFixes, examine, fixKey, planFixes } from "@presenter-garage/core/lib/fixes";
 import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
 import {
   BRIDGE_GLOBAL,
@@ -676,6 +682,42 @@ describe("the desktop app", () => {
     await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
     await waitFor(() => expect(applied).toHaveLength(2));
     expect(applied[1].map((file) => file.path)).toEqual([`${ROOT}/Chants/Other Song.pro`]);
+  });
+
+  it("keeps a line unticked in a file the save changed, though the save moved it", async () => {
+    // A blank line, then a line ending in a space, in one box: removing the
+    // first moves the second up.
+    const doc = decodePresentation(syntheticTextPresentation());
+    writeTextBoxes(doc, new Map([[3, rtfWithHeader("\\cb3 Above\\par\\pard\\li0\\qc\\fs200\\par\\pard\\cb3 Below ")]]));
+    store.set("Chants/Checked Song.pro", encodePresentation(doc));
+    const shell = fakeBridge();
+    // Writes what it was sent, so the rescan reads the file as saved.
+    shell.applyFixes = async (files) => {
+      applied.push(files);
+      for (const file of files) {
+        const name = file.path.slice(ROOT.length + 1);
+        const bytes = store.get(name)!;
+        const { report, fixable } = examine(name, bytes);
+        const sent = new Set(file.lines.map(fixKey));
+        const fixes = planFixes(fixable, report.issues.filter((issue) => file.kinds.includes(issue.kind)));
+        store.set(name, applyFixes(bytes, fixes.filter((fix) => sent.has(fixKey(fix)))));
+      }
+      return { backupFolder: "/backups/run", files: files.map((file) => ({ path: file.path, lines: file.lines.length, written: true })) };
+    };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    const kept = screen.getByRole("checkbox", { name: "slide 4 line 3" });
+    await user.click(kept);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await screen.findByRole("button", { name: "Show backups" });
+
+    // Moved up a line by the blank one's removal, and still unticked.
+    const left = screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ });
+    expect(left.map((box) => box.getAttribute("aria-label"))).toEqual(["slide 4 line 2"]);
+    expect(left[0]).not.toBeChecked();
   });
 
   it("says nothing of an open a later one overtook", async () => {

@@ -177,6 +177,21 @@ function rowsOf(filename: string, issues: TextIssue[], fixes: LineFix[]): Row[] 
   }));
 }
 
+/** A file's rows for the kinds on screen. */
+function rowsFor({ report, fixable }: Examined, shown: ReadonlySet<TextIssueKind>): Row[] {
+  const issues = report.issues.filter((i) => shown.has(i.kind));
+  return issues.length === 0 ? [] : rowsOf(report.filename, issues, planFixes(fixable, issues));
+}
+
+/** The file a row's key belongs to: everything before its line's address. */
+const fileOfKey = (key: string) => key.slice(0, key.lastIndexOf(" "));
+
+/**
+ * A fixable line by what it says and becomes rather than where it is: a line
+ * a save removed above it moves it up, and its address with it.
+ */
+const lineOf = ({ fix }: Row) => JSON.stringify([fix!.boxIndex, fix!.before, fix!.after]);
+
 /**
  * Check the text of every presentation in a library, and put it right.
  *
@@ -377,9 +392,27 @@ export function Presentations() {
     if (!examined || mine !== displayed.current) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
     setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
-    // Only the files read again start over: a line left unticked in another
-    // stays unticked, or the next save would take it without anyone choosing it.
-    setExcluded((prev) => new Set([...prev].filter((key) => !fresh.has(key.slice(0, key.lastIndexOf(" "))))));
+    // A line left unticked stays unticked, or the next save would take it
+    // without anyone choosing it: in a file not read again, by its address;
+    // in one that was, by what it says, since the save may have moved it.
+    const before = new Map((scanned ?? []).map((one) => [one.report.filename, one]));
+    setExcluded((prev) => {
+      const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
+      for (const [filename, one] of fresh) {
+        const left = new Map<string, number>();
+        const was = before.get(filename);
+        for (const row of was ? rowsFor(was, shown) : []) {
+          if (row.fix && prev.has(row.key)) left.set(lineOf(row), (left.get(lineOf(row)) ?? 0) + 1);
+        }
+        for (const row of rowsFor(one, shown)) {
+          const n = row.fix ? (left.get(lineOf(row)) ?? 0) : 0;
+          if (n === 0) continue;
+          next.add(row.key);
+          left.set(lineOf(row), n - 1);
+        }
+      }
+      return next;
+    });
   }
 
   /**
@@ -576,10 +609,9 @@ export function Presentations() {
    */
   const rows = useMemo(() => {
     const byFile = new Map<string, Row[]>();
-    for (const { report, fixable } of examined) {
-      const issues = report.issues.filter((i) => shown.has(i.kind));
-      if (issues.length === 0) continue;
-      byFile.set(report.filename, rowsOf(report.filename, issues, planFixes(fixable, issues)));
+    for (const one of examined) {
+      const lines = rowsFor(one, shown);
+      if (lines.length > 0) byFile.set(one.report.filename, lines);
     }
     return byFile;
   }, [examined, shown]);

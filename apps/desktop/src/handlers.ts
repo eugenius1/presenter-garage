@@ -49,6 +49,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
    * while it walked the folder was overtaken, and leaves the state alone.
    */
   let generation = 0;
+  /**
+   * Bumped by every open as it is asked for, before any wait: a folder dialog
+   * answered after a later open began was overtaken by it. A forget does not
+   * bump it, since a folder chosen after one is a new choice.
+   */
+  let asked = 0;
   /** Writes of the remembered folder, in the order they were asked for, so a later forget stays final. */
   let saving: Promise<unknown> = Promise.resolve();
   /** Backup folders this session's runs made, which are the only folders `showBackups` opens. */
@@ -107,12 +113,15 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       // Taken before the dialog, as the page takes its own: a workspace
       // opened while the dialog is still up is the later choice, and the page
       // keeps showing it, so the folder the dialog returns must not replace it.
-      const mine = ++generation;
+      const mine = ++asked;
       const dir = await deps.chooseFolder();
-      return dir === undefined ? null : openFolder(dir, mine);
+      if (dir === undefined) return null;
+      if (mine !== asked) throw new LibraryError(`${dir} was not opened: another folder was opened while the dialog was up.`);
+      return openFolder(dir);
     },
 
     async reopenLast() {
+      asked++;
       const mine = ++generation;
       const dir = await lastFolder();
       if (dir === undefined) return null;
@@ -138,6 +147,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     async openWorkspace(root: string) {
       // Only one the registry lists: the page cannot open any folder by
       // naming it, only through the dialog a person answers.
+      asked++;
       const mine = ++generation;
       const listed = await registeredWorkspaces(registryDir);
       if (typeof root !== "string" || !listed.some((w) => w.root === root)) {
