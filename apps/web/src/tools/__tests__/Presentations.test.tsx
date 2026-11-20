@@ -743,6 +743,30 @@ describe("the desktop app", () => {
     expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
   });
 
+  it("unticks every copy of a line it can no longer tell apart, after a change made elsewhere", async () => {
+    const three = (lines: string) => {
+      const doc = decodePresentation(syntheticTextPresentation());
+      writeTextBoxes(doc, new Map([[3, rtfWithHeader(lines)]]));
+      return encodePresentation(doc);
+    };
+    store.set("Chants/Checked Song.pro", three("\\cb3 Same \\par\\pard\\cb3 Same \\par\\pard\\cb3 Same "));
+    result = { files: [{ path: `${ROOT}/Chants/Checked Song.pro`, lines: 1, written: false, reason: "stale" }] };
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("checkbox", { name: "slide 4 line 3" }));
+    // ProPresenter removes one of them before the save, which is refused as stale.
+    store.set("Chants/Checked Song.pro", three("\\cb3 Same \\par\\pard\\cb3 Same "));
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "slide 4 line 3" })).not.toBeInTheDocument());
+
+    expect(screen.getByRole("checkbox", { name: "slide 4 line 1" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
+  });
+
   it("says nothing of an open a later one overtook", async () => {
     let failFirst: () => void = () => {};
     const shell = fakeBridge();

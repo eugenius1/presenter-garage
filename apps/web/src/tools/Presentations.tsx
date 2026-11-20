@@ -417,12 +417,17 @@ export function Presentations() {
         }
         for (const [line, rows] of now) {
           const unticked = then.get(line) ?? [];
-          // As many as before: none of them was changed, so each keeps its own choice.
-          // Fewer: the ones the save changed are gone, and those left were the ones not chosen.
+          // As many as before: none of them was changed, so each keeps its own
+          // choice. Otherwise which is which cannot be told -- the save changed
+          // some, or something else did -- so where any was unticked, all of
+          // them are: an unticked line must never come back ticked. After a
+          // save that wrote, those left are the unticked ones anyway.
           const keep =
             rows.length === unticked.length
               ? rows.filter((_, i) => unticked[i])
-              : rows.slice(0, unticked.filter(Boolean).length);
+              : unticked.some(Boolean)
+                ? rows
+                : [];
           for (const row of keep) next.add(row.key);
         }
       }
