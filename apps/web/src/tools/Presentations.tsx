@@ -359,7 +359,7 @@ export function Presentations() {
 
   async function scan(list: FolderFile[], mine = displayed.current) {
     const examined = await examineAll(list, mine);
-    if (!examined) return;
+    if (!examined || mine !== displayed.current) return;
     setScanned(examined);
     setExcluded(new Set());
   }
@@ -371,7 +371,7 @@ export function Presentations() {
    */
   async function rescan(list: FolderFile[], mine: number) {
     const examined = await examineAll(list, mine);
-    if (!examined) return;
+    if (!examined || mine !== displayed.current) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
     setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
     setExcluded(new Set());
@@ -386,6 +386,10 @@ export function Presentations() {
     displayed.current = mine;
     setPending(null);
     clearRun();
+    // The last folder's findings go with it: left up while this one is read,
+    // a line of one could be saved against a file of the same name in the other.
+    setScanned(null);
+    setExcluded(new Set());
     setFolderName(folder.name);
     setFiles(folder.files);
     setHandle(folderHandle);

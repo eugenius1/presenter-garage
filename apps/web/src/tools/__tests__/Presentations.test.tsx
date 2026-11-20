@@ -707,6 +707,36 @@ describe("the desktop app", () => {
     expect(screen.queryByRole("button", { name: "Show backups" })).not.toBeInTheDocument();
   });
 
+  it("offers nothing to save from the last folder while the next one is read", async () => {
+    let finishRead: () => void = () => {};
+    const shell = fakeBridge();
+    const plain = shell.read;
+    shell.openWorkspace = async () => ({
+      root: "/ws/1",
+      name: "Church",
+      files: [...store.keys()].map((path) => ({ path: `/ws/1/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+    });
+    shell.read = async (path) => {
+      if (!path.startsWith("/ws/1/")) return plain(path);
+      await new Promise<void>((resolve) => (finishRead = resolve));
+      return plain(`${ROOT}/${path.slice("/ws/1/".length)}`);
+    };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    expect(await screen.findByText("/ws/1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Fix \d+ lines?$/ })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("checkbox", { name: /^slide \d+ line \d+$/ })).toHaveLength(0);
+
+    finishRead();
+    expect(await screen.findByRole("button", { name: /^Fix \d+ lines?$/ })).toBeInTheDocument();
+  });
+
   it("reads a Cloud workspace but offers no way to write to it", async () => {
     vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: true } }));
     const user = userEvent.setup();
