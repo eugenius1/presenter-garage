@@ -405,30 +405,18 @@ export function Presentations() {
     setExcluded((prev) => {
       const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
       for (const [filename, one] of fresh) {
-        // Each line's occurrences in its box, in order: whether each was unticked before, and the rows now.
-        const then = new Map<string, boolean[]>();
-        const now = new Map<string, Row[]>();
+        // Lines that had a copy unticked. Copies of one line cannot be told
+        // apart once the file may have changed -- the save changed some, or
+        // something else did, and neither count nor order says which -- so
+        // every copy of such a line is unticked: an unticked line must never
+        // come back ticked. A line that occurs once keeps its own choice.
+        const unticked = new Set<string>();
         const was = before.get(filename);
         for (const row of was ? rowsFor(was, EVERY_KIND) : []) {
-          if (row.fix) then.set(lineOf(row), [...(then.get(lineOf(row)) ?? []), prev.has(row.key)]);
+          if (row.fix && prev.has(row.key)) unticked.add(lineOf(row));
         }
         for (const row of rowsFor(one, EVERY_KIND)) {
-          if (row.fix) now.set(lineOf(row), [...(now.get(lineOf(row)) ?? []), row]);
-        }
-        for (const [line, rows] of now) {
-          const unticked = then.get(line) ?? [];
-          // As many as before: none of them was changed, so each keeps its own
-          // choice. Otherwise which is which cannot be told -- the save changed
-          // some, or something else did -- so where any was unticked, all of
-          // them are: an unticked line must never come back ticked. After a
-          // save that wrote, those left are the unticked ones anyway.
-          const keep =
-            rows.length === unticked.length
-              ? rows.filter((_, i) => unticked[i])
-              : unticked.some(Boolean)
-                ? rows
-                : [];
-          for (const row of keep) next.add(row.key);
+          if (row.fix && unticked.has(lineOf(row))) next.add(row.key);
         }
       }
       return next;

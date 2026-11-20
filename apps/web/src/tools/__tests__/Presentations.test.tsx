@@ -724,47 +724,36 @@ describe("the desktop app", () => {
     expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
   });
 
-  it("keeps each of two identical lines' own choice through a save that wrote nothing", async () => {
-    const doc = decodePresentation(syntheticTextPresentation());
-    writeTextBoxes(doc, new Map([[3, rtfWithHeader("\\cb3 Same \\par\\pard\\cb3 Same ")]]));
-    store.set("Chants/Checked Song.pro", encodePresentation(doc));
-    result = { files: [], refused: { code: "failed", detail: "nothing written" } };
-    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
-    const user = userEvent.setup();
-    renderTool();
-    await openFolder(user);
-
-    await user.click(screen.getByRole("checkbox", { name: "slide 4 line 2" }));
-    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
-    await waitFor(() => expect(applied).toHaveLength(1));
-    await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
-
-    expect(screen.getByRole("checkbox", { name: "slide 4 line 1" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
-  });
-
-  it("unticks every copy of a line it can no longer tell apart, after a change made elsewhere", async () => {
-    const three = (lines: string) => {
+  // Copies of one line cannot be told apart once the file may have changed:
+  // neither their number nor their order says which was which.
+  it.each([
+    ["a save that wrote nothing", "\\cb3 Same \\par\\pard\\cb3 Same ", "slide 4 line 2", "\\cb3 Same \\par\\pard\\cb3 Same "],
+    ["a copy removed elsewhere", "\\cb3 Same \\par\\pard\\cb3 Same \\par\\pard\\cb3 Same ", "slide 4 line 3", "\\cb3 Same \\par\\pard\\cb3 Same "],
+    ["the copies moved elsewhere", "\\cb3 Same \\par\\pard\\cb3 Same \\par\\pard\\cb3 Other", "slide 4 line 2", "\\cb3 Same \\par\\pard\\cb3 Other\\par\\pard\\cb3 Same "],
+  ])("unticks every copy of a line when one was unticked, after %s", async (_, lines, untick, after) => {
+    const withBox = (rtf: string) => {
       const doc = decodePresentation(syntheticTextPresentation());
-      writeTextBoxes(doc, new Map([[3, rtfWithHeader(lines)]]));
+      writeTextBoxes(doc, new Map([[3, rtfWithHeader(rtf)]]));
       return encodePresentation(doc);
     };
-    store.set("Chants/Checked Song.pro", three("\\cb3 Same \\par\\pard\\cb3 Same \\par\\pard\\cb3 Same "));
+    store.set("Chants/Checked Song.pro", withBox(lines));
     result = { files: [{ path: `${ROOT}/Chants/Checked Song.pro`, lines: 1, written: false, reason: "stale" }] };
     vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
     const user = userEvent.setup();
     renderTool();
     await openFolder(user);
 
-    await user.click(screen.getByRole("checkbox", { name: "slide 4 line 3" }));
-    // ProPresenter removes one of them before the save, which is refused as stale.
-    store.set("Chants/Checked Song.pro", three("\\cb3 Same \\par\\pard\\cb3 Same "));
+    await user.click(screen.getByRole("checkbox", { name: untick }));
+    // Whatever changed the file before the save, the save is refused as stale.
+    store.set("Chants/Checked Song.pro", withBox(after));
     await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
     await waitFor(() => expect(applied).toHaveLength(1));
-    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "slide 4 line 3" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
 
-    expect(screen.getByRole("checkbox", { name: "slide 4 line 1" })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
+    // Slide 4's only fixable lines are the copies, and every one waits for a new choice.
+    const copies = screen.getAllByRole("checkbox", { name: /^slide 4 line \d+$/ });
+    expect(copies).toHaveLength(2);
+    for (const copy of copies) expect(copy).not.toBeChecked();
   });
 
   it("says nothing of an open a later one overtook", async () => {
