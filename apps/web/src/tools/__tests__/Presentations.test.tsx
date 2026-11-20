@@ -756,6 +756,30 @@ describe("the desktop app", () => {
     for (const copy of copies) expect(copy).not.toBeChecked();
   });
 
+  it("shows nothing that was still opening when the folder was cleared", async () => {
+    let finishOpen: () => void = () => {};
+    const shell = fakeBridge();
+    const workspace = (): NativeFolder => ({
+      root: "/ws/1",
+      name: "Church",
+      files: [...store.keys()].map((path) => ({ path: `/ws/1/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+    });
+    shell.openWorkspace = () => new Promise<NativeFolder>((resolve) => (finishOpen = () => resolve(workspace())));
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    finishOpen();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByText("/ws/1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Fix these" })).not.toBeInTheDocument();
+  });
+
   it("says nothing of an open a later one overtook", async () => {
     let failFirst: () => void = () => {};
     const shell = fakeBridge();

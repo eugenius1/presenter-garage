@@ -541,6 +541,11 @@ export function Presentations() {
   }
 
   function forgetFolder() {
+    // An open still under way, or a scan, belongs to the folder just cleared:
+    // landing later, it would show a folder the shell has already let go of.
+    opening.current++;
+    displayed.current = opening.current;
+    setBusy(null);
     setPending(null);
     setFellBack(false);
     setError(null);
