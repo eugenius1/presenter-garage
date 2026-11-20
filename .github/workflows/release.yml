@@ -177,17 +177,21 @@ jobs:
       # ref that already exists fails. Without that, a tag pushed by hand since
       # the version job checked would be reused, since GitHub ignores --target
       # for an existing tag, and the release would name that commit while
-      # carrying this build's files.
+      # carrying this build's files. A tag already at this commit is accepted,
+      # so re-running the job after the release step failed carries on.
       - name: Create the release
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null || {
-            echo "::error::Could not create $TAG at $GITHUB_SHA; it may have been made since the version was picked."
-            exit 1
-          }
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null; then
+            at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha) || at=
+            if [ "$at" != "$GITHUB_SHA" ]; then
+              echo "::error::Could not create $TAG at $GITHUB_SHA; it was made elsewhere since the version was picked."
+              exit 1
+            fi
+          fi
           gh release create "$TAG" presenter-garage.mcpb --repo "$GITHUB_REPOSITORY" \
             --verify-tag --title "$TAG" --generate-notes
 
