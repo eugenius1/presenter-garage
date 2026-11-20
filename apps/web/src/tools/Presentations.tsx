@@ -405,16 +405,25 @@ export function Presentations() {
     setExcluded((prev) => {
       const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
       for (const [filename, one] of fresh) {
-        const left = new Map<string, number>();
+        // Each line's occurrences in its box, in order: whether each was unticked before, and the rows now.
+        const then = new Map<string, boolean[]>();
+        const now = new Map<string, Row[]>();
         const was = before.get(filename);
         for (const row of was ? rowsFor(was, EVERY_KIND) : []) {
-          if (row.fix && prev.has(row.key)) left.set(lineOf(row), (left.get(lineOf(row)) ?? 0) + 1);
+          if (row.fix) then.set(lineOf(row), [...(then.get(lineOf(row)) ?? []), prev.has(row.key)]);
         }
         for (const row of rowsFor(one, EVERY_KIND)) {
-          const n = row.fix ? (left.get(lineOf(row)) ?? 0) : 0;
-          if (n === 0) continue;
-          next.add(row.key);
-          left.set(lineOf(row), n - 1);
+          if (row.fix) now.set(lineOf(row), [...(now.get(lineOf(row)) ?? []), row]);
+        }
+        for (const [line, rows] of now) {
+          const unticked = then.get(line) ?? [];
+          // As many as before: none of them was changed, so each keeps its own choice.
+          // Fewer: the ones the save changed are gone, and those left were the ones not chosen.
+          const keep =
+            rows.length === unticked.length
+              ? rows.filter((_, i) => unticked[i])
+              : rows.slice(0, unticked.filter(Boolean).length);
+          for (const row of keep) next.add(row.key);
         }
       }
       return next;

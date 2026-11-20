@@ -724,6 +724,25 @@ describe("the desktop app", () => {
     expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
   });
 
+  it("keeps each of two identical lines' own choice through a save that wrote nothing", async () => {
+    const doc = decodePresentation(syntheticTextPresentation());
+    writeTextBoxes(doc, new Map([[3, rtfWithHeader("\\cb3 Same \\par\\pard\\cb3 Same ")]]));
+    store.set("Chants/Checked Song.pro", encodePresentation(doc));
+    result = { files: [], refused: { code: "failed", detail: "nothing written" } };
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("checkbox", { name: "slide 4 line 2" }));
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
+
+    expect(screen.getByRole("checkbox", { name: "slide 4 line 1" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
+  });
+
   it("says nothing of an open a later one overtook", async () => {
     let failFirst: () => void = () => {};
     const shell = fakeBridge();
