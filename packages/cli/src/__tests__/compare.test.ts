@@ -141,6 +141,19 @@ describe("comparing two libraries", () => {
     ]);
   });
 
+  it("matches every song in its own folder before any across folders", () => {
+    // Kept in library order, the song with no counterpart in its folder would
+    // otherwise take DPS's before DPS's own song is reached.
+    const pairs = run(
+      [song({ name: "Psaume", groups: [CHORUS] }, "Autres/Psaume.pro"), song({ name: "Psaume", groups: [VERSE] }, "DPS/Psaume.pro")],
+      [song({ name: "Psaume", groups: [VERSE] }, "DPS/Psaume.pro")]
+    );
+    expect(pairs.map((p) => [p.a?.file, p.b?.file, p.bucket])).toEqual([
+      ["Autres/Psaume.pro", undefined, "onlyA"],
+      ["DPS/Psaume.pro", "DPS/Psaume.pro", "identical"],
+    ]);
+  });
+
   it("lists what only one side has, proposing to keep it", () => {
     const pairs = run([song({ name: "Only here", groups: [VERSE] })], [song({ name: "Only there", groups: [VERSE] })]);
     expect(pairs.map((p) => [p.bucket, p.proposed])).toEqual([

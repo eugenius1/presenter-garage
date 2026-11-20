@@ -47,8 +47,8 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
 
     const pairs = compareSongs(legacy.songs, workspace.songs, { labels: { a: "legacy", b: "workspace" } });
     const untouched = pairs.filter((p) => p.matchedBy === "id" && p.b?.edited.source === "beforeUpgrade");
-    // Nearly all of them: a library is not rebuilt in the days after an upgrade.
-    expect(untouched.length).toBeGreaterThan(workspace.songs.length * 0.9);
+    // How many depends on the library; the rules that date them are tested on fixtures in cli.test.ts.
+    expect(untouched.length).toBeGreaterThan(0);
     expect(untouched.filter((p) => p.content !== "identical").map((p) => p.b!.file)).toEqual([]);
     // Dated by the very file it was made from.
     for (const pair of untouched) expect(pair.later).toBe("same");

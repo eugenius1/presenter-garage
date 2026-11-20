@@ -84,7 +84,9 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
     options.progress?.(i, files.length);
     const relative = libraryPath(path.relative(root, file));
     try {
-      const found = await readFoundFile(file);
+      // In a workspace the song and its history come from one read of its snapshot.
+      const stored = workspace ? await documentAt(file) : undefined;
+      const found = stored ? await stored.workspace.readWithHistory(stored.document) : { ...(await readFoundFile(file)), history: [] };
       const opened = openPresentation(found.bytes);
       if (opened.problem) {
         failures.push({ file: relative, reason: explain(opened.problem, opened.detail) });
@@ -92,8 +94,7 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
       }
       let edited: Edited;
       if (workspace) {
-        const stored = await documentAt(file);
-        const history = stored ? await stored.workspace.history(stored.document) : [];
+        const { history } = found;
         for (const change of history) {
           const at = change.at?.toISOString();
           if (at && (!upgradedAt || at < upgradedAt)) upgradedAt = at;
@@ -114,7 +115,7 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
   options.progress?.(files.length, files.length);
 
   const legacy = workspace ? (options.legacy ?? (await madeFrom(root))) : undefined;
-  if (legacy && undated.length) await dateFromLegacy(undated, legacy);
+  if (legacy && undated.length) await dateFromLegacy(undated, legacy, upgradedAt);
   for (const song of undated) {
     if (song.edited.source === "none" && upgradedAt) song.edited.notAfter = upgradedAt;
   }
@@ -153,16 +154,21 @@ async function madeFrom(root: string): Promise<string | undefined> {
 
 /**
  * Date the songs nobody has edited since the upgrade by the `.pro` files the
- * workspace was made from. Matched by uuid, since the upgrade keeps it,
- * and by path where a file carries none.
+ * workspace was made from. Matched by uuid, since the upgrade keeps it, and
+ * by path only where one side carries none: two songs whose uuids differ are
+ * not one song, wherever they sit. A file edited after the upgrade is not the
+ * one the workspace was made from, so its date says nothing either.
  */
-async function dateFromLegacy(songs: Song[], legacy: string): Promise<void> {
+async function dateFromLegacy(songs: Song[], legacy: string, upgradedAt?: string): Promise<void> {
   const before = await readSource({ label: "legacy", path: legacy });
+  const key = (file: string) => file.normalize("NFC").toLowerCase();
   const byId = new Map(before.songs.filter((s) => s.id).map((s) => [s.id!, s]));
-  const byFile = new Map(before.songs.map((s) => [s.file.normalize("NFC").toLowerCase(), s]));
+  const byFile = new Map(before.songs.map((s) => [key(s.file), s]));
   for (const song of songs) {
-    const old = (song.id && byId.get(song.id)) || byFile.get(song.file.normalize("NFC").toLowerCase());
-    if (old?.edited.at) song.edited = { at: old.edited.at, source: "beforeUpgrade" };
+    const atPath = byFile.get(key(song.file));
+    const old = (song.id && byId.get(song.id)) || (song.id && atPath?.id ? undefined : atPath);
+    const at = old?.edited.at;
+    if (at && (!upgradedAt || at <= upgradedAt)) song.edited = { at, source: "beforeUpgrade" };
   }
 }
 

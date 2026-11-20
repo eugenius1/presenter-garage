@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { LibraryError } from "@presenter-garage/node/library";
 import { compareSongs, summarise, summaryText } from "./compare";
 import { discover, foundText } from "./discover";
-import { writeCompare, writeDump } from "./output";
+import { labelKey, writeCompare, writeDump } from "./output";
 import { songText } from "./song";
 import { parseSource, readSource, sourceMeta, type ReadOptions, type Source, type SourceSpec } from "./source";
 
@@ -159,8 +159,10 @@ async function compare(
   options: { out: string; json: boolean; prefer: string; legacy: Map<string, string> },
   io: Io
 ): Promise<number> {
-  if (specs[0].label === specs[1].label) {
-    throw new UsageError(`Both sources are labelled ${specs[0].label}: give each a label, as bas=… haut=…`);
+  if (labelKey(specs[0].label) === labelKey(specs[1].label)) {
+    throw new UsageError(
+      `The sources are labelled ${specs[0].label} and ${specs[1].label}, one name to the file system: give each its own label, as bas=… haut=…`
+    );
   }
   const a = await read(specs[0], options.legacy, io);
   const b = await read(specs[1], options.legacy, io);
@@ -177,7 +179,7 @@ async function compare(
         summaryText(summary) + failuresText(a) + failuresText(b),
         `Report: ${written.report}`,
         `Data:   ${written.json}`,
-        `Text:   git diff --no-index --word-diff ${written.text.a} ${written.text.b}`,
+        `Text:   git diff --no-index --word-diff ${shellQuote(written.text.a)} ${shellQuote(written.text.b)}`,
       ].join("\n")
     );
   }
@@ -190,3 +192,6 @@ function failuresText(source: Source): string {
   if (source.truncated) lines.push("  (stopped at the walk's limit: not every file was read)");
   return `\n${source.label}: ${source.failures.length} not read\n${lines.join("\n")}`;
 }
+
+/** A path as a POSIX shell reads it back, whatever spaces or quotes it holds. */
+const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;

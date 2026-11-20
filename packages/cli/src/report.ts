@@ -264,10 +264,10 @@ const CLIENT = String.raw`
   function decide(p, pick) {
     if (pick) decisions[p.id] = pick; else delete decisions[p.id];
     save();
-    var option = $("jump").options[at];
-    if (option) option.textContent = (decisions[p.id] ? "✓ " : "") + nameOf(p);
-    if (pick && at < shown.length - 1) at++;
-    draw();
+    // Filtered again, since a decision can take the song out of what is
+    // shown; then on to the next song, or the one in its place.
+    var next = pick ? shown[at + 1] : p;
+    applyFilters(next && next.id);
   }
 
   function draw() {
@@ -360,6 +360,16 @@ const CLIENT = String.raw`
     file.text().then(function (text) {
       var loaded = JSON.parse(text);
       if (loaded.format !== "presenter-garage/decisions") throw new Error("not a decisions.json");
+      // Picks are "a" and "b", so a file from another comparison, or from
+      // this one with its sides the other way round, would keep the wrong version.
+      var c = loaded.compare || {}, ours = { a: { label: L.a, root: data.sources.a.root }, b: { label: L.b, root: data.sources.b.root } };
+      var same = function (x, y) { return x && x.label === y.label && x.root === y.root; };
+      if (!same(c.a, ours.a) || !same(c.b, ours.b)) {
+        var swapped = same(c.a, ours.b) && same(c.b, ours.a);
+        throw new Error(swapped
+          ? "it was made with " + L.b + " and " + L.a + " the other way round"
+          : "it is for another comparison (" + (c.a && c.a.label) + " against " + (c.b && c.b.label) + ")");
+      }
       var known = {}; data.pairs.forEach(function (p) { known[p.id] = p; });
       var applied = 0, unknown = 0;
       loaded.decisions.forEach(function (d) {

@@ -176,7 +176,7 @@ findings, then the later edit, then the library you call the main one. It
 never writes to a library.
 
 ```bash
-npm ci
+npm ci && npm run protos
 npm run cli -- sources
 npm run cli -- compare bas=/path/to/ProPresenter/Libraries haut=active --out private/compare
 ```

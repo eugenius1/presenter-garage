@@ -371,38 +371,30 @@ export class Workspace {
   }
 
   /**
-   * The document's change history: who changed it and when, oldest first.
+   * The document as `read` gives it, with its change history: who changed
+   * it and when, oldest first. Both come from one read of the snapshot, so
+   * the history is that of the very song converted, not of one ProPresenter
+   * saved in between.
    *
    * ProPresenter 22 keeps no edit date of its own, and the presentation it
    * converted from carries none either, so this is the only record of when a
    * song was last edited after the upgrade. Each Loro change carries the
    * peer that made it, one per computer and run, and a timestamp in seconds.
    */
-  async history(document: StoredDocument): Promise<DocumentChange[]> {
-    if (!document.available) return [];
-    const row = await this.withStore((db) =>
-      db.prepare("SELECT snapshot FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
-    );
-    if (!row?.snapshot) return [];
-    const doc = new LoroDoc();
-    try {
-      doc.import(row.snapshot as Uint8Array);
-      const changes: DocumentChange[] = [];
-      for (const [peer, list] of doc.getAllChanges()) {
-        for (const change of list) {
-          changes.push({
-            peer,
-            at: change.timestamp ? new Date(change.timestamp * 1000) : undefined,
-            message: change.message || undefined,
-          });
-        }
-      }
-      return changes.sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0));
-    } catch (e) {
-      throw new LibraryError(`Could not read ${document.path}: ${(e as Error).message}`);
-    } finally {
-      doc.free();
+  async readWithHistory(document: StoredDocument): Promise<FoundFile & { history: DocumentChange[] }> {
+    const file = document.path;
+    if (!document.available) {
+      throw new LibraryError(`${file}: not downloaded to this computer yet. Open the workspace in ProPresenter to sync it.`);
     }
+    const row = await this.withStore((db) =>
+      db.prepare("SELECT snapshot, sha256 FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
+    );
+    if (!row?.snapshot) throw new LibraryError(`Could not read ${file}: it is no longer in the workspace`);
+    const snapshot = row.snapshot as Uint8Array;
+    const sha = hex(row.sha256);
+    const convert = () => convertSnapshot(document.kind, snapshot, file);
+    const bytes = sha ? (this.recall(sha) ?? this.remember(sha, convert())) : convert();
+    return { bytes, size: bytes.length, modified: document.modified, converted: true, sha256: sha, history: historyOf(snapshot, file) };
   }
 
   private recall(sha: string): Uint8Array | undefined {
@@ -672,5 +664,28 @@ export async function registeredWorkspaces(dir: string = workspacesDir()): Promi
     });
   } catch {
     return [];
+  }
+}
+
+/** Every change a snapshot records, oldest first. */
+function historyOf(snapshot: Uint8Array, file: string): DocumentChange[] {
+  const doc = new LoroDoc();
+  try {
+    doc.import(snapshot);
+    const changes: DocumentChange[] = [];
+    for (const [peer, list] of doc.getAllChanges()) {
+      for (const change of list) {
+        changes.push({
+          peer,
+          at: change.timestamp ? new Date(change.timestamp * 1000) : undefined,
+          message: change.message || undefined,
+        });
+      }
+    }
+    return changes.sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0));
+  } catch (e) {
+    throw new LibraryError(`Could not read ${file}: ${(e as Error).message}`);
+  } finally {
+    doc.free();
   }
 }

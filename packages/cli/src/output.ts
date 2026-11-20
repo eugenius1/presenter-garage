@@ -41,14 +41,26 @@ async function prepare(out: string, format: string, index: string, generated: re
   for (const name of generated) await fs.rm(path.join(out, name), { recursive: true, force: true });
 }
 
-/** Write a file under `out`, refusing any path that would land outside it. */
+/**
+ * Write a file under `out`, refusing any path that would land outside it,
+ * whether by its name or by a link: a folder reused from an earlier run could
+ * hold a link where `report.html` was, pointing anywhere. Whatever is there
+ * is removed first and the file made afresh, never followed.
+ */
 async function put(out: string, relative: string, content: string): Promise<string> {
   const file = path.resolve(out, relative);
   if (!isInside(path.resolve(out), file)) throw new LibraryError(`Refusing to write outside ${out}: ${relative}`);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, content);
+  if (!isInside(await fs.realpath(out), await fs.realpath(path.dirname(file)))) {
+    throw new LibraryError(`Refusing to write outside ${out}: ${relative} is reached through a link`);
+  }
+  await fs.rm(file, { force: true });
+  await fs.writeFile(file, content, { flag: "wx" });
   return file;
 }
+
+/** A name as a file system that ignores case and accent composition compares it. */
+export const labelKey = (name: string) => name.normalize("NFC").toLowerCase();
 
 /** A song's own path without `.pro`, which names its files under `--out`. */
 const stem = (file: string) => file.replace(/\.pro$/i, "");
@@ -106,26 +118,31 @@ export async function writeCompare(
   pairs: readonly Pair[],
   summary: Summary
 ): Promise<CompareResult> {
-  if (a.label === b.label) throw new LibraryError(`Both sources are labelled ${a.label}: give them different labels.`);
+  if (labelKey(a.label) === labelKey(b.label)) {
+    throw new LibraryError(`The sources are labelled ${a.label} and ${b.label}, one folder to the file system: give them different labels.`);
+  }
   await prepare(out, COMPARE, "compare.json", ["text"]);
-  const used = { a: new Set<string>(), b: new Set<string>() };
-  // Compared as the file system will: macOS and Windows ignore case, and macOS accent composition too.
-  const key = (name: string) => name.normalize("NFC").toLowerCase();
-  const claim = (side: "a" | "b", wanted: string) => {
+  // Both, even where a side has no songs, so the printed `git diff` has two folders to compare.
+  for (const label of [a.label, b.label]) await fs.mkdir(path.join(out, "text", label), { recursive: true });
+  // Names compared as the file system will: macOS and Windows ignore case, and macOS accent composition too.
+  const used = new Set<string>();
+  const claim = (wanted: string) => {
     let name = wanted;
-    for (let n = 2; used[side].has(key(name)); n++) name = `${wanted} (${n})`;
-    used[side].add(key(name));
+    for (let n = 2; used.has(labelKey(name)); n++) name = `${wanted} (${n})`;
+    used.add(labelKey(name));
     return name;
   };
   const textOf = new Map<Pair, { a?: string; b?: string }>();
   for (const pair of pairs) {
-    const shared = stem((pair.a ?? pair.b)!.file);
+    // One name for both sides, taken on both even where one is absent, so
+    // it is free on each side and the pair's two files always share it.
+    const name = claim(stem((pair.a ?? pair.b)!.file));
     const files: { a?: string; b?: string } = {};
     for (const side of ["a", "b"] as const) {
       const song = pair[side];
       if (!song) continue;
       const label = side === "a" ? a.label : b.label;
-      files[side] = `text/${label}/${claim(side, shared)}.txt`;
+      files[side] = `text/${label}/${name}.txt`;
       await put(out, files[side], songText(song));
     }
     textOf.set(pair, files);

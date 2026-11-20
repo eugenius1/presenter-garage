@@ -71,20 +71,28 @@ export function compareSongs(as: readonly Song[], bs: readonly Song[], options: 
     }
   }
 
-  // Then by name, the same folder first where a name is in several.
+  // Then by name: every match in the same folder first, so a song matched
+  // across folders never takes the one another song has in its own folder.
   const byNameB = groupBy(
     bs.filter((b) => !usedB.has(b)),
     (s) => nameKey(s.name)
   );
-  for (const a of unmatched) {
-    const candidates = byNameB.get(nameKey(a.name))?.filter((b) => !usedB.has(b)) ?? [];
-    const b = candidates.find((c) => folderKey(c) === folderKey(a)) ?? candidates[0];
-    if (b) {
-      usedB.add(b);
-      pairs.push(pairOf(a, b, "name", options));
-    } else {
-      pairs.push({ id: `a:${a.file}`, bucket: "onlyA", a, proposed: { pick: "a", reason: `only in ${options.labels.a}` } });
+  const free = (a: Song) => byNameB.get(nameKey(a.name))?.filter((b) => !usedB.has(b)) ?? [];
+  const matched = new Map<Song, Song>();
+  for (const pass of [(a: Song, b: Song) => folderKey(b) === folderKey(a), () => true]) {
+    for (const a of unmatched) {
+      if (matched.has(a)) continue;
+      const b = free(a).find((c) => pass(a, c));
+      if (b) {
+        usedB.add(b);
+        matched.set(a, b);
+      }
     }
+  }
+  for (const a of unmatched) {
+    const b = matched.get(a);
+    if (b) pairs.push(pairOf(a, b, "name", options));
+    else pairs.push({ id: `a:${a.file}`, bucket: "onlyA", a, proposed: { pick: "a", reason: `only in ${options.labels.a}` } });
   }
   for (const b of bs) {
     if (!usedB.has(b)) {

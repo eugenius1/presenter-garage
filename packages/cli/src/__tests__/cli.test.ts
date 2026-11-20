@@ -17,6 +17,7 @@ import { sqlite, writeLibrary, writeRegistry, writeWorkspace, type SongSpec } fr
 const VERSE = { name: "Couplet 1", slides: [["Que ton nom soit glorifié"], ["Pour toujours"]] };
 const LAMB = "aaaaaaaa-0000-4000-8000-000000000001";
 const EDITED = "bbbbbbbb-0000-4000-8000-000000000002";
+const ONLY_HAUT = "cccccccc-0000-4000-8000-000000000003";
 
 const spec = (name: string, lines: string[], extra: Partial<SongSpec> = {}): SongSpec => ({
   name,
@@ -67,12 +68,16 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
         uuid: LAMB,
         modified: "2026-01-01T00:00:00Z",
       }),
+      // Another song at the same path, its uuid not the workspace's: no date for it.
+      "Libraries/Chants/Same.pro": { name: "Same", groups: [VERSE], modified: "2025-01-01T00:00:00Z" },
+      // Edited after the upgrade, so not the file the workspace was made from: no date either.
+      "Libraries/Chants/Only haut.pro": spec("Only haut", ["Seulement là"], { uuid: ONLY_HAUT, modified: "2026-11-12T00:00:00Z" }),
     });
     writeWorkspace(haut, {
       "Chants/Gloire a l'Agneau": { spec: spec("Gloire a l'Agneau", ["Digne est l'Agneau de Dieu"], { uuid: LAMB }) },
       "Chants/Same": { spec: { name: "Same", groups: [VERSE] } },
       "Chants/Edited": { spec: spec("Edited", ["Nouvelle ligne"], { uuid: EDITED }), editedAt: "2026-11-15T13:55:23Z", peer: "42" },
-      "Chants/Only haut": { spec: spec("Only haut", ["Seulement là"]) },
+      "Chants/Only haut": { spec: spec("Only haut", ["Seulement là"], { uuid: ONLY_HAUT }) },
     });
     // A Cloud document listed but not downloaded to this computer.
     putDocument(haut, "Presentation", "Chants/Not here", null);
@@ -122,6 +127,10 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(edited).toMatchObject({ bucket: "different", later: "b", proposed: { pick: "b" } });
 
       expect(pair("Same")).toMatchObject({ bucket: "identical", matchedBy: "name" });
+      // Not dated by a file whose uuid or date says it is not the one the song was made from.
+      const upgrade = { source: "none", notAfter: "2026-11-07T16:50:47.000Z" };
+      expect(pair("Same").b.edited).toEqual(upgrade);
+      expect(pair("Only haut").b.edited).toEqual(upgrade);
       expect(json.b).toMatchObject({ kind: "workspace", upgradedAt: "2026-11-07T16:50:47.000Z", legacy });
       // No words in the data an agent reads.
       expect(JSON.stringify(json)).not.toMatch(/Digne|Seulement|ligne/);
@@ -149,8 +158,15 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
 
     it("writes again into its own output, and into nothing else that is not empty", async () => {
       fs.writeFileSync(path.join(out, "text", "bas", "stale.txt"), "gone");
+      // A link left where the report goes is replaced, not written through.
+      const elsewhere = path.join(tmp, "elsewhere.txt");
+      fs.writeFileSync(elsewhere, "untouched");
+      fs.rmSync(path.join(out, "report.html"));
+      fs.symlinkSync(elsewhere, path.join(out, "report.html"));
       expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", out, "--json"], capture())).toBe(0);
       expect(fs.existsSync(path.join(out, "text", "bas", "stale.txt"))).toBe(false);
+      expect(fs.readFileSync(elsewhere, "utf8")).toBe("untouched");
+      expect(fs.lstatSync(path.join(out, "report.html")).isFile()).toBe(true);
 
       const foreign = path.join(tmp, "foreign");
       fs.mkdirSync(foreign);
@@ -221,7 +237,7 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       const help = capture();
       expect(await run(["--help"], help)).toBe(0);
       expect(help.stdout).toContain("Usage: presenter-garage");
-      for (const argv of [[], ["frobnicate"], ["compare", bas], ["compare", bas, haut], ["compare", `x=${bas}`, `x=${haut}`, "--out", tmp], ["--nope"]]) {
+      for (const argv of [[], ["frobnicate"], ["compare", bas], ["compare", bas, haut], ["compare", `x=${bas}`, `x=${haut}`, "--out", tmp], ["compare", `bas=${bas}`, `Bas=${haut}`, "--out", tmp], ["--nope"]]) {
         const io = capture();
         expect(await run(argv, io), argv.join(" ")).toBe(2);
       }
