@@ -4,8 +4,8 @@ import { FixError, fixFiles } from "@presenter-garage/core/lib/fixes";
 import { LibraryError, readFoundFile } from "./library";
 import type { Plan, PlannedFile } from "./plans";
 import { workspaceAt } from "./workspace";
-import { writeWorkspaceEdits } from "./workspace-write";
-import { openBackupDir, replaceWithBackup, sha256, type Replacement } from "./write";
+import { stageWorkspaceEdits, type StagedWorkspaceWrite } from "./workspace-write";
+import { backUpReplacements, backupFailed, openBackupDir, replaceBackedUp, sha256, type Replacement } from "./write";
 
 /**
  * Applying a plan: the only step that writes, and only the lines the person
@@ -27,8 +27,8 @@ let applying: Promise<unknown> = Promise.resolve();
  * `fixFiles` -- the same run the web app makes -- puts every file through
  * `applyFixes` again from bytes read now: the plan was made from bytes read
  * then, and `applyFixes` is where the fidelity gate and the read-back of every
- * line live. Only files that pass are handed to `replaceWithBackup`, which
- * backs them all up before writing any.
+ * line live. Only files that pass are backed up and written, and every
+ * file of every root is backed up before any is written.
  *
  * Two plans for the same song, confirmed at once, would otherwise both read
  * the same original and both pass the check before either renamed: the
@@ -55,6 +55,20 @@ function stopIfCancelled(signal?: AbortSignal): void {
   if (signal?.aborted) throw new LibraryError("The call was cancelled before anything was written, so nothing was.");
 }
 
+/**
+ * The run, in two halves, so AGENTS.md's second guard holds for the whole
+ * call and not only for each root by itself: a plan can span several roots,
+ * a workspace and a folder of `.pro` files, or two workspaces.
+ *
+ * 1. Every workspace is taken and stays held, its rows checked and backed
+ *    up; every `.pro` file is read, checked and backed up. Nothing changes.
+ * 2. Only once every backup is made and read back, and the call is still
+ *    wanted, does each group write.
+ *
+ * A backup that fails anywhere writes nothing anywhere. A refusal in the
+ * first half -- ProPresenter open, a workspace that cannot be written --
+ * refuses the whole call, which is clearest while nothing has been written.
+ */
 async function applyPlanNow(
   roots: readonly string[],
   plan: Plan,
@@ -66,106 +80,118 @@ async function applyPlanNow(
   // client can give up while an earlier apply is still writing.
   stopIfCancelled(signal);
   const choose = (file: PlannedFile) => file.lines.filter(({ n }) => ticked.has(n)).map(({ fix }) => fix);
+  let opened: string | undefined;
+  const openBackups = async () => (opened ??= await openBackupDir(backupDir, roots));
+
   const inWorkspaces: AppliedFile[] = [];
-  // The first run's folder; each file's own `backup` says where its copy is.
-  let backupFolder: string | undefined;
-
-  /**
-   * A step that refuses by throwing -- ProPresenter open, a workspace that
-   * cannot be written, a cancelled call -- refuses the whole call only while
-   * nothing has been written yet. Once something has, throwing would tell
-   * the person nothing was written and lose where its backup went, so the
-   * refusal becomes these files' outcome instead and the rest is reported.
-   */
-  const refuseOrRecord = (e: unknown, files: AppliedFile[]) => {
-    if (!inWorkspaces.some((file) => file.written)) throw e;
-    // A cancellation's own words say nothing at all was written, which is
-    // no longer so; they are said of these files alone.
-    const detail = signal?.aborted ? "the call was cancelled before these were written" : (e as Error).message;
-    for (const file of files) Object.assign(file, { written: false, reason: "writeFailed", detail });
-  };
-
-  // Workspaces first: one ProPresenter has open refuses the whole call, and
-  // a refusal is clearest when nothing at all has been written.
-  const byWorkspace = groupBy(
-    plan.files.filter((file) => file.workspace),
-    (file) => file.workspace!.root
-  );
-  for (const [root, group] of byWorkspace) {
-    const chosen = group.map(choose);
-    const outcomes: AppliedFile[] = group.map((file, i) => ({
-      path: file.path,
-      name: file.name,
-      lines: chosen[i].length,
-      written: false,
-    }));
-    // Nothing ticked here: nothing to back up, so no backup folder is needed to say so.
-    if (chosen.every((fixes) => fixes.length === 0)) {
-      for (const outcome of outcomes) outcome.reason = "unchanged";
-      inWorkspaces.push(...outcomes);
-      continue;
-    }
-    try {
+  const staged: { write: StagedWorkspaceWrite; files: AppliedFile[] }[] = [];
+  try {
+    const byWorkspace = groupBy(
+      plan.files.filter((file) => file.workspace),
+      (file) => file.workspace!.root
+    );
+    for (const [root, group] of byWorkspace) {
+      const chosen = group.map(choose);
+      const files: AppliedFile[] = group.map((file, i) => ({ path: file.path, name: file.name, lines: chosen[i].length, written: false }));
+      inWorkspaces.push(...files);
+      // Nothing ticked here: nothing to back up, so no backup folder is needed to say so.
+      if (chosen.every((fixes) => fixes.length === 0)) {
+        for (const file of files) file.reason = "unchanged";
+        continue;
+      }
       const workspace = await workspaceAt(root);
       if (!workspace) throw new LibraryError(`${root} is no longer a ProPresenter workspace, so nothing in it was written.`);
       stopIfCancelled(signal);
-      const run = await writeWorkspaceEdits(
+      const write = await stageWorkspaceEdits(
         workspace,
         roots,
-        await openBackupDir(backupDir, roots),
-        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] })),
-        { signal }
+        await openBackups(),
+        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] }))
       );
-      backupFolder ??= run.backupFolder;
-      // One outcome per replacement, in the order given.
-      run.outcomes.forEach((outcome, i) => Object.assign(outcomes[i], outcome));
-    } catch (e) {
-      refuseOrRecord(e, outcomes);
+      staged.push({ write, files });
     }
-    inWorkspaces.push(...outcomes);
+
+    const onDisk = plan.files.filter((file) => !file.workspace);
+    const planned = new Map(onDisk.map((file) => [file.path, file]));
+    const originals = new Map<string, Uint8Array>();
+    const fixed = await fixFiles(
+      onDisk.map((file) => ({ path: file.path, fixes: choose(file) })),
+      {
+        read: async (p) => {
+          const { bytes } = await readFoundFile(p);
+          if (sha256(bytes) !== planned.get(p)!.sha256) throw new FixError("stale");
+          originals.set(p, bytes);
+          return bytes;
+        },
+      }
+    );
+    const onDiskFiles: AppliedFile[] = fixed.map(({ path: p, lines, reason }) => ({
+      path: p,
+      name: planned.get(p)!.name,
+      lines,
+      written: false,
+      reason,
+    }));
+    const replacements: Replacement[] = fixed
+      .filter((outcome) => outcome.bytes)
+      .map(({ path: p, bytes }) => ({ path: p, original: originals.get(p)!, updated: bytes! }));
+    const backedUp = replacements.length > 0 ? await backUpReplacements(roots, await openBackups(), replacements) : undefined;
+    /** These files' outcomes from the writer's, matched by path. */
+    const record = (files: AppliedFile[], outcomes: readonly { path: string }[]) => {
+      const byPath = new Map(outcomes.map((outcome) => [outcome.path, outcome]));
+      for (const file of files) Object.assign(file, byPath.get(file.path));
+    };
+    const waiting = new Set(replacements.map((r) => r.path));
+    const onDiskWaiting = onDiskFiles.filter((file) => waiting.has(file.path));
+
+    const folders = [...staged.map(({ write }) => write.backupFolder), backedUp?.backupFolder].filter((f): f is string => !!f);
+    const backupFolder = folders[0];
+    const everyFile = () => [...inWorkspaces, ...onDiskFiles];
+    for (const { write, files } of staged) record(files, write.outcomes);
+
+    // Why a backup could not be made, wherever one could not.
+    const failed = [...staged.map(({ write }) => write.backupFailed), backedUp?.detail].find((detail) => detail !== undefined);
+    if (failed !== undefined) {
+      const elsewhere = `another file's backup could not be made (${failed}), so nothing at all was written`;
+      for (const { write, files } of staged) {
+        write.abandon("backupFailed", elsewhere);
+        record(files, write.outcomes);
+      }
+      if (backedUp) record(onDiskWaiting, backupFailed(replacements, backedUp.backups ? elsewhere : backedUp.detail));
+      return { backupFolder, files: everyFile() };
+    }
+
+    // The last moment nothing has changed: every backup is made and flushed,
+    // which takes time, and the client can give up during it.
+    if (signal?.aborted) {
+      throw new LibraryError(
+        `The call was cancelled before anything changed, so nothing was written.` +
+          (folders.length > 0 ? ` Its backups are in ${folders.join(" and ")}.` : "")
+      );
+    }
+
+    /**
+     * A writer that throws once something has been written -- a commit the
+     * store would not take -- would otherwise tell the person nothing was
+     * written and lose where its backup went, so the refusal becomes these
+     * files' outcome instead and the rest go ahead, their backups made.
+     */
+    const refuseOrRecord = (e: unknown, files: AppliedFile[]) => {
+      if (!inWorkspaces.some((file) => file.written)) throw e;
+      for (const file of files) Object.assign(file, { written: false, reason: "writeFailed", detail: (e as Error).message });
+    };
+    for (const { write, files } of staged) {
+      try {
+        await write.commit();
+        record(files, write.outcomes);
+      } catch (e) {
+        refuseOrRecord(e, files.filter((file) => !file.reason));
+      }
+    }
+    if (backedUp?.backups) record(onDiskWaiting, await replaceBackedUp(roots, replacements, backedUp.backups));
+    return { backupFolder, files: everyFile() };
+  } finally {
+    // However the run ended, no workspace is kept from ProPresenter.
+    for (const { write } of staged) write.abandon();
   }
-
-  const onDisk = plan.files.filter((file) => !file.workspace);
-  const planned = new Map(onDisk.map((file) => [file.path, file]));
-  const originals = new Map<string, Uint8Array>();
-  const fixed = await fixFiles(
-    onDisk.map((file) => ({ path: file.path, fixes: choose(file) })),
-    {
-      read: async (p) => {
-        const { bytes } = await readFoundFile(p);
-        if (sha256(bytes) !== planned.get(p)!.sha256) throw new FixError("stale");
-        originals.set(p, bytes);
-        return bytes;
-      },
-    }
-  );
-
-  const onDiskFiles: AppliedFile[] = fixed.map(({ path: p, lines, reason }) => ({
-    path: p,
-    name: planned.get(p)!.name,
-    lines,
-    written: false,
-    reason,
-  }));
-  const replacements: Replacement[] = fixed
-    .filter((outcome) => outcome.bytes)
-    .map(({ path: p, bytes }) => ({ path: p, original: originals.get(p)!, updated: bytes! }));
-
-  if (replacements.length > 0) {
-    try {
-      // And once more at the last moment before anything on disk changes.
-      stopIfCancelled(signal);
-      // And inside, once the backups are made, right before the first original
-      // changes: backing up takes time, and the client can give up during it.
-      const run = await replaceWithBackup(roots, await openBackupDir(backupDir, roots), replacements, { signal });
-      backupFolder ??= run.backupFolder;
-      const byPath = new Map(run.outcomes.map((outcome) => [outcome.path, outcome]));
-      for (const file of onDiskFiles) Object.assign(file, byPath.get(file.path));
-    } catch (e) {
-      const waiting = new Set(replacements.map((r) => r.path));
-      refuseOrRecord(e, onDiskFiles.filter((file) => waiting.has(file.path)));
-    }
-  }
-
-  return { backupFolder, files: [...inWorkspaces, ...onDiskFiles] };
 }

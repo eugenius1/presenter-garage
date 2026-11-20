@@ -227,8 +227,68 @@ async function stillPlanned(roots: readonly string[], r: Replacement): Promise<P
   }
 }
 
+/** The backups of a run's files, made and checked; or why they could not be. */
+export interface BackedUp {
+  /** The dated folder this run's backups are in, if it got that far. */
+  backupFolder?: string;
+  /** Each replacement's copy, in the order given, when every one was made and checked. */
+  backups?: string[];
+  /** Why a backup could not be made, when one could not. */
+  detail?: string;
+}
+
 /**
- * Back up, then replace, each file.
+ * Back up every file about to change, and check each copy, changing nothing.
+ *
+ * Made apart from `replaceBackedUp` so a call that writes into more than one
+ * root can make every backup before any root is written: AGENTS.md's second
+ * guard is for the whole run, not for each root by itself.
+ */
+export async function backUpReplacements(
+  roots: readonly string[],
+  backupDir: string,
+  replacements: readonly Replacement[],
+  { now = new Date() }: { now?: Date } = {}
+): Promise<BackedUp> {
+  for (const r of replacements) {
+    if (await isInWorkspace(r.path)) throw new LibraryError(WORKSPACE_READ_ONLY);
+  }
+  let backupFolder: string | undefined;
+  try {
+    const folder = (backupFolder = await runFolder(backupDir, now));
+    const backups = replacements.map((r) => backupPath(folder, roots, r.path));
+    await writeBackups(backupDir, replacements.map((r, i) => ({ path: backups[i], bytes: r.original })));
+    return { backupFolder, backups };
+  } catch (e) {
+    return { backupFolder, detail: errorDetail(e) };
+  }
+}
+
+/** Every replacement refused for want of a backup. */
+export const backupFailed = (replacements: readonly Replacement[], detail?: string): WriteOutcome[] =>
+  replacements.map((r) => ({ path: r.path, written: false, reason: "backupFailed", detail }));
+
+/**
+ * Replace each file whose backup `backUpReplacements` made, in the order
+ * given. Past the backups it finishes, since stopping between files would
+ * leave some songs changed and others not, which is harder to reason about
+ * than either outcome.
+ */
+export async function replaceBackedUp(
+  roots: readonly string[],
+  replacements: readonly Replacement[],
+  backups: readonly string[]
+): Promise<WriteOutcome[]> {
+  const outcomes: WriteOutcome[] = [];
+  for (const [i, r] of replacements.entries()) {
+    outcomes.push({ path: r.path, backup: backups[i], ...(await replaceOne(roots, r)) });
+  }
+  return outcomes;
+}
+
+/**
+ * Back up, then replace, each file: the whole run, for files in one root.
+ * `applyPlan()` takes the two steps apart, to back up every root first.
  *
  * Every file is backed up before any is written, so a run that cannot back
  * up one file writes none: a person told "a backup is made first" should
@@ -237,9 +297,7 @@ async function stillPlanned(roots: readonly string[], r: Replacement): Promise<P
  *
  * `signal` is checked once, at the last moment nothing has changed: after
  * every backup is made and flushed, before the first original is replaced.
- * A cancelled run throws there and writes nothing. Past that point it
- * finishes, since stopping between files would leave some songs changed and
- * others not, which is harder to reason about than either outcome.
+ * A cancelled run throws there and writes nothing.
  */
 export async function replaceWithBackup(
   roots: readonly string[],
@@ -248,35 +306,14 @@ export async function replaceWithBackup(
   { now = new Date(), signal }: { now?: Date; signal?: AbortSignal } = {}
 ): Promise<WriteRun> {
   if (replacements.length === 0) return { outcomes: [] };
-  for (const r of replacements) {
-    if (await isInWorkspace(r.path)) throw new LibraryError(WORKSPACE_READ_ONLY);
-  }
-
-  let backupFolder: string | undefined;
-  let backups: string[] = [];
-  try {
-    const folder = (backupFolder = await runFolder(backupDir, now));
-    backups = replacements.map((r) => backupPath(folder, roots, r.path));
-    await writeBackups(backupDir, replacements.map((r, i) => ({ path: backups[i], bytes: r.original })));
-  } catch (e) {
-    const detail = errorDetail(e);
-    return {
-      backupFolder,
-      outcomes: replacements.map((r) => ({ path: r.path, written: false, reason: "backupFailed", detail })),
-    };
-  }
-
+  const { backupFolder, backups, detail } = await backUpReplacements(roots, backupDir, replacements, { now });
+  if (!backups) return { backupFolder, outcomes: backupFailed(replacements, detail) };
   if (signal?.aborted) {
     throw new LibraryError(
       `The call was cancelled before any file changed, so nothing was written. Its backups are in ${backupFolder}.`
     );
   }
-
-  const outcomes: WriteOutcome[] = [];
-  for (const [i, r] of replacements.entries()) {
-    outcomes.push({ path: r.path, backup: backups[i], ...(await replaceOne(roots, r)) });
-  }
-  return { backupFolder, outcomes };
+  return { backupFolder, outcomes: await replaceBackedUp(roots, replacements, backups) };
 }
 
 async function replaceOne(roots: readonly string[], r: Replacement): Promise<Pick<WriteOutcome, "written" | "reason" | "detail">> {

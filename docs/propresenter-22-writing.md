@@ -160,7 +160,8 @@ cannot be moved without a guess.
 
 ### Applying
 
-`writeWorkspaceEdits()`, for every presentation of the run:
+`stageWorkspaceEdits()` takes steps 1 to 5 and `commit()` the rest, for
+every presentation of the run:
 
 1. **Lock.** The store is opened for writing with `busy_timeout = 0` and
    `locking_mode = EXCLUSIVE`, then `BEGIN IMMEDIATE`. Refused means
@@ -176,6 +177,10 @@ cannot be moved without a guess.
    numbers the boxes (`textBoxAddresses()`) and proved by holding exactly the
    RTF the plan read; and where each attribute range moves.
 5. **Back up** (guard 2, below), every row about to change, before any does.
+   A call that spans several roots -- two workspaces, or a workspace and a
+   folder of `.pro` files -- keeps each workspace's lock while `applyPlan()`
+   backs up the rest, and commits none until every backup is made: one that
+   cannot be made lets every lock go with nothing written in any root.
 6. **Edit** the Loro document, never the conversion: a new random 63-bit
    peer id that the document has never seen, `rtf_data` set on the text
    element's map, each moved or widened range set as a new value on its
@@ -349,7 +354,7 @@ it -- and a few that would read back only beside another line.
 | Guard | How it is kept |
 | --- | --- |
 | 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess. Anything else refuses that document |
-| 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made the run is rolled back and nothing is written |
+| 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made, here or in any other root of the call, the run is rolled back and nothing is written in any of them |
 | 3. A person saw every line and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
 | 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data` and ranges and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), and every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
 

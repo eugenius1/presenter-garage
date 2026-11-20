@@ -312,8 +312,16 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
   });
 });
 
+/** Every snapshot in a workspace's store, for telling whether a run changed it. */
+function snapshots(root: string): Uint8Array[] {
+  const db = new sqlite!.DatabaseSync(storeOf(root), { readOnly: true });
+  const all = db.prepare("SELECT snapshot FROM workspace_streams ORDER BY document_id").all() as { snapshot: Uint8Array }[];
+  db.close();
+  return all.map((row) => row.snapshot);
+}
+
 suite("a plan across two workspaces", () => {
-  it("reports what it wrote when a later workspace is refused, rather than saying nothing was", async () => {
+  it("refuses the whole call, writing in neither, when ProPresenter has a later workspace open", async () => {
     const dirs = [0, 1].map(() => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-two-workspaces-"))));
     const workspaces = dirs.map((dir) => createWritableWorkspace(dir));
     for (const root of workspaces) putPresentation(root, "Song", presentationRoot());
@@ -325,20 +333,20 @@ suite("a plan across two workspaces", () => {
       roots.map((root) => ({ path: path.join(root, "Libraries", "Default", "Song.pro"), boxIndex: 6, lineIndex: 0, text: "Que ton nom" }))
     );
     const plan = store.take(planned.planId)!;
+    const before = roots.map(snapshots);
     // ProPresenter has the second workspace open.
     const open = new sqlite!.DatabaseSync(storeOf(roots[1]));
     open.prepare("SELECT count(*) FROM workspace_streams").get();
     try {
-      const result = await applyPlan(roots, plan, new Set([1, 2]), path.join(dirs[0], "Backups"));
-      expect(result.backupFolder).toBeDefined();
-      expect(result.files.map((file) => [file.written, file.reason])).toEqual([
-        [true, undefined],
-        [false, "writeFailed"],
-      ]);
-      expect(result.files[1].detail).toMatch(/Quit ProPresenter/);
-      // Said of the workspace it stopped, not of the whole call.
-      expect(result.files[1].detail).toMatch(/nothing in it was written/);
-      expect(result.files[1].detail).not.toMatch(/nothing was written/);
+      // Every workspace is taken before any is written, so the first is
+      // not written either, and the call is refused while nothing has been.
+      await expect(applyPlan(roots, plan, new Set([1, 2]), path.join(dirs[0], "Backups"))).rejects.toThrow(/Quit ProPresenter/);
+      expect(roots.map(snapshots)).toEqual(before);
+      // And the first workspace was let go: ProPresenter can take it again.
+      const after = new sqlite!.DatabaseSync(storeOf(roots[0]));
+      after.exec("BEGIN IMMEDIATE");
+      after.exec("ROLLBACK");
+      after.close();
     } finally {
       open.close();
       for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });

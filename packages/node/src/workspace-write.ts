@@ -202,6 +202,19 @@ function checkStoreVersion(db: Database): void {
 }
 
 /**
+ * Let the store go. Best effort: a close that fails after a COMMIT does not
+ * undo it, and one that throws must not keep another workspace's store from
+ * being let go after it.
+ */
+function closeQuietly(db: Database): void {
+  try {
+    db.close();
+  } catch {
+    // Nothing left to do with it.
+  }
+}
+
+/**
  * Take the store for ourselves, or refuse.
  *
  * `locking_mode = EXCLUSIVE` before anything is read, then a write
@@ -297,37 +310,88 @@ const failure = (e: unknown, fallback: WorkspaceRefusal = "verifyFailed") =>
       : new WriteFailed(fallback, errorDetail(e));
 
 /**
- * Write each presentation's chosen lines into the workspace, in one
- * transaction, or none of them.
+ * A workspace run taken and backed up, and not yet written: the store is
+ * held exclusively, so the rows backed up are the rows `commit()` replaces.
+ * Every way out ends in `commit()` or `release()`, or ProPresenter is kept
+ * from its own store.
+ */
+export interface StagedWorkspaceWrite {
+  /** The dated folder this run's backups are in, if it got that far. */
+  readonly backupFolder?: string;
+  /** One per replacement, in the order given; `commit()` fills in the rest. */
+  readonly outcomes: WorkspaceOutcome[];
+  /** Why the backups could not be made, when they could not; nothing is held then, and nothing will be written. */
+  readonly backupFailed?: string;
+  /** Whether there are rows backed up and waiting, with the store held. */
+  readonly pending: boolean;
+  /** Write every row waiting, in one transaction, then let the store go and read every row back. */
+  commit(hooks?: WriteHooks): Promise<void>;
+  /** Let the store go without writing, each row waiting refused for `reason` if one is given. Does nothing once settled. */
+  abandon(reason?: WorkspaceRefusal, detail?: string): void;
+}
+
+/**
+ * Take the store and back up every row about to change, writing nothing.
  *
  * `backupDir` must already be open (`openBackupDir`). A presentation refused
  * before the backup -- stale, failing the gate, ranges off its lines -- is
- * left out and the rest go ahead, as a `.pro` file refused would be; past
- * the backup, one that fails stops all of them.
+ * left out and the rest go ahead, as a `.pro` file refused would be. Throws,
+ * holding nothing, when the workspace cannot be written at all: ProPresenter
+ * has it open, or it is not a format this was checked against.
+ *
+ * Kept apart from the commit so a call that writes into more than one root
+ * can make every backup before any root is written: AGENTS.md's second
+ * guard is for the whole run, not for each workspace by itself.
  */
-export async function writeWorkspaceEdits(
+export async function stageWorkspaceEdits(
   workspace: Workspace,
   roots: readonly string[],
   backupDir: string,
   replacements: readonly WorkspaceReplacement[],
-  { now = new Date(), signal, hooks }: { now?: Date; signal?: AbortSignal; hooks?: WriteHooks } = {}
-): Promise<{ backupFolder?: string; outcomes: WorkspaceOutcome[] }> {
+  { now = new Date() }: { now?: Date } = {}
+): Promise<StagedWorkspaceWrite> {
   // A presentation with no line left ticked has nothing to write, and must
   // not make the run take the lock: with ProPresenter open, that would refuse
   // a call that was never going to change anything.
   const outcomes: WorkspaceOutcome[] = replacements.map((r) =>
     r.fixes.length === 0 ? { path: r.path, written: false, reason: "unchanged" } : { path: r.path, written: false }
   );
-  if (replacements.every((r) => r.fixes.length === 0)) return { outcomes };
+  const nothing = (backupFolder?: string, backupFailed?: string): StagedWorkspaceWrite => ({
+    backupFolder,
+    outcomes,
+    backupFailed,
+    pending: false,
+    commit: async () => undefined,
+    abandon: () => undefined,
+  });
+  if (replacements.every((r) => r.fixes.length === 0)) return nothing();
 
   await checkWritableWorkspace(workspace);
   if (!(await isOwnPath(workspace.store))) {
     throw new LibraryError(`Could not open ${workspace.store}: it is reached through a symlink`);
   }
   const db = await lockStore(workspace.store);
+  let held = true;
+  /** Rolled back however the run ends short of a commit, and closed, which folds the write-ahead log into the database. */
+  const release = (commit: boolean) => {
+    if (!held) return;
+    held = false;
+    try {
+      db.exec(commit ? "COMMIT" : "ROLLBACK");
+    } catch (e) {
+      // A failed ROLLBACK leaves nothing to undo, since nothing was
+      // committed, and closing discards what was not. A failed COMMIT is
+      // the caller's to hear about, once the store is let go.
+      if (commit) {
+        closeQuietly(db);
+        throw e;
+      }
+    }
+    closeQuietly(db);
+  };
+
   let backupFolder: string | undefined;
-  let committed = false;
-  const written: { item: Ready; snapshot: Uint8Array }[] = [];
+  const ready: Ready[] = [];
   try {
     // Again now it is open: a store swapped for a link between the check
     // above and the open would have the run write somewhere else. What is
@@ -336,7 +400,6 @@ export async function writeWorkspaceEdits(
     if (!(await isOwnPath(workspace.store))) {
       throw new LibraryError(`Could not open ${workspace.store}: it is reached through a symlink`);
     }
-    const ready: Ready[] = [];
     for (const [index, replacement] of replacements.entries()) {
       if (replacement.fixes.length === 0) continue;
       try {
@@ -345,55 +408,91 @@ export async function writeWorkspaceEdits(
         Object.assign(outcomes[index], refusalOf(e));
       }
     }
-    if (ready.length === 0) return { outcomes };
-
-    // Guard 2, inside the lock, so these are the rows that get replaced.
-    try {
-      const folder = (backupFolder = await runFolder(backupDir, now));
-      const files = ready.flatMap(({ index, replacement, row, root }) => {
-        const copy = backupPath(folder, roots, replacement.path);
-        outcomes[index].backup = copy;
-        return backupOf(copy, row, root);
-      });
-      await writeBackups(backupDir, files);
-    } catch (e) {
-      for (const { index } of ready) Object.assign(outcomes[index], { reason: "backupFailed", detail: errorDetail(e) });
-      return { backupFolder, outcomes };
-    }
-    if (signal?.aborted) {
-      throw new LibraryError(
-        `The call was cancelled before anything in this workspace changed, so nothing in it was written. Its backups are in ${backupFolder}.`
-      );
-    }
-
-    let current: Ready | undefined;
-    try {
-      for (current of ready) written.push({ item: current, snapshot: writeOne(db, current, hooks) });
-    } catch (e) {
-      const { reason, detail } = failure(e);
-      for (const { index } of ready) outcomes[index].reason = "rolledBack";
-      Object.assign(outcomes[current!.index], { reason, detail });
-      return { backupFolder, outcomes };
-    }
-    db.exec("COMMIT");
-    committed = true;
-    for (const { index } of ready) outcomes[index].written = true;
-  } finally {
-    // Rolled back however the run ended short of a commit; a failed
-    // ROLLBACK leaves nothing to undo, since nothing was committed.
-    if (!committed) {
-      try {
-        db.exec("ROLLBACK");
-      } catch {
-        // Nothing was committed, and closing discards what was not.
-      }
-    }
-    // Closing the last connection folds the write-ahead log into the database.
-    db.close();
+  } catch (e) {
+    release(false);
+    throw e;
+  }
+  if (ready.length === 0) {
+    release(false);
+    return nothing();
   }
 
-  // Once more, from a connection of its own, as the next reader will see it.
-  await readBack(workspace.store, written, outcomes);
+  // Guard 2, inside the lock, so these are the rows that get replaced.
+  try {
+    const folder = (backupFolder = await runFolder(backupDir, now));
+    const files = ready.flatMap(({ index, replacement, row, root }) => {
+      const copy = backupPath(folder, roots, replacement.path);
+      outcomes[index].backup = copy;
+      return backupOf(copy, row, root);
+    });
+    await writeBackups(backupDir, files);
+  } catch (e) {
+    release(false);
+    const detail = errorDetail(e);
+    for (const { index } of ready) Object.assign(outcomes[index], { reason: "backupFailed", detail });
+    return nothing(backupFolder, detail);
+  }
+
+  let settled = false;
+  return {
+    backupFolder,
+    outcomes,
+    get pending() {
+      return !settled;
+    },
+    abandon(reason, detail) {
+      if (settled) return;
+      settled = true;
+      release(false);
+      if (reason) for (const { index } of ready) Object.assign(outcomes[index], { reason, detail });
+    },
+    async commit(hooks) {
+      if (settled) return;
+      settled = true;
+      const written: { item: Ready; snapshot: Uint8Array }[] = [];
+      let current: Ready | undefined;
+      try {
+        for (current of ready) written.push({ item: current, snapshot: writeOne(db, current, hooks) });
+      } catch (e) {
+        release(false);
+        const { reason, detail } = failure(e);
+        for (const { index } of ready) outcomes[index].reason = "rolledBack";
+        Object.assign(outcomes[current!.index], { reason, detail });
+        return;
+      }
+      release(true);
+      for (const { index } of ready) outcomes[index].written = true;
+      // Once more, from a connection of its own, as the next reader will see it.
+      await readBack(workspace.store, written, outcomes);
+    },
+  };
+}
+
+/**
+ * Write each presentation's chosen lines into the workspace, in one
+ * transaction, or none of them: `stageWorkspaceEdits`, then `commit()`, for
+ * a run in this one workspace. `applyPlan()` takes the two steps apart, to
+ * back up every root of a call first.
+ *
+ * `backupDir` must already be open (`openBackupDir`). Past the backup, one
+ * presentation that fails stops all of them.
+ */
+export async function writeWorkspaceEdits(
+  workspace: Workspace,
+  roots: readonly string[],
+  backupDir: string,
+  replacements: readonly WorkspaceReplacement[],
+  { now = new Date(), signal, hooks }: { now?: Date; signal?: AbortSignal; hooks?: WriteHooks } = {}
+): Promise<{ backupFolder?: string; outcomes: WorkspaceOutcome[] }> {
+  const staged = await stageWorkspaceEdits(workspace, roots, backupDir, replacements, { now });
+  const { backupFolder, outcomes } = staged;
+  if (signal?.aborted && staged.pending) {
+    staged.abandon();
+    throw new LibraryError(
+      `The call was cancelled before anything in this workspace changed, so nothing in it was written. Its backups are in ${backupFolder}.`
+    );
+  }
+  await staged.commit(hooks);
   return { backupFolder, outcomes };
 }
 
