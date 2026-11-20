@@ -20,17 +20,18 @@ import { createHandlers } from "../handlers";
 
 /**
  * Guard 1's verdict, made to say `lossy` where a test asks, since no real
- * file the suite can build is -- after letting `pass` more calls through, so
- * a test can let planning accept a file that applying must then refuse; and, for guard 4, a write that also changes a
+ * file the suite can build is: for the bytes `lossy` picks out, given the
+ * call's number since `calls` was last reset, so a test can let planning and
+ * one of applying's two checks pass and see the other refuse; and, for guard 4, a write that also changes a
  * box nobody chose, as an encoder that went wrong would.
  */
-const gate = vi.hoisted(() => ({ lossy: false, pass: 0, tamper: undefined as { boxIndex: number; rtf: string } | undefined }));
+const gate = vi.hoisted(() => ({ lossy: undefined as ((bytes: Uint8Array, call: number) => boolean) | undefined, calls: 0, tamper: undefined as { boxIndex: number; rtf: string } | undefined }));
 vi.mock("@presenter-garage/core/lib/presentation", async (original) => {
   const actual = await original<typeof import("@presenter-garage/core/lib/presentation")>();
   return {
     ...actual,
     checkPresentationFidelity: (bytes: Uint8Array) =>
-      gate.lossy && gate.pass-- <= 0
+ gate.lossy?.(bytes, ++gate.calls)
         ? { ...actual.checkPresentationFidelity(bytes), fidelity: "lossy", exportSafe: false }
         : actual.checkPresentationFidelity(bytes),
     writeTextBoxes: (...[doc, replacements]: Parameters<typeof actual.writeTextBoxes>) => {
@@ -84,8 +85,8 @@ beforeEach(() => {
   library = path.join(tmp, "ProPresenter");
   backups = path.join(tmp, "Backups");
   shown = [];
-  gate.lossy = false;
-  gate.pass = 0;
+  gate.lossy = undefined;
+  gate.calls = 0;
   gate.tamper = undefined;
   bridge = make();
 });
@@ -273,7 +274,7 @@ describe("a folder of .pro files", () => {
     shown.push(library);
     await bridge.pickFolder();
     const choice = await chosen(file);
-    gate.lossy = true;
+    gate.lossy = () => true;
 
     const run = await bridge.applyFixes([choice]);
 
@@ -281,20 +282,43 @@ describe("a folder of .pro files", () => {
     expect(fs.readFileSync(file)).toEqual(before);
   });
 
-  it("refuses a file the fidelity gate rates lossy only when applied (guard 1)", async () => {
+  // Planning checks the file as read (call 1); applying checks it as read again, then as it would be written.
+  const same = (a: Uint8Array, b: Uint8Array) => Buffer.compare(a, b) === 0;
+  it.each([
+    ["as read", (before: Buffer) => (bytes: Uint8Array, call: number) => call > 1 && same(bytes, before)],
+    ["as written", (before: Buffer) => (bytes: Uint8Array) => !same(bytes, before)],
+  ])("refuses a file the fidelity gate rates lossy only when applied, %s (guard 1)", async (_, lossy) => {
     const file = song("Checked Song");
     const before = fs.readFileSync(file);
     shown.push(library);
     await bridge.pickFolder();
     const choice = await chosen(file);
-    // Planning's own check passes: only the check on the file as written can refuse it.
-    gate.lossy = true;
-    gate.pass = 1;
+    gate.calls = 0;
+    gate.lossy = lossy(before);
 
     const run = await bridge.applyFixes([choice]);
 
     expect(run.files).toEqual([expect.objectContaining({ written: false, reason: "lossy" })]);
     expect(fs.readFileSync(file)).toEqual(before);
+  });
+
+  it("refuses a file that no longer decodes as unreadable, and saves the rest", async () => {
+    const broken = song("Broken Song");
+    const fine = song("Fine Song");
+    shown.push(library);
+    await bridge.pickFolder();
+    const choices = [await chosen(broken), await chosen(fine)];
+    fs.writeFileSync(broken, Uint8Array.from([0xff, 0xff, 0xff, 0xff]));
+
+    const run = await bridge.applyFixes(choices);
+
+    expect(run.refused).toBeUndefined();
+    expect(run.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: broken, written: false, reason: "unreadable" }),
+        expect.objectContaining({ path: fine, written: true }),
+      ])
+    );
   });
 
   it("writes nothing when no backup can be made (guard 2)", async () => {

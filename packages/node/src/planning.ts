@@ -163,8 +163,15 @@ async function readForPlan(real: string): Promise<ReadForPlan> {
   }
   if (await isInWorkspace(real)) throw new LibraryError(`Not a presentation in the workspace: ${real}`);
   const { bytes } = await readFoundFile(real);
+  let fidelity;
+  try {
+    fidelity = checkPresentationFidelity(bytes);
+  } catch (e) {
+    // Bytes that will not decode at all are this file's problem, not the run's.
+    throw new LibraryError(`${real}: ${(e as Error).message}`);
+  }
   // Refused now rather than after a person has read and approved every line.
-  if (!checkPresentationFidelity(bytes).exportSafe) {
+  if (!fidelity.exportSafe) {
     throw new LossyFile(`${real}: ${refusals.lossy}. Nothing was planned.`);
   }
   return { bytes, sha256: sha256(bytes) };

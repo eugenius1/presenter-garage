@@ -12,9 +12,10 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      // Only the old worker's: Workbox named its precache `workbox-precache-…`,
-      // and any other cache on this origin is not ours to clear.
-      for (const key of await caches.keys()) if (key.startsWith("workbox-")) await caches.delete(key);
+      // Only the old worker's, by the names Workbox gave it: another app on
+      // this origin may use Workbox too, and its caches are not ours to clear.
+      const precache = `workbox-precache-v2-${self.registration.scope}`;
+      for (const name of [precache, `${precache}-temp`]) await caches.delete(name);
       await self.registration.unregister();
       for (const client of await self.clients.matchAll({ type: "window" })) client.navigate(client.url);
     })()

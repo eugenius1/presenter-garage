@@ -667,6 +667,46 @@ describe("the desktop app", () => {
     expect(screen.getByRole("heading", { name: "Fix these" })).toBeInTheDocument();
   });
 
+  it("leaves a folder opened during a save to itself when the save finishes", async () => {
+    const WORKSPACE = "/ws/1";
+    let finishOpen: () => void = () => {};
+    let finishSave: () => void = () => {};
+    let saved = false;
+    const shell = fakeBridge();
+    const workspace = (): NativeFolder => ({
+      root: WORKSPACE,
+      name: "Church",
+      files: [...store.keys()].map((path) => ({ path: `${WORKSPACE}/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+    });
+    shell.openWorkspace = () => new Promise<NativeFolder>((resolve) => (finishOpen = () => resolve(workspace())));
+    // Once saved, the first folder's copy can no longer be read: a rescan of it would say so.
+    shell.read = async (path) => {
+      if (saved && path.startsWith(ROOT)) throw new Error("moved away");
+      return { bytes: store.get(path.replace(/^\/(Users\/someone\/ProPresenter|ws\/1)\//, ""))!, sha256: `sha of ${path}` };
+    };
+    shell.applyFixes = () =>
+      new Promise<NativeApplyResult>((resolve) => (finishSave = () => ((saved = true), resolve(result))));
+    result = { backupFolder: "/backups/run", files: [{ path: `${ROOT}/Chants/Checked Song.pro`, lines: 1, written: true }] };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    finishOpen();
+    expect(await screen.findByText(WORKSPACE)).toBeInTheDocument();
+    // Hidden while a run is in progress, so counted once it is over.
+    finishSave();
+    await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
+
+    expect(screen.getByText(WORKSPACE)).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ })).toHaveLength(4);
+    expect(screen.queryByText(/Could not be read/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show backups" })).not.toBeInTheDocument();
+  });
+
   it("reads a Cloud workspace but offers no way to write to it", async () => {
     vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: true } }));
     const user = userEvent.setup();

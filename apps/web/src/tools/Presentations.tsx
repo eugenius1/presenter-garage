@@ -202,12 +202,17 @@ export function Presentations() {
   const nativeText = p.native;
   const input = useRef<HTMLInputElement>(null);
   /**
-   * Bumped by every folder that starts opening. A read that finds it moved
-   * on was overtaken by a later folder, and leaves the screen to that one:
+   * Bumped by every folder that starts opening. An open that finds it moved
+   * on was overtaken by a later one, and is not shown at all.
+   */
+  const opening = useRef(0);
+  /**
+   * The open whose folder is on screen. A read or a save that finds it moved
+   * on was for a folder no longer shown, and leaves the screen to this one:
    * otherwise a slow first folder finishing last shows its findings beside
    * the second folder's files.
    */
-  const opening = useRef(0);
+  const displayed = useRef(0);
 
   const [scanned, setScanned] = useState<Examined[] | null>(null);
   const [files, setFiles] = useState<FolderFile[]>([]);
@@ -334,7 +339,7 @@ export function Presentations() {
   async function examineAll(list: FolderFile[], mine: number): Promise<Examined[] | null> {
     const out: Examined[] = [];
     for (const file of list) {
-      if (mine !== opening.current) return null;
+      if (mine !== displayed.current) return null;
       setBusy(file.name);
       let bytes: Uint8Array;
       try {
@@ -347,12 +352,12 @@ export function Presentations() {
       }
       out.push(examine(file.path, bytes));
     }
-    if (mine !== opening.current) return null;
+    if (mine !== displayed.current) return null;
     setBusy(null);
     return out;
   }
 
-  async function scan(list: FolderFile[], mine = opening.current) {
+  async function scan(list: FolderFile[], mine = displayed.current) {
     const examined = await examineAll(list, mine);
     if (!examined) return;
     setScanned(examined);
@@ -364,8 +369,8 @@ export function Presentations() {
    * what is in hand for the rest: nothing else can have changed, and reading
    * a whole library through the shell again is seconds of copying for nothing.
    */
-  async function rescan(list: FolderFile[]) {
-    const examined = await examineAll(list, opening.current);
+  async function rescan(list: FolderFile[], mine: number) {
+    const examined = await examineAll(list, mine);
     if (!examined) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
     setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
@@ -378,6 +383,7 @@ export function Presentations() {
    */
   function load(folder: { name: string; files: FolderFile[] }, folderHandle: unknown, mine = ++opening.current) {
     if (mine !== opening.current) return Promise.resolve();
+    displayed.current = mine;
     setPending(null);
     clearRun();
     setFolderName(folder.name);
@@ -693,6 +699,8 @@ export function Presentations() {
   async function saveNative() {
     // The checks on screen now, which decided what every fix shown does.
     const kinds = [...shown];
+    // The folder the save is for: one opened while it runs has files of its own.
+    const mine = displayed.current;
     await run("applying", async (step) => {
       await step(chosen[0]?.path ?? "", 0, chosen.length);
       const result = await bridge!.applyFixes(
@@ -706,12 +714,13 @@ export function Presentations() {
           };
         })
       );
+      if (mine !== displayed.current) return;
       const shownAs = new Map(files.map((file) => [file.native?.path, file.path]));
       setNativeRun({ backupFolder: result.backupFolder, refused: result.refused });
       // A refused run replaces the last run's outcomes too: an earlier success is not this run's.
       setOutcomes(result.refused ? null : result.files.map((file) => ({ ...file, path: shownAs.get(file.path) ?? file.path })));
       // Read again what the run may have changed, so what is on screen is what is on disk.
-      await rescan(chosen.flatMap((plan) => fileByPath.get(plan.path) ?? []));
+      await rescan(chosen.flatMap((plan) => fileByPath.get(plan.path) ?? []), mine);
     });
   }
 
@@ -725,6 +734,7 @@ export function Presentations() {
       return;
     }
 
+    const mine = displayed.current;
     await run("applying", async (onFile) => {
       const result = await fixFiles(chosen, {
         read: readFile,
@@ -735,11 +745,12 @@ export function Presentations() {
         },
         onFile,
       });
+      if (mine !== displayed.current) return;
       setOutcomes(result);
       // The backup describes files that no longer look like that.
       setBackup(null);
       // Read the folder again, so what is on screen is what is on disk.
-      await scan(files);
+      await scan(files, mine);
     });
   }
 
