@@ -20,11 +20,28 @@ const PACKAGES = ["packages/core", "packages/node", "apps/web", "packages/mcp", 
 
 describe("the workspace", () => {
   it("carries one version in every package", () => {
-    // The server stamps its version into the Claude Desktop extension, so one
-    // that drifted would ship a release nobody can match to a commit. Bump
-    // them together: npm version <v> --workspaces --include-workspace-root
-    const root = manifest(".");
-    for (const dir of PACKAGES) expect(manifest(dir).version, dir).toBe(root.version);
+    // The release workflow stamps the tag's version into every package at
+    // once (npm version <v> --workspaces --include-workspace-root), so the
+    // server, the extension and the desktop app all ship the same number.
+    // Read from the root's workspaces, so a new app is held to it too.
+    const root = manifest(".") as Manifest & { workspaces: string[] };
+    const dirs = root.workspaces.flatMap((glob) => {
+      const parent = glob.replace(/\/\*$/, "");
+      return fs
+        .readdirSync(path.join(REPO, parent))
+        .map((name) => `${parent}/${name}`)
+        .filter((dir) => fs.existsSync(path.join(REPO, dir, "package.json")));
+    });
+    expect(dirs).toEqual(expect.arrayContaining(PACKAGES));
+    for (const dir of dirs) expect(manifest(dir).version, dir).toBe(root.version);
+  });
+
+  it("keeps the placeholder version in the repository", () => {
+    // The tag is the only place a version lives; the release run stamps it in
+    // and commits nothing back. A real number here would be stale the moment
+    // the next release is cut. The release run itself checks at its own
+    // version, which is when RELEASE_VERSION is set.
+    expect(manifest(".").version).toBe(process.env.RELEASE_VERSION ?? "0.0.0");
   });
 
   it("ships the repository's own licence with the npm package", () => {

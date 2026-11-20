@@ -1,7 +1,7 @@
 {
   "name": "@presenter-garage/desktop",
   "productName": "Presenter Garage",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
   "description": "Presenter Garage as a desktop app: the web app in Electron, with native folder access and the same write path as the MCP server.",
   "license": "GPL-3.0-or-later",
