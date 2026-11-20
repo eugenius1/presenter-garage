@@ -4,7 +4,7 @@ import { openPresentation } from "@presenter-garage/core/lib/presentation";
 import { findPresentations, LibraryError, openRoots, readFoundFile } from "@presenter-garage/node/library";
 import { explain } from "@presenter-garage/node/presentations";
 import { documentAt, isEdit, registeredWorkspaces, workspaceAt } from "@presenter-garage/node/workspace";
-import { fileEdited, songOf, type Edited, type Song } from "./song";
+import { fileEdited, nameKey, songOf, type Edited, type Song } from "./song";
 
 /**
  * Where songs come from: a folder of `.pro` files, a ProPresenter 22
@@ -79,10 +79,14 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
   const failures: SongFailure[] = [];
   let upgradedAt: string | undefined;
   const undated: Song[] = [];
+  const paths = files.map((file) => path.relative(root, file).split(path.sep).join("/"));
+  // `Libraries/` is left out only where every song is under it, as in a
+  // ProPresenter folder or workspace, so no two songs can end up one path.
+  const strip = paths.length > 0 && paths.every((p) => p.startsWith("Libraries/"));
 
   for (const [i, file] of files.entries()) {
     options.progress?.(i, files.length);
-    const relative = libraryPath(path.relative(root, file));
+    const relative = strip ? paths[i].slice("Libraries/".length) : paths[i];
     try {
       // In a workspace the song and its history come from one read of its snapshot.
       const stored = workspace ? await documentAt(file) : undefined;
@@ -132,11 +136,6 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
   };
 }
 
-/** A path inside a library, `Libraries/` left out and `/` between folders on every system. */
-function libraryPath(relative: string): string {
-  return relative.split(path.sep).join("/").replace(/^Libraries\//, "");
-}
-
 /**
  * The folder ProPresenter 22 made this workspace from, if its registry says
  * so and the folder is still on this computer. The registry is the one
@@ -162,11 +161,19 @@ async function madeFrom(root: string): Promise<string | undefined> {
 async function dateFromLegacy(songs: Song[], legacy: string, upgradedAt?: string): Promise<void> {
   const before = await readSource({ label: "legacy", path: legacy });
   const key = (file: string) => file.normalize("NFC").toLowerCase();
-  const byId = new Map(before.songs.filter((s) => s.id).map((s) => [s.id!, s]));
+  const byId = new Map<string, Song[]>();
+  for (const s of before.songs) if (s.id) byId.set(s.id, [...(byId.get(s.id) ?? []), s]);
   const byFile = new Map(before.songs.map((s) => [key(s.file), s]));
   for (const song of songs) {
     const atPath = byFile.get(key(song.file));
-    const old = (song.id && byId.get(song.id)) || (song.id && atPath?.id ? undefined : atPath);
+    // Copies made in ProPresenter share a uuid: among several, only the one
+    // at the same path, or else the only one of the same name, is this song.
+    const sharing = (song.id && byId.get(song.id)) || [];
+    const byUuid =
+      sharing.length === 1
+        ? sharing[0]
+        : sharing.find((s) => s === atPath) ?? only(sharing.filter((s) => nameKey(s.name) === nameKey(song.name)));
+    const old = sharing.length ? byUuid : song.id && atPath?.id ? undefined : atPath;
     const at = old?.edited.at;
     if (at && (!upgradedAt || at <= upgradedAt)) song.edited = { at, source: "beforeUpgrade" };
   }
@@ -177,3 +184,5 @@ export function sourceMeta(source: Source) {
   const { songs, ...meta } = source;
   return { ...meta, songs: songs.length };
 }
+
+const only = <T>(list: readonly T[]): T | undefined => (list.length === 1 ? list[0] : undefined);

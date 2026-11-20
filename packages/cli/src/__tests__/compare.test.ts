@@ -177,6 +177,10 @@ describe("comparing two libraries", () => {
       const other = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }] }, "Chants/S.pro", at("2026-03-04T00:00:00Z"));
       const pair = only(run([other], [clean(at("2025-01-01T00:00:00Z"))]));
       expect(pair.proposed).toEqual({ pick: "a", reason: "bas edited later (2026-03-04 against 2025-01-01)" });
+
+      const since = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }] }, "Chants/S.pro", at("2026-11-10T00:00:00Z"));
+      const untouched = clean({ source: "none", notAfter: "2026-11-07T16:50:47.000Z" });
+      expect(only(run([since], [untouched])).proposed).toEqual({ pick: "a", reason: "bas edited later (2026-11-10 against not after 2026-11-07)" });
     });
 
     it("then the main library, or the first named when neither is", () => {

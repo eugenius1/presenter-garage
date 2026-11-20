@@ -165,7 +165,7 @@ function propose(a: Song, b: Song, later: Later, { labels, prefer }: CompareOpti
     };
   }
   if (later === "a" || later === "b") {
-    const date = (e: Edited) => (e.at ?? `before ${e.notAfter}`).slice(0, 10);
+    const date = (e: Edited) => (e.at ? e.at.slice(0, 10) : `not after ${e.notAfter?.slice(0, 10)}`);
     return {
       pick: later,
       reason: `${labels[later]} edited later (${date(later === "a" ? a.edited : b.edited)} against ${date(later === "a" ? b.edited : a.edited)})`,

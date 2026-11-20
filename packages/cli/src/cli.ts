@@ -150,7 +150,12 @@ async function dump(
     return 0;
   }
   if (options.json) io.out(JSON.stringify({ source: sourceMeta(source), songs: source.songs }, null, 2));
-  else for (const song of source.songs) io.out(`=== ${song.file}\n${songText(song)}`);
+  else {
+    for (const song of source.songs) io.out(`=== ${song.file}\n${songText(song)}`);
+    // The songs alone on stdout; what was left out goes beside them, so it is never silent.
+    const failures = failuresText(source);
+    if (failures) io.err(failures.trimStart());
+  }
   return 0;
 }
 

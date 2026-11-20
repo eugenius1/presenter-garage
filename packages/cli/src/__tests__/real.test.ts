@@ -38,7 +38,7 @@ describe.skipIf(!hasRealLibrary)("dumping a real library", () => {
 });
 
 describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the library it was made from", () => {
-  it("finds every song nobody has edited since the upgrade identical, and leaves the workspace alone", async () => {
+  it("finds every song nobody has edited since the upgrade identical, and leaves the workspace alone", async ({ skip }) => {
     const store = path.join(REAL_WORKSPACE!, "DocumentStore");
     const before = fs.readdirSync(store).sort();
     const legacy = await readSource({ label: "legacy", path: REAL_LEGACY! });
@@ -47,8 +47,10 @@ describe.skipIf(!REAL_WORKSPACE || !REAL_LEGACY)("a real workspace against the l
 
     const pairs = compareSongs(legacy.songs, workspace.songs, { labels: { a: "legacy", b: "workspace" } });
     const untouched = pairs.filter((p) => p.matchedBy === "id" && p.b?.edited.source === "beforeUpgrade");
-    // How many depends on the library; the rules that date them are tested on fixtures in cli.test.ts.
-    expect(untouched.length).toBeGreaterThan(0);
+    // How many depends on the library, and a library whose every song was
+    // edited since has none to check; the rules that date them are tested on
+    // fixtures in cli.test.ts.
+    skip(untouched.length === 0, "no song is untouched since the upgrade");
     expect(untouched.filter((p) => p.content !== "identical").map((p) => p.b!.file)).toEqual([]);
     // Dated by the very file it was made from.
     for (const pair of untouched) expect(pair.later).toBe("same");

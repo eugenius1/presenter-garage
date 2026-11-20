@@ -68,6 +68,8 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
         uuid: LAMB,
         modified: "2026-01-01T00:00:00Z",
       }),
+      // A copy made in ProPresenter shares the uuid; the one at the same path is the song.
+      "Libraries/Chants/Copie.pro": spec("Copie", ["Digne est l'Agneau"], { uuid: LAMB, modified: "2026-10-01T00:00:00Z" }),
       // Another song at the same path, its uuid not the workspace's: no date for it.
       "Libraries/Chants/Same.pro": { name: "Same", groups: [VERSE], modified: "2025-01-01T00:00:00Z" },
       // Edited after the upgrade, so not the file the workspace was made from: no date either.
@@ -205,6 +207,9 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       const text = capture();
       expect(await run(["dump", `bas=${bas}`, "--lyrics"], text)).toBe(0);
       expect(text.stdout).toContain("=== Chants/Edited.pro\n[Refrain]\nAncienne ligne\n");
+      // What could not be read is said beside the songs, not among them.
+      expect(text.stderr).toContain("Chants/Chords.pro: This is a text file");
+      expect(text.stdout).not.toContain("Chords.pro");
 
       const json = capture();
       expect(await run(["dump", `bas=${bas}`, "--lyrics", "--json"], json)).toBe(0);
@@ -213,6 +218,14 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       const neither = capture();
       expect(await run(["dump", `bas=${bas}`], neither)).toBe(2);
       expect(neither.stderr).toContain("dump needs --out <dir>, or --lyrics");
+    });
+
+    it("keeps Libraries/ in a song's path where not every song is under it", async () => {
+      const mixed = path.join(tmp, "mixed");
+      writeLibrary(mixed, { "Chants/S.pro": spec("S", ["Ici"]), "Libraries/Chants/S.pro": spec("S", ["Là"]) });
+      const json = capture();
+      expect(await run(["dump", `mixed=${mixed}`, "--lyrics", "--json"], json)).toBe(0);
+      expect(JSON.parse(json.stdout).songs.map((s: any) => s.file).sort()).toEqual(["Chants/S.pro", "Libraries/Chants/S.pro"]);
     });
   });
 
