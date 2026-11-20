@@ -104,8 +104,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
 
   return {
     async pickFolder() {
+      // Taken before the dialog, as the page takes its own: a workspace
+      // opened while the dialog is still up is the later choice, and the page
+      // keeps showing it, so the folder the dialog returns must not replace it.
+      const mine = ++generation;
       const dir = await deps.chooseFolder();
-      return dir === undefined ? null : openFolder(dir);
+      return dir === undefined ? null : openFolder(dir, mine);
     },
 
     async reopenLast() {
@@ -154,9 +158,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     async applyFixes(files: ChosenFile[]): Promise<NativeApplyResult> {
       if (!isChosenFiles(files)) throw new LibraryError("The lines to fix were not sent in a shape this understands.");
       if (roots.length === 0) throw new LibraryError("No folder is open.");
+      // The folder the save was asked of, for planning and applying alike: one
+      // opened meanwhile would pair this plan with another folder's roots.
+      const asked = roots;
       try {
-        const { plan, refused } = await planChosenFixes(roots, files);
-        const run = plan.files.length > 0 ? await applyPlan(roots, plan, everyLine(plan), deps.backupDir) : { files: [] };
+        const { plan, refused } = await planChosenFixes(asked, files);
+        const run = plan.files.length > 0 ? await applyPlan(asked, plan, everyLine(plan), deps.backupDir) : { files: [] };
         if (run.backupFolder) backupFolders.add(run.backupFolder);
         // The page words each refusal itself, so the English the MCP server gives a model stays here.
         return {

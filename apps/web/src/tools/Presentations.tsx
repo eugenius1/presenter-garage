@@ -236,6 +236,8 @@ export function Presentations() {
    * drop whatever appeared since.
    */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  /** Whether the system would not open the backup folder when asked. */
+  const [backupsUnshown, setBackupsUnshown] = useState(false);
   const [backup, setBackup] = useState<{ name: string; paths: Set<string> } | null>(null);
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const [savedZip, setSavedZip] = useState<string | null>(null);
@@ -333,6 +335,7 @@ export function Presentations() {
     setSavedZip(null);
     setFixError(null);
     setNativeRun(null);
+    setBackupsUnshown(false);
   }
 
   /** Read and check each file, saying which one is being read, until a later folder overtakes it. */
@@ -374,7 +377,9 @@ export function Presentations() {
     if (!examined || mine !== displayed.current) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
     setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
-    setExcluded(new Set());
+    // Only the files read again start over: a line left unticked in another
+    // stays unticked, or the next save would take it without anyone choosing it.
+    setExcluded((prev) => new Set([...prev].filter((key) => !fresh.has(key.slice(0, key.lastIndexOf(" "))))));
   }
 
   /**
@@ -411,7 +416,8 @@ export function Presentations() {
       const folder = await open();
       if (folder) await loadNative(bridge!, folder, mine);
     } catch (e) {
-      setError((e as Error).message);
+      // An open a later one overtook says so; the one on screen has nothing to answer for.
+      if (mine === opening.current) setError((e as Error).message);
     }
   }
 
@@ -721,6 +727,7 @@ export function Presentations() {
       if (mine !== displayed.current) return;
       const shownAs = new Map(files.map((file) => [file.native?.path, file.path]));
       setNativeRun({ backupFolder: result.backupFolder, refused: result.refused });
+      setBackupsUnshown(false);
       // A refused run replaces the last run's outcomes too: an earlier success is not this run's.
       setOutcomes(result.refused ? null : result.files.map((file) => ({ ...file, path: shownAs.get(file.path) ?? file.path })));
       // Read again what the run may have changed, so what is on screen is what is on disk.
@@ -731,14 +738,17 @@ export function Presentations() {
   async function saveFixes() {
     if (bridge) return saveNative();
     setFixError(null);
+    // Taken before the prompt, which waits on the person: a folder opened
+    // while it is up is not the one whose handle and files this save holds.
+    const mine = displayed.current;
     // Scanning only ever asked to read. Writing is a separate promise, made
     // here where the reader has just asked for it and a gesture is in hand.
     if ((await requestHandlePermission(handle, "readwrite")) !== "granted") {
-      setFixError("permissionNeeded");
+      if (mine === displayed.current) setFixError("permissionNeeded");
       return;
     }
+    if (mine !== displayed.current) return;
 
-    const mine = displayed.current;
     await run("applying", async (onFile) => {
       const result = await fixFiles(chosen, {
         read: readFile,
@@ -1029,11 +1039,19 @@ export function Presentations() {
             <div className="editor-bar" style={{ paddingTop: 0 }}>
               <span className="editor-count">{f(nativeText.backedUpTo, { folder: nativeRun.backupFolder })}</span>
               <span className="spacer" />
-              <button className="btn" onClick={() => void bridge?.showBackups(nativeRun.backupFolder!)}>
+              <button
+                className="btn"
+                onClick={() => {
+                  setBackupsUnshown(false);
+                  // Moved or removed since: the path above still says where they were.
+                  bridge?.showBackups(nativeRun.backupFolder!).catch(() => setBackupsUnshown(true));
+                }}
+              >
                 {nativeText.showBackups}
               </button>
             </div>
           )}
+          {nativeRun?.backupFolder && backupsUnshown && <p className="why warn-inline">{nativeText.backupsUnshown}</p>}
 
           {savedZip && <p className="why">{f(p.downloadedFixed, { name: savedZip })}</p>}
           {fixError && (

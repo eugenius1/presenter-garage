@@ -248,8 +248,11 @@ export async function planChosenFixes(
       refuse(e instanceof LossyFile ? "lossy" : "unreadable", { detail: e.message });
       continue;
     }
-    // The page never sends one file twice; a second entry, however spelled, describes nothing it showed.
-    if (seen.has(real)) {
+    // The page names a file by the path it was listed at, which is where it
+    // was found then; a path that now leads elsewhere -- a link put in its
+    // place -- names a file nobody was shown, whatever its bytes.
+    // The page never sends one file twice either; a second entry, however spelled, describes nothing it showed.
+    if (real !== file.path || seen.has(real)) {
       refuse("stale");
       continue;
     }

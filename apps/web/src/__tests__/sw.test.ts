@@ -31,9 +31,10 @@ async function activate(cacheNames: string[]) {
 }
 
 describe("the worker that retires the PWA", () => {
-  it("clears the old worker's cache, unregisters, and reloads the page", async () => {
+  it("clears the old worker's cache and unregisters, leaving open pages as they are", async () => {
     const run = await activate([`workbox-precache-v2-${SCOPE}`, `workbox-precache-v2-${SCOPE}-temp`]);
-    expect(run).toEqual({ caches: [], navigated: [SCOPE], unregistered: true });
+    // Not reloaded: a page may hold work not yet exported.
+    expect(run).toEqual({ caches: [], navigated: [], unregistered: true });
   });
 
   it("leaves alone the caches of another app on the same origin, Workbox or not", async () => {

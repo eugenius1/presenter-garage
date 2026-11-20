@@ -7,6 +7,7 @@ import { Presentations } from "../Presentations";
 import { I18nProvider } from "../../i18n";
 import { checkPresentation, decodePresentation, readPresentation } from "@presenter-garage/core/lib/presentation";
 import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { examine, planFixes } from "@presenter-garage/core/lib/fixes";
 import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
 import {
   BRIDGE_GLOBAL,
@@ -629,9 +630,68 @@ describe("the desktop app", () => {
     expect(file.lines).toHaveLength(boxes.length - 1);
     // What was shown, never bytes: the shell works the fix out again itself.
     for (const line of file.lines) expect(Object.keys(line).sort()).toEqual(["after", "before", "boxIndex", "lineIndex"]);
+    // Every line as shown but the one unticked, which is the first.
+    const { report, fixable } = examine("Checked Song.pro", store.get("Chants/Checked Song.pro")!);
+    const every = planFixes(fixable, report.issues.filter((issue) => file.kinds.includes(issue.kind))).map(
+      ({ boxIndex, lineIndex, before, after }) => ({ boxIndex, lineIndex, before, after })
+    );
+    expect(every).toHaveLength(boxes.length);
+    expect(file.lines).toEqual(every.slice(1));
 
     await user.click(await screen.findByRole("button", { name: "Show backups" }));
     expect(shown).toEqual(["/backups/run"]);
+  });
+
+  it("says so when the backup folder will not open, and keeps its path in view", async () => {
+    const shell = fakeBridge();
+    shell.showBackups = async () => {
+      throw new Error("not found");
+    };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await user.click(await screen.findByRole("button", { name: "Show backups" }));
+
+    expect(await screen.findByText(/The backup folder could not be opened/)).toBeInTheDocument();
+    expect(screen.getByText(/\/backups\/run/)).toBeInTheDocument();
+  });
+
+  it("keeps lines unticked in a file the save did not touch", async () => {
+    store.set("Chants/Other Song.pro", syntheticTextPresentation("Other Song"));
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    result = { backupFolder: "/backups/run", files: [{ path: `${ROOT}/Chants/Other Song.pro`, lines: 1, written: true }] };
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    // Leave out the whole of the first song; save the second.
+    await user.click(screen.getAllByRole("checkbox", { name: "Select every line in this file" })[0]);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+    expect(applied[0].map((file) => file.path)).toEqual([`${ROOT}/Chants/Other Song.pro`]);
+    await screen.findByRole("button", { name: "Show backups" });
+
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(2));
+    expect(applied[1].map((file) => file.path)).toEqual([`${ROOT}/Chants/Other Song.pro`]);
+  });
+
+  it("says nothing of an open a later one overtook", async () => {
+    let failFirst: () => void = () => {};
+    const shell = fakeBridge();
+    shell.pickFolder = () => new Promise<NativeFolder>((_, reject) => (failFirst = () => reject(new Error("overtaken"))));
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await user.click(await screen.findByRole("button", { name: /Choose a folder/ }));
+    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await screen.findByRole("heading", { name: "Fix these" });
+
+    failFirst();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("overtaken")).not.toBeInTheDocument();
   });
 
   it("says why a run wrote nothing, in the reader's language", async () => {

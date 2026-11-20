@@ -347,6 +347,7 @@ export const en = {
           "Each file is copied to the app's backup folder and checked before it changes. A file that changed since it was read is left alone.",
         backedUpTo: "The files as they were are in {folder}.",
         showBackups: "Show backups",
+        backupsUnshown: "The backup folder could not be opened. It may have been moved or removed; the path above is where the backups were made.",
         truncated:
           "This folder holds more presentations than are read at once, so not all of them are listed. Pick the Libraries folder, or one library, instead.",
       },

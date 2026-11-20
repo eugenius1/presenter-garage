@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +72,19 @@ const textOf = (bytes: Uint8Array) => {
   return report.issues.map((issue) => `${issue.boxIndex}:${issue.lineIndex}:${issue.kind}`);
 };
 
+/** Whether this machine lets the suite make links: Windows needs Developer Mode or the privilege. */
+const canSymlink = (() => {
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), "pg-desktop-probe-"));
+  try {
+    fs.symlinkSync(probe, path.join(probe, "link"));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 const make = (dir = backups) =>
   createHandlers({
     chooseFolder: async () => (shown.length > 0 ? shown.shift() : undefined),
@@ -91,7 +105,10 @@ beforeEach(() => {
   bridge = make();
 });
 
-afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 describe("the bridge", () => {
   it("answers exactly the calls the preload exposes, and has no call that writes bytes", () => {
@@ -123,18 +140,66 @@ describe("a folder of .pro files", () => {
     fs.writeFileSync(outside, "x");
     await expect(bridge.read(outside)).rejects.toThrow();
     await expect(bridge.read(path.join(library, "Libraries", "..", "..", "Secret.pro"))).rejects.toThrow();
-    // A link inside the folder that points out of it is not followed.
-    fs.symlinkSync(outside, path.join(library, "Libraries", "Default", "Link.pro"));
-    await expect(bridge.read(path.join(library, "Libraries", "Default", "Link.pro"))).rejects.toThrow();
     // Inside the folder, only the presentations it listed: not whatever else is kept beside them.
     const beside = path.join(fs.realpathSync(library), "Libraries", "Default", "private.txt");
     fs.writeFileSync(beside, "x");
     await expect(bridge.read(beside)).rejects.toThrow();
     await expect(bridge.read(file)).resolves.toBeDefined();
-    // Nor through a listed file replaced, since the folder was opened, by a link to one of those.
+  });
+
+  it.skipIf(!canSymlink)("follows no link out of the folder, nor one put in place of a listed file", async () => {
+    const file = song("Checked Song");
+    shown.push(path.join(library, "Libraries"));
+    await bridge.pickFolder();
+    const outside = path.join(tmp, "Secret.pro");
+    fs.writeFileSync(outside, "x");
+    // A link inside the folder that points out of it is not followed.
+    fs.symlinkSync(outside, path.join(library, "Libraries", "Default", "Link.pro"));
+    await expect(bridge.read(path.join(library, "Libraries", "Default", "Link.pro"))).rejects.toThrow();
+    // Nor through a listed file replaced, since the folder was opened, by a link to something it did not list.
+    const beside = path.join(fs.realpathSync(library), "Libraries", "Default", "private.txt");
+    fs.writeFileSync(beside, "x");
     fs.rmSync(file);
     fs.symlinkSync(beside, file);
     await expect(bridge.read(file)).rejects.toThrow();
+  });
+
+  it.skipIf(!canSymlink)("refuses as stale a file replaced, since it was shown, by a link to another song", async () => {
+    // The same bytes, so neither the hash nor the lines tell them apart: only where the path now leads.
+    const shownSong = song("Shown Song", syntheticTextPresentation("Same"));
+    const other = song("Other Song", syntheticTextPresentation("Same"));
+    const before = fs.readFileSync(other);
+    shown.push(library);
+    await bridge.pickFolder();
+    const choice = await chosen(shownSong);
+    fs.rmSync(shownSong);
+    fs.symlinkSync(other, shownSong);
+
+    const run = await bridge.applyFixes([choice]);
+
+    expect(run.files).toEqual([expect.objectContaining({ path: shownSong, written: false, reason: "stale" })]);
+    expect(fs.readFileSync(other)).toEqual(before);
+  });
+
+  it.skipIf(!sqlite)("keeps a workspace opened while the folder dialog was still up", async () => {
+    putPresentation(createWritableWorkspace(tmp), "Checked Song", presentationRoot(() => []));
+    song("Checked Song");
+    let answer: (dir: string) => void = () => {};
+    bridge = createHandlers({
+      chooseFolder: () => new Promise<string>((resolve) => (answer = resolve)),
+      showFolder: async () => undefined,
+      stateFile: path.join(tmp, "state.json"),
+      backupDir: backups,
+      workspacesDir: path.join(tmp, "Workspaces"),
+    });
+    const picking = bridge.pickFolder();
+    const [workspace] = await bridge.workspaces();
+    const opened = await bridge.openWorkspace(workspace.root);
+
+    const refused = expect(picking).rejects.toThrow();
+    answer(library);
+    await refused;
+    await expect(bridge.read(opened.files[0].path)).resolves.toBeDefined();
   });
 
   it("leaves a folder closed that was forgotten while it was still opening", async () => {
@@ -333,6 +398,29 @@ describe("a folder of .pro files", () => {
 
     expect(run.refused?.code).toBe("failed");
     expect(fs.readFileSync(file)).toEqual(before);
+  });
+
+  it("changes nothing when one backup copy fails after another was made (guard 2)", async () => {
+    const first = song("First Song");
+    const second = song("Second Song");
+    const before = [fs.readFileSync(first), fs.readFileSync(second)];
+    shown.push(library);
+    await bridge.pickFolder();
+    const choices = [await chosen(first), await chosen(second)];
+    const open = fsp.open.bind(fsp);
+    vi.spyOn(fsp, "open").mockImplementation(async (p, ...rest) => {
+      const file = String(p);
+      if (file.startsWith(backups) && file.endsWith("Second Song.pro")) throw new Error("disk full");
+      return open(p, ...rest);
+    });
+
+    const run = await bridge.applyFixes(choices);
+
+    expect(run.files).toEqual([
+      expect.objectContaining({ path: first, written: false, reason: "backupFailed" }),
+      expect.objectContaining({ path: second, written: false, reason: "backupFailed" }),
+    ]);
+    expect([fs.readFileSync(first), fs.readFileSync(second)]).toEqual(before);
   });
 
   it("opens only backup folders its own runs made", async () => {

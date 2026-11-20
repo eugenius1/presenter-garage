@@ -356,6 +356,7 @@ export const fr: Dictionary = {
           "Chaque fichier est copié dans le dossier de sauvegarde de l’application et vérifié avant d’être modifié. Un fichier qui a changé depuis sa lecture est laissé tel quel.",
         backedUpTo: "Les fichiers tels qu’ils étaient se trouvent dans {folder}.",
         showBackups: "Afficher les sauvegardes",
+        backupsUnshown: "Le dossier de sauvegarde n’a pas pu être ouvert. Il a peut-être été déplacé ou supprimé ; le chemin ci-dessus indique où les sauvegardes ont été faites.",
         truncated:
           "Ce dossier contient plus de présentations que ce qui est lu en une fois : elles ne sont donc pas toutes listées. Choisissez plutôt le dossier Libraries, ou une seule bibliothèque.",
       },

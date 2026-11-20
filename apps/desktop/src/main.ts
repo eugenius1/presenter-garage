@@ -31,6 +31,15 @@ const smoke = process.env.PRESENTER_GARAGE_SMOKE === "1";
 
 app.setName("Presenter Garage");
 
+/**
+ * Set to try the app on a copy: where it keeps what it remembers, the last
+ * folder above all, so a run against a copy cannot reopen the real one.
+ * `HOME` and `APPDATA` move ProPresenter's registry and the backups, but not
+ * this. Never in a packaged app. Before the instance lock, which lives here.
+ */
+const profile = !app.isPackaged ? process.env.PRESENTER_GARAGE_PROFILE : undefined;
+if (profile) app.setPath("userData", path.resolve(profile));
+
 protocol.registerSchemesAsPrivileged([
   { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);

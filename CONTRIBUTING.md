@@ -36,7 +36,11 @@ folder pointing somewhere holding the copy and a registry whose `root_path`
 names it. On macOS that is `HOME`, the registry going under
 `Library/Application Support/RenewedVision/ProPresenter/Workspaces` in it. On
 Windows it is `APPDATA`, not `HOME`, the registry going under
-`RenewedVision\ProPresenter\Workspaces` in it.
+`RenewedVision\ProPresenter\Workspaces` in it. Neither moves where Electron
+keeps the app's own state, which remembers the last folder opened and reopens
+it on launch, so set `PRESENTER_GARAGE_PROFILE` to an empty scratch folder
+too: otherwise a run against the copy can open the real workspace a real run
+left behind.
 
 `npm run check` is the gate, and it is the one CI runs. Run it before every
 commit — it includes the codegen step, so it also catches the case where a
