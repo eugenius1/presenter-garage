@@ -241,8 +241,6 @@ export const fr: Dictionary = {
         "Ce navigateur peut lire un dossier mais pas y écrire. Safari et Firefox n'offrent aucun retour vers les fichiers d'origine — utilisez Chrome ou Edge pour enregistrer les corrections sur place.",
       unavailableNote:
         "Ce navigateur ne peut pas lire de dossier. Choisissez les fichiers .pro un à un.",
-      installNote:
-        "Installer l'application rend l'autorisation permanente : dans un onglet, elle expire à la fermeture du dernier.",
 
       found: ["{n} présentation", "{n} présentations"],
       noneFound: "Aucun fichier .pro trouvé dans {folder}. Les présentations se trouvent dans le dossier Libraries d'un espace de travail ProPresenter — choisissez celui-ci, ou l'espace de travail lui-même.",
@@ -254,7 +252,7 @@ export const fr: Dictionary = {
       remembered: "{folder} était ouvert la dernière fois.",
       reconnect: "Rouvrir {folder}",
       reconnectWhy:
-        "L'autorisation de lire le dossier a expiré à la fermeture de l'onglet. La rouvrir demande un clic ; installer l'application la rend permanente.",
+        "L'autorisation de lire le dossier a expiré à la fermeture de l'onglet. La rouvrir demande un clic.",
       forgetFolder: "Oublier ce dossier",
       clean: "Aucun problème de texte trouvé.",
       issuesFound: ["{n} problème dans {files}", "{n} problèmes dans {files}"],

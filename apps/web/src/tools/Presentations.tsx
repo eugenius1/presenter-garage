@@ -957,8 +957,7 @@ export function Presentations() {
               readonly: p.readonlyNote,
               unavailable: p.unavailableNote,
             }[access]
-          }{" "}
-          {access === "readwrite" && p.installNote}
+          }
         </p>
         {native?.truncated && <p className="why warn-inline">{nativeText.truncated}</p>}
 

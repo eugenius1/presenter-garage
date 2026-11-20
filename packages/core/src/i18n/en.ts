@@ -233,8 +233,6 @@ export const en = {
         "This browser can read a folder but cannot write to it. Safari and Firefox offer no way back to the original files — use Chrome or Edge if you want fixes saved in place.",
       unavailableNote:
         "This browser cannot read a folder. Pick the .pro files individually instead.",
-      installNote:
-        "Installing the app makes the permission stick: in a tab it lapses when you close the last one.",
 
       found: ["{n} presentation", "{n} presentations"],
       noneFound: "No .pro files found in {folder}. Presentations live in the Libraries folder of a ProPresenter workspace — pick that, or the workspace itself.",
@@ -246,7 +244,7 @@ export const en = {
       remembered: "{folder} was open last time.",
       reconnect: "Reopen {folder}",
       reconnectWhy:
-        "Permission to read the folder lapsed when the tab closed. Reopening needs one click; installing the app makes it stick.",
+        "Permission to read the folder lapsed when the tab closed. Reopening needs one click.",
       forgetFolder: "Forget this folder",
       clean: "No text problems found.",
       issuesFound: ["{n} problem in {files}", "{n} problems in {files}"],
