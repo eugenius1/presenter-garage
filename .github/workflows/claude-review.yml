@@ -30,6 +30,8 @@ jobs:
       - uses: eugenius1/actions/claude-review/code@main
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Temporary, to see why this review posts nothing; remove once found.
+          show_full_output: true
 
   security:
     name: Security review

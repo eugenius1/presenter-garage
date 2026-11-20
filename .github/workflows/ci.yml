@@ -47,6 +47,16 @@ jobs:
       # coverage.
       - run: npm run check
 
+      # Every build of main as an extension to try before it is released. It
+      # reports version 0.0.0: only a release stamps a real number in.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: presenter-garage-mcpb-${{ github.sha }}
+          path: packages/mcp/dist/presenter-garage.mcpb
+          if-no-files-found: error
+          retention-days: 30
+
       - run: npm run build
 
       # Reporting, not a gate: a Codecov outage must not block a merge.
