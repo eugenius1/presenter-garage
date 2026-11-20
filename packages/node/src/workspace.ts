@@ -56,6 +56,25 @@ export interface StoredDocument {
 }
 
 /**
+ * One change in a document's history.
+ *
+ * The upgrade's own changes are told apart from a person's by what they
+ * carry: the import is stamped with no time at all (peer 1, timestamp 0),
+ * and ProPresenter's later migrations each name themselves in a message
+ * ("ProCore media identity migration"), where an edit made in the editor has
+ * a time and no message. Seen across all 1,227 presentations of a real Cloud
+ * workspace.
+ */
+export interface DocumentChange {
+  peer: string;
+  at?: Date;
+  message?: string;
+}
+
+/** Whether a change is one a person made in ProPresenter, rather than the upgrade's own. */
+export const isEdit = (change: DocumentChange): boolean => change.at !== undefined && change.message === undefined;
+
+/**
  * One spelling for a path however it was composed, cased or separated. The
  * database's own key is lower-case too, and a playlist written on Windows
  * records its entries with backslashes wherever it is read.
@@ -349,6 +368,41 @@ export class Workspace {
       bytes = sha ? (this.recall(sha) ?? this.remember(sha, convert())) : convert();
     }
     return { bytes, size: bytes.length, modified: document.modified, converted: true, sha256: digest };
+  }
+
+  /**
+   * The document's change history: who changed it and when, oldest first.
+   *
+   * ProPresenter 22 keeps no edit date of its own, and the presentation it
+   * converted from carries none either, so this is the only record of when a
+   * song was last edited after the upgrade. Each Loro change carries the
+   * peer that made it, one per computer and run, and a timestamp in seconds.
+   */
+  async history(document: StoredDocument): Promise<DocumentChange[]> {
+    if (!document.available) return [];
+    const row = await this.withStore((db) =>
+      db.prepare("SELECT snapshot FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
+    );
+    if (!row?.snapshot) return [];
+    const doc = new LoroDoc();
+    try {
+      doc.import(row.snapshot as Uint8Array);
+      const changes: DocumentChange[] = [];
+      for (const [peer, list] of doc.getAllChanges()) {
+        for (const change of list) {
+          changes.push({
+            peer,
+            at: change.timestamp ? new Date(change.timestamp * 1000) : undefined,
+            message: change.message || undefined,
+          });
+        }
+      }
+      return changes.sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0));
+    } catch (e) {
+      throw new LibraryError(`Could not read ${document.path}: ${(e as Error).message}`);
+    } finally {
+      doc.free();
+    }
   }
 
   private recall(sha: string): Uint8Array | undefined {

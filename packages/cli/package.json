@@ -1,0 +1,22 @@
+{
+  "name": "@presenter-garage/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The presenter-garage command: compare two ProPresenter libraries or workspaces song by song, and dump one as text. Read-only.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "presenter-garage": "dist/presenter-garage.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "vite build --logLevel warn",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@presenter-garage/core": "*",
+    "@presenter-garage/node": "*"
+  }
+}

@@ -16,7 +16,7 @@ interface Manifest {
   devDependencies?: Record<string, string>;
 }
 const manifest = (dir: string): Manifest => JSON.parse(fs.readFileSync(path.join(REPO, dir, "package.json"), "utf8"));
-const PACKAGES = ["packages/core", "packages/node", "apps/web", "packages/mcp", "apps/desktop"];
+const PACKAGES = ["packages/core", "packages/node", "apps/web", "packages/mcp", "packages/cli", "apps/desktop"];
 
 describe("the workspace", () => {
   it("carries one version in every package", () => {
@@ -37,8 +37,8 @@ describe("the workspace", () => {
   // npm hoists every package to the root, so an import of something a package
   // never declared still resolves -- and the server's bundle, which inlines
   // everything, would quietly carry the app's React along with it. The
-  // desktop app's main process is bundled the same way.
-  for (const dir of ["packages/core", "packages/node", "packages/mcp", "apps/desktop"]) {
+  // desktop app's main process and the command line are bundled the same way.
+  for (const dir of ["packages/core", "packages/node", "packages/mcp", "packages/cli", "apps/desktop"]) {
     const name = path.basename(dir);
     it(`lets ${name} import only what it declares`, () => {
       const { dependencies, devDependencies } = manifest(dir);
