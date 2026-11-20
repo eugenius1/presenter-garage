@@ -186,7 +186,8 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           if ! gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null; then
-            at=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha) || at=
+            # The commit the tag names, whether it is lightweight or annotated.
+            at=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$TAG" --jq .sha) || at=
             if [ "$at" != "$GITHUB_SHA" ]; then
               echo "::error::Could not create $TAG at $GITHUB_SHA; it was made elsewhere since the version was picked."
               exit 1
