@@ -3,6 +3,7 @@ import { openPresentation } from "@presenter-garage/core/lib/presentation";
 import { compareSongs, contentOf, laterOf, looseLine, summarise, summaryText, type Pair } from "../compare";
 import { alignGroups, BREAK, sideBySide } from "../diff";
 import { nameKey, songOf, songText, type Edited, type Group, type Song } from "../song";
+import { legacyMatcher } from "../source";
 import { proFile, type SongSpec } from "./fixtures";
 
 const NBSP = " ";
@@ -260,5 +261,36 @@ describe("the side-by-side view", () => {
   it("marks the whole of a group the other side does not have", () => {
     const rows = sideBySide(groups([VERSE]), groups([VERSE, CHORUS]));
     expect(rows[1]).toEqual({ b: { name: ["Refrain"], slides: [{ macros: [["Louange"]], lines: [[["Gloire à toi"]]] }] } });
+  });
+});
+
+describe("the file a workspace song was made from", () => {
+  const id = "33333333-0000-4000-8000-000000000003";
+  const at = (file: string, name: string, uuid?: string) => song({ name, uuid, groups: [VERSE] }, file);
+
+  it("is the one with its uuid, or among copies sharing it, the one at its path, else the only one of its name", () => {
+    const own = at("Chants/A.pro", "A", id);
+    const copy = at("Chants/Z.pro", "Z", id);
+    const match = legacyMatcher([copy, own]);
+    expect(match(at("Chants/A.pro", "A", id))).toBe(own);
+    expect(match(at("Ailleurs/A.pro", "A", id))).toBe(own);
+    expect(match(at("Ailleurs/B.pro", "B", id))).toBeUndefined();
+    expect(legacyMatcher([own])(at("Ailleurs/B.pro", "B", id))).toBe(own);
+  });
+
+  it("is never a file at its path whose uuid differs", () => {
+    expect(legacyMatcher([at("Chants/A.pro", "A", id)])(at("Chants/A.pro", "A", "44444444-0000-4000-8000-000000000004"))).toBeUndefined();
+    // A file that carries no uuid is matched by its path.
+    const plain = { ...at("Chants/A.pro", "A"), id: undefined };
+    expect(legacyMatcher([plain])(at("Chants/A.pro", "A", id))).toBe(plain);
+  });
+
+  it("goes by the exact spelling where a case-sensitive file system holds two paths that differ only in case", () => {
+    const upper = at("Chants/A.pro", "A", id);
+    const lower = at("Chants/a.pro", "a", id);
+    expect(legacyMatcher([lower, upper])(at("Chants/A.pro", "A", id))).toBe(upper);
+    expect(legacyMatcher([upper, lower])(at("Chants/a.pro", "a", id))).toBe(lower);
+    // Neither spelled as the song is, and their names alike: no date rather than a guess.
+    expect(legacyMatcher([upper, lower])(at("chants/A.PRO", "A", id))).toBeUndefined();
   });
 });

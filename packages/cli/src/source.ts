@@ -153,30 +153,44 @@ async function madeFrom(root: string): Promise<string | undefined> {
 
 /**
  * Date the songs nobody has edited since the upgrade by the `.pro` files the
- * workspace was made from. Matched by uuid, since the upgrade keeps it, and
- * by path only where one side carries none: two songs whose uuids differ are
- * not one song, wherever they sit. A file edited after the upgrade is not the
- * one the workspace was made from, so its date says nothing either.
+ * workspace was made from.
  */
 async function dateFromLegacy(songs: Song[], legacy: string, upgradedAt?: string): Promise<void> {
-  const before = await readSource({ label: "legacy", path: legacy });
-  const key = (file: string) => file.normalize("NFC").toLowerCase();
-  const byId = new Map<string, Song[]>();
-  for (const s of before.songs) if (s.id) byId.set(s.id, [...(byId.get(s.id) ?? []), s]);
-  const byFile = new Map(before.songs.map((s) => [key(s.file), s]));
+  const match = legacyMatcher((await readSource({ label: "legacy", path: legacy })).songs);
   for (const song of songs) {
-    const atPath = byFile.get(key(song.file));
-    // Copies made in ProPresenter share a uuid: among several, only the one
-    // at the same path, or else the only one of the same name, is this song.
-    const sharing = (song.id && byId.get(song.id)) || [];
-    const byUuid =
-      sharing.length === 1
-        ? sharing[0]
-        : sharing.find((s) => s === atPath) ?? only(sharing.filter((s) => nameKey(s.name) === nameKey(song.name)));
-    const old = sharing.length ? byUuid : song.id && atPath?.id ? undefined : atPath;
-    const at = old?.edited.at;
+    const at = match(song)?.edited.at;
     if (at && (!upgradedAt || at <= upgradedAt)) song.edited = { at, source: "beforeUpgrade" };
   }
+}
+
+/**
+ * Finds the file a workspace song was made from, or nothing where that is
+ * not certain. Matched by uuid, since the upgrade keeps it, and by path only
+ * where one side carries none: two songs whose uuids differ are not one song,
+ * wherever they sit. Copies made in ProPresenter share a uuid, so among
+ * several the one at the same path is the song, or else the only one of the
+ * same name. A path is the same as the file system would have it, case and
+ * accent composition aside, and the exact spelling decides only where a
+ * case-sensitive one holds two such files.
+ */
+export function legacyMatcher(before: readonly Song[]): (song: Song) => Song | undefined {
+  const key = (file: string) => file.normalize("NFC").toLowerCase();
+  const byId = new Map<string, Song[]>();
+  const byKey = new Map<string, Song[]>();
+  for (const s of before) {
+    if (s.id) byId.set(s.id, [...(byId.get(s.id) ?? []), s]);
+    byKey.set(key(s.file), [...(byKey.get(key(s.file)) ?? []), s]);
+  }
+  return (song) => {
+    const near = byKey.get(key(song.file)) ?? [];
+    const atPath = near.find((s) => s.file.normalize("NFC") === song.file.normalize("NFC")) ?? only(near);
+    const sharing = (song.id && byId.get(song.id)) || [];
+    if (sharing.length === 1) return sharing[0];
+    if (sharing.length > 1) {
+      return (atPath && sharing.includes(atPath) ? atPath : undefined) ?? only(sharing.filter((s) => nameKey(s.name) === nameKey(song.name)));
+    }
+    return song.id && atPath?.id ? undefined : atPath;
+  };
 }
 
 /** A source without its songs' words: what JSON an agent reads says about it. */
