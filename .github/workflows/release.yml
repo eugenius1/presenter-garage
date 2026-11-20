@@ -73,7 +73,18 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          semver='^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$'
+          # npm's own version parser, pinned, rather than a hand-written
+          # pattern: it prints the version without the v, or fails if the
+          # input is not one.
+          semver() { npx --yes semver@7.8.5 "$@"; }
+
+          # A tag is used only if it is exactly v followed by a version:
+          # semver also accepts "=1.2.3" or "v1.2.3+build" and tidies them.
+          version_of() {
+            local version
+            version=$(semver "$1") && [ "$1" = "v$version" ] && echo "$version"
+          }
+
           if [ "$EVENT" = workflow_dispatch ]; then
             if [ "$REF" != refs/heads/main ]; then
               echo "::error::Releases are cut from main, not $REF."
@@ -84,22 +95,17 @@ jobs:
               echo "::error::There is no full release to count from. Publish the first one by hand."
               exit 1
             }
-            [[ "$latest" =~ $semver ]] || { echo "::error::The latest release, $latest, is not tagged vX.Y.Z."; exit 1; }
-            major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
-            case "$BUMP" in
-              major) tag="v$((major + 1)).0.0" ;;
-              minor) tag="v$major.$((minor + 1)).0" ;;
-              *)     tag="v$major.$minor.$((patch + 1))" ;;
-            esac
+            current=$(version_of "$latest") || { echo "::error::The latest release, $latest, is not tagged vX.Y.Z."; exit 1; }
+            version=$(semver --increment "$BUMP" "$current")
+            tag="v$version"
             if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
               echo "::error::$tag already exists."
               exit 1
             fi
           else
             tag=$RELEASE_TAG
-            [[ "$tag" =~ $semver ]] || { echo "::error::Release tags look like v1.2.3 or v1.2.3-beta.1, not $tag."; exit 1; }
+            version=$(version_of "$tag") || { echo "::error::Release tags look like v1.2.3 or v1.2.3-beta.1, not $tag."; exit 1; }
           fi
-          version=${tag#v}
           prerelease=false
           if [[ "$version" == *-* || "$RELEASE_PRERELEASE" == true ]]; then prerelease=true; fi
           {
