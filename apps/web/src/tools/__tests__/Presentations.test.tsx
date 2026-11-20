@@ -684,7 +684,10 @@ describe("the desktop app", () => {
     expect(applied[1].map((file) => file.path)).toEqual([`${ROOT}/Chants/Other Song.pro`]);
   });
 
-  it("keeps a line unticked in a file the save changed, though the save moved it", async () => {
+  it.each([
+    ["shown", false],
+    ["hidden by a filter while the file was saved", true],
+  ])("keeps a line unticked in a file the save changed, though the save moved it: %s", async (_, hide) => {
     // A blank line, then a line ending in a space, in one box: removing the
     // first moves the second up.
     const doc = decodePresentation(syntheticTextPresentation());
@@ -711,13 +714,14 @@ describe("the desktop app", () => {
 
     const kept = screen.getByRole("checkbox", { name: "slide 4 line 3" });
     await user.click(kept);
+    if (hide) await user.click(screen.getByRole("button", { name: /^Trailing space/ }));
     await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
     await screen.findByRole("button", { name: "Show backups" });
+    if (hide) await user.click(screen.getByRole("button", { name: /^Trailing space/ }));
 
     // Moved up a line by the blank one's removal, and still unticked.
-    const left = screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ });
-    expect(left.map((box) => box.getAttribute("aria-label"))).toEqual(["slide 4 line 2"]);
-    expect(left[0]).not.toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "slide 4 line 3" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
   });
 
   it("says nothing of an open a later one overtook", async () => {

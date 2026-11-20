@@ -187,10 +187,14 @@ function rowsFor({ report, fixable }: Examined, shown: ReadonlySet<TextIssueKind
 const fileOfKey = (key: string) => key.slice(0, key.lastIndexOf(" "));
 
 /**
- * A fixable line by what it says and becomes rather than where it is: a line
- * a save removed above it moves it up, and its address with it.
+ * A fixable line by its box and what it says rather than where it is: a line
+ * a save removed above it moves it up, and its address with it. Not by what
+ * it becomes, which depends on the kinds on screen.
  */
-const lineOf = ({ fix }: Row) => JSON.stringify([fix!.boxIndex, fix!.before, fix!.after]);
+const lineOf = (row: Row) => JSON.stringify([row.fix!.boxIndex, row.text]);
+
+/** Every kind, for what has to hold whichever are on screen. */
+const EVERY_KIND: ReadonlySet<TextIssueKind> = new Set(ALL_KINDS);
 
 /**
  * Check the text of every presentation in a library, and put it right.
@@ -395,16 +399,18 @@ export function Presentations() {
     // A line left unticked stays unticked, or the next save would take it
     // without anyone choosing it: in a file not read again, by its address;
     // in one that was, by what it says, since the save may have moved it.
+    // Every kind, not just those on screen: a line unticked and then hidden
+    // by a filter is still unticked when the filter is lifted.
     const before = new Map((scanned ?? []).map((one) => [one.report.filename, one]));
     setExcluded((prev) => {
       const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
       for (const [filename, one] of fresh) {
         const left = new Map<string, number>();
         const was = before.get(filename);
-        for (const row of was ? rowsFor(was, shown) : []) {
+        for (const row of was ? rowsFor(was, EVERY_KIND) : []) {
           if (row.fix && prev.has(row.key)) left.set(lineOf(row), (left.get(lineOf(row)) ?? 0) + 1);
         }
-        for (const row of rowsFor(one, shown)) {
+        for (const row of rowsFor(one, EVERY_KIND)) {
           const n = row.fix ? (left.get(lineOf(row)) ?? 0) : 0;
           if (n === 0) continue;
           next.add(row.key);
