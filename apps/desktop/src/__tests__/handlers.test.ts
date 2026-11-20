@@ -496,6 +496,20 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect(folder.files.map((f) => f.relative)).toEqual(["Libraries/Default/Checked Song.pro"]);
   });
 
+  it("lets no workspace open replace the folder on screen once the dialog has been asked for", async () => {
+    const file = song("Checked Song");
+    shown.push(library);
+    await bridge.pickFolder();
+
+    // The workspace is still being looked up when the dialog is opened, then dismissed.
+    const opening = bridge.openWorkspace(root);
+    const refused = expect(opening).rejects.toThrow();
+    expect(await bridge.pickFolder()).toBeNull();
+    await refused;
+
+    await expect(bridge.read(file)).resolves.toBeDefined();
+  });
+
   it("stays closed when forgotten while the registry was still being asked", async () => {
     const opening = bridge.openWorkspace(root);
     const refused = expect(opening).rejects.toThrow();

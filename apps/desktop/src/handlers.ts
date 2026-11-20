@@ -114,6 +114,9 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       // opened while the dialog is still up is the later choice, and the page
       // keeps showing it, so the folder the dialog returns must not replace it.
       const mine = ++asked;
+      // And an open already under way is over: the page has moved on to the
+      // dialog, and keeps what it shows if the dialog is dismissed.
+      generation++;
       const dir = await deps.chooseFolder();
       if (dir === undefined) return null;
       if (mine !== asked) throw new LibraryError(`${dir} was not opened: another folder was opened while the dialog was up.`);
