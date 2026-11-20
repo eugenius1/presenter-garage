@@ -172,14 +172,24 @@ jobs:
       # already on it, so "latest" never points at a release without it. A
       # release made with this job's token starts no other workflow, so this
       # one does not run a second time for it.
+      #
+      # The tag is created first, at the commit that was built, and creating a
+      # ref that already exists fails. Without that, a tag pushed by hand since
+      # the version job checked would be reused, since GitHub ignores --target
+      # for an existing tag, and the release would name that commit while
+      # carrying this build's files.
       - name: Create the release
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null || {
+            echo "::error::Could not create $TAG at $GITHUB_SHA; it may have been made since the version was picked."
+            exit 1
+          }
           gh release create "$TAG" presenter-garage.mcpb --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+            --verify-tag --title "$TAG" --generate-notes
 
       - name: Attach the Claude Desktop extension
         if: github.event_name == 'release'
