@@ -51,18 +51,19 @@ let nextId = 1;
 /**
  * Store one document. `corePath` is the old relative path without its
  * extension, for the kinds that have one. `root` as `null` is a document of
- * a Cloud workspace that is listed but not yet downloaded. `scope` 1 is the
- * per-computer copy some kinds keep beside the shared one.
+ * a Cloud workspace that is listed but not yet downloaded, and a snapshot's
+ * bytes are stored as they are, for a test that needs a history. `scope` 1 is
+ * the per-computer copy some kinds keep beside the shared one.
  */
 export function putDocument(
   workspace: string,
   kind: string,
   corePath: string | null,
-  root: Record<string, unknown> | null,
+  root: Record<string, unknown> | Uint8Array | null,
   scope = 0
 ): void {
   const db = new sqlite!.DatabaseSync(storeOf(workspace));
-  const bytes = root ? snapshot(root) : null;
+  const bytes = root instanceof Uint8Array ? root : root ? snapshot(root) : null;
   const id = new Uint8Array(16);
   new DataView(id.buffer).setUint32(12, nextId++);
   db.prepare("INSERT INTO workspace_streams VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(

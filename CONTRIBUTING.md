@@ -15,7 +15,7 @@ Run everything from the repository root: it is an npm workspace, and the root
 scripts reach into the packages. `npm run build` produces the static site in
 `apps/web/dist/`. `npm test` runs every package's suite in one pass, and
 `npm run check` is the same gate CI uses: codegen, lint, the typechecks, tests,
-and the MCP server's bundle and extension.
+the MCP server's bundle and extension, and the command line's bundle.
 
 Pushing to `main` deploys to GitHub Pages. The site needs a real HTTP server
 even though it is entirely static — ES modules are blocked on `file://`.
@@ -238,6 +238,13 @@ It also runs `packages/node/src/__tests__/workspace-ranges-survey.test.ts`,
 which only reads: it tries five edits on every line of every box with
 styling ranges, and prints on stderr how many boxes the ranges can be moved
 for and why the rest are refused.
+
+The command line's own pair is in `packages/cli/src/__tests__/real.test.ts`:
+`PP_LIBRARY_DIR` dumps that library and checks every song has its files,
+and `PP_WORKSPACE_DIR` with `PP_LEGACY_LIBRARY_DIR` compares the two and
+expects every song nobody has edited since the upgrade to come back
+identical, dated by its old file, with the workspace's folder left exactly
+as it was.
 
 `packages/core/scripts/make-mutated-sample.mjs` generates a plausibly-edited copy of a real
 file, which is handy for exercising the diff UI without waiting for two genuine
@@ -515,7 +522,8 @@ that exists, which is why 0.1.0 was published by hand.
 ## Conventions
 
 - **`npm run check` must pass.** Codegen, `oxlint`, every package's
-  TypeScript projects, the full suite, and the MCP bundle and extension. The
+  TypeScript projects, the full suite, the MCP bundle and extension, and the
+  command line's bundle. The
   tests that matter most only run where `PP_LIBRARY_DIR` points at a real
   library; CI skips them.
 - **No licence headers in source files**: no `SPDX-License-Identifier` line
@@ -552,7 +560,7 @@ they may never read.
 
 What other code imports or npm installs lives under `packages/`, and the
 deployed site and the desktop app under `apps/`, one version between all
-five:
+six:
 
 - **`core`** (`@presenter-garage/core`, private): reading, checking and
   editing ProPresenter files — `src/lib/`, the vendored schema in `proto/`,
@@ -569,12 +577,24 @@ five:
   and `apply.ts` (with `plans.ts` and `styling.ts`, all re-exported as
   `edits.ts`) to plan and apply an edit through them. Its one dependency, `loro-crdt`, is imported from its `base64` build,
   which carries the WebAssembly inline so the server stays one file.
-  Kept out of `mcp` so the desktop app, and a command line later, share the
+  Kept out of `mcp` so the desktop app and the command line share the
   one write path rather than grow a second.
 - **`web`** (`@presenter-garage/web`, private): the browser app — React,
   its stylesheet, and the two browser-only pieces of `lib/`, persistence and
   routing.
 - **`mcp`** (`presenter-garage-mcp`, published to npm): the MCP server.
+- **`cli`** (`@presenter-garage/cli`, private): the `presenter-garage`
+  command, `npm run cli -- <command>` from a checkout. Read-only so far:
+  `sources`, `dump` and `compare`, all reading through `node` as the server
+  does, a workspace only through `openDatabase()`. `compare` matches songs
+  (`compare.ts`), lays two versions side by side with every differing word
+  marked (`diff.ts`), and writes `report.html` (`report.ts`), one file with
+  its data and script inline so it opens from the disk and can be passed on.
+  The page builds its elements with `textContent`, never `innerHTML`: its
+  data is lyrics. It writes only under `--out`, into a folder that is empty
+  or one it wrote before. When it comes to write, it is bound by AGENTS.md
+  like every other surface: guard 2 from `packages/node`, guard 3 from a
+  person at a terminal or a plan file a person reviewed.
 - **`desktop`** (`@presenter-garage/desktop`, private): the web app in
   Electron. Its main process (`main.ts`, the calls it answers in
   `handlers.ts`) runs `node` unchanged, `node:sqlite` included, which is why
@@ -582,7 +602,7 @@ five:
   isolation and no Node; `channels.ts` lists every call it can make, and
   none of them writes bytes to a path.
 
-`core`, `node`, `mcp` and `desktop` may import only what their own `package.json` declares, and
+`core`, `node`, `mcp`, `cli` and `desktop` may import only what their own `package.json` declares, and
 `packages/mcp/src/__tests__/workspace.test.ts` fails if any reaches for
 anything else. npm hoists every dependency to the root, so an undeclared
 import would otherwise resolve quietly, and for `mcp` it would drag the app

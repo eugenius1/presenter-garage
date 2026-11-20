@@ -28,7 +28,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.node.json",
     "mcp:build": "npm run protos && npm run build -w presenter-garage-mcp",
     "mcp:pack": "npm run mcp:build && npm run pack:mcpb -w presenter-garage-mcp",
-    "check": "npm run protos && npm run lint && npm run typecheck && npm test && npm run mcp:pack"
+    "check": "npm run protos && npm run lint && npm run typecheck && npm test && npm run mcp:pack && npm run build -w @presenter-garage/cli",
+    "cli": "tsx packages/cli/src/main.ts",
+    "cli:build": "npm run protos && npm run build -w @presenter-garage/cli"
   },
   "devDependencies": {
     "@types/node": "^24.13.4",

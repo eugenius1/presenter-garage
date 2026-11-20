@@ -165,6 +165,43 @@ npm ci && npm run mcp:build
 claude mcp add presenter-garage -- node "$PWD/packages/mcp/dist/presenter-garage-mcp.mjs" ~/Documents/ProPresenter
 ```
 
+### Comparing two libraries (command line)
+
+`presenter-garage` reads two ProPresenter libraries, matches their songs and
+sorts each pair by how far apart the two versions are: identical, spacing or
+end punctuation only, group names only, real differences, renamed, or only
+on one side. For each pair it gives both edit dates, which side was edited
+later, and the version it would keep, with the reason: fewer text-check
+findings, then the later edit, then the library you call the main one. It
+never writes to a library.
+
+```bash
+npm ci && npm run protos
+npm run cli -- sources
+npm run cli -- compare bas=/path/to/ProPresenter/Libraries haut=active --out private/compare
+```
+
+A source is a folder of `.pro` files, a ProPresenter 22 workspace folder, or
+`active` (the workspace ProPresenter has open), with a label in front. Songs
+are matched by their internal ID, then by name, with `_` read as `'`, curly
+apostrophes as straight ones and accents however they were composed.
+
+`compare` writes `report.html`, one song to a page with the two versions side
+by side, aligned by group and with every differing word marked. Filter by
+bucket, by who edited later and by whether you have decided, keep one side
+or the other, and download your picks as `decisions.json`. It also writes
+`compare.json` and a text view of every song, so
+`git diff --no-index --word-diff text/bas text/haut` works in a terminal.
+`dump <source> --out <dir>` writes every song of one library as JSON and text.
+
+ProPresenter 22 records no edit dates from before the upgrade, so a workspace
+song nobody has edited since is dated from the `.pro` file it was made from,
+found through ProPresenter's registry or given with
+`--legacy haut=/path/to/the/old/folder`. Edits after the upgrade are dated
+from the workspace's own change history. Every command takes `--json`, and
+lyrics reach the terminal only with `dump --lyrics`. It needs Node 22.13 or
+later.
+
 ## Why
 
 ProPresenter gives you no way to answer "what changed in the media bin since
@@ -203,7 +240,8 @@ tool — diff, audit, browse, reorganise and export — with the fidelity gate
 behind everything written, English and French, and light, dark or system
 appearance. Also the **MCP server**, which reads everything the app does and
 edits slide text line by line under the same four write guards in
-[AGENTS.md](AGENTS.md).
+[AGENTS.md](AGENTS.md), and the **command line**, which compares two libraries
+and writes a report to review them in; turning that review into edits is next.
 
 ## Contributing
 
