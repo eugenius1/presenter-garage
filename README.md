@@ -4,13 +4,12 @@
 [![Deploy](https://github.com/eugenius1/presenter-garage/actions/workflows/deploy.yml/badge.svg)](https://github.com/eugenius1/presenter-garage/actions/workflows/deploy.yml)
 [![codecov](https://codecov.io/gh/eugenius1/presenter-garage/graph/badge.svg)](https://codecov.io/gh/eugenius1/presenter-garage)
 
-An installable web app holding a suite of utilities for ProPresenter 7 files.
+A web app holding a suite of utilities for ProPresenter 7 files.
 
 **<https://presenter-garage.eusebius.tech/>**
 
 The app runs entirely in the browser. No server, no upload: your media library
-never leaves the machine, and once installed the app works with no network at
-all. The [MCP server](#for-ai-assistants-mcp) is different, because it hands
+never leaves the machine. The [MCP server](#for-ai-assistants-mcp) is different, because it hands
 what it reads to an AI assistant.
 
 ## Tools
@@ -185,8 +184,9 @@ read copies — they offer no way back to the original files, so there the fixes
 arrive as a zip instead. Both routes are offered automatically; you do not
 choose between them.
 
-Installing the app changes one thing: permission to read a folder sticks,
-rather than lapsing when you close the last tab.
+Permission to read a folder can lapse when you close the last tab, unless you
+allowed it on every visit. Where it has lapsed, a folder chosen on an earlier
+visit is offered as a button to grant it again.
 
 ## Languages
 

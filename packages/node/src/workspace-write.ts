@@ -16,9 +16,9 @@ import {
   type LoroKey,
   type WorkspaceEdit,
 } from "@presenter-garage/core/lib/workspace-edit";
-import { LibraryError } from "./paths";
+import { LibraryError, LossyFile, WorkspaceRefused } from "./paths";
 import { backupPath, errorDetail, runFolder, same, sha256, writeBackups, type WriteOutcome } from "./write";
-import { hex, isOwnPath, openDatabase, REGISTRY, type StoredDocument, type Workspace } from "./workspace";
+import { hasCloudImprint, hex, isOwnPath, openDatabase, REGISTRY, type StoredDocument, type Workspace } from "./workspace";
 
 /**
  * Writing slide text into a ProPresenter 22 workspace.
@@ -72,10 +72,10 @@ const unverified = (what: string) =>
  */
 export async function checkWritableWorkspace(workspace: Workspace): Promise<void> {
   const root = workspace.root;
-  if (await fs.stat(path.join(root, "imprint.cloud")).catch(() => undefined)) throw new LibraryError(CLOUD_REFUSED);
+  if (await hasCloudImprint(root)) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
   const registry = path.join(path.dirname(root), REGISTRY);
   if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
-    throw new LibraryError(unverified(`format version could not be read: there is no ${REGISTRY} beside it`));
+    throw new WorkspaceRefused(unverified(`format version could not be read: there is no ${REGISTRY} beside it`), "unverifiedWorkspace");
   }
   const db = await openDatabase(registry);
   let row;
@@ -88,10 +88,10 @@ export async function checkWritableWorkspace(workspace: Workspace): Promise<void
   } finally {
     db.close();
   }
-  if (!row) throw new LibraryError(unverified(`format version could not be read: ${REGISTRY} does not list it`));
-  if (row.cloud_uuid !== null) throw new LibraryError(CLOUD_REFUSED);
+  if (!row) throw new WorkspaceRefused(unverified(`format version could not be read: ${REGISTRY} does not list it`), "unverifiedWorkspace");
+  if (row.cloud_uuid !== null) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
   if (row.schema_version !== VERIFIED_SCHEMA_VERSION) {
-    throw new LibraryError(unverified(`format is ${String(row.schema_version)}, not ${VERIFIED_SCHEMA_VERSION}`));
+    throw new WorkspaceRefused(unverified(`format is ${String(row.schema_version)}, not ${VERIFIED_SCHEMA_VERSION}`), "unverifiedWorkspace");
   }
 }
 
@@ -184,7 +184,7 @@ export async function readForPlanning(
   try {
     ({ root } = gate(row));
   } catch {
-    throw new LibraryError(
+    throw new LossyFile(
       `${document.path}: this document does not come back exactly as it was through a read and a rewrite, ` +
         "so it is not written to. Nothing was planned."
     );
@@ -197,7 +197,7 @@ export async function readForPlanning(
 function checkStoreVersion(db: Database): void {
   const version = Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
   if (version !== VERIFIED_USER_VERSION) {
-    throw new LibraryError(unverified(`document store is version ${version}, not ${VERIFIED_USER_VERSION}`));
+    throw new WorkspaceRefused(unverified(`document store is version ${version}, not ${VERIFIED_USER_VERSION}`), "unverifiedWorkspace");
   }
 }
 
@@ -227,7 +227,7 @@ async function lockStore(store: string): Promise<Database> {
     // from ProPresenter; closing also ends the transaction, if one began.
     db?.close();
     if (e instanceof LibraryError) throw e;
-    if (!locked && /locked|busy/i.test((e as Error).message)) throw new LibraryError(PROPRESENTER_OPEN);
+    if (!locked && /locked|busy/i.test((e as Error).message)) throw new WorkspaceRefused(PROPRESENTER_OPEN, "propresenterOpen");
     throw new LibraryError(`Could not open ${store} for writing: ${(e as Error).message}`);
   }
 }

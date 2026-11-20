@@ -1,3 +1,5 @@
+import { desktopBridge } from "./desktop";
+
 /**
  * Reading a folder of ProPresenter files.
  *
@@ -17,13 +19,20 @@
  * Installing the app changes neither: it changes how long permission lasts.
  * In a tab, access ends when the last tab for the origin closes. Installed,
  * Chrome persists it, so the folder is granted once rather than every session.
+ *
+ * The desktop app is a third route, `native`: its shell opens the folder with
+ * the system's own dialog, which has no block list (Chromium's picker refuses
+ * `AppData` outright), gives real paths, and reads a ProPresenter 22
+ * workspace's database. Its writes go through the shell, never through a
+ * handle here; see `desktop.ts`.
  */
 
-export type FolderAccess = "readwrite" | "readonly" | "unavailable";
+export type FolderAccess = "native" | "readwrite" | "readonly" | "unavailable";
 
 /** What this browser can do with a folder, before anything is picked. */
 export function folderAccess(): FolderAccess {
   if (typeof window === "undefined") return "unavailable";
+  if (desktopBridge()) return "native";
   if ("showDirectoryPicker" in window) return "readwrite";
   // Feature-detect the directory input rather than sniffing the browser.
   if (typeof document !== "undefined" && "webkitdirectory" in document.createElement("input")) {
@@ -40,6 +49,11 @@ export interface FolderFile {
   read: () => Promise<Uint8Array>;
   /** Absent when the folder was read through the input fallback. */
   write?: (bytes: Uint8Array) => Promise<void>;
+  /**
+   * In the desktop app, the file's real path, and once `read` has run, the
+   * hash it was read at. A save sends both back, never bytes: see `desktop.ts`.
+   */
+  native?: { path: string; sha256?: string };
 }
 
 export interface PickedFolder {

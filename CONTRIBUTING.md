@@ -18,8 +18,29 @@ scripts reach into the packages. `npm run build` produces the static site in
 and the MCP server's bundle and extension.
 
 Pushing to `main` deploys to GitHub Pages. The site needs a real HTTP server
-even though it is entirely static — ES modules and service workers are both
-blocked on `file://`.
+even though it is entirely static — ES modules are blocked on `file://`.
+
+The desktop app is the same web app in Electron:
+
+```bash
+npm run desktop        # build the web app and the shell, then open it
+npm run desktop:dev    # against `npm run dev`, started first in another terminal
+```
+
+`npm run smoke -w @presenter-garage/desktop` launches the build, checks the
+page came up with its bridge to the main process, and quits; CI runs it on
+macOS and Windows. ProPresenter 22 is found through its own registry under
+the user's application data, and backups go there too, so to try the app on a
+copy of a workspace rather than the one ProPresenter uses, run it with that
+folder pointing somewhere holding the copy and a registry whose `root_path`
+names it. On macOS that is `HOME`, the registry going under
+`Library/Application Support/RenewedVision/ProPresenter/Workspaces` in it. On
+Windows it is `APPDATA`, not `HOME`, the registry going under
+`RenewedVision\ProPresenter\Workspaces` in it. Neither moves where Electron
+keeps the app's own state, which remembers the last folder opened and reopens
+it on launch, so set `PRESENTER_GARAGE_PROFILE` to an empty scratch folder
+too: otherwise a run against the copy can open the real workspace a real run
+left behind.
 
 `npm run check` is the gate, and it is the one CI runs. Run it before every
 commit — it includes the codegen step, so it also catches the case where a
@@ -67,7 +88,8 @@ snapshot holds the same message under the same field names, reshaped in a few
 regular ways, so `packages/core/src/lib/workspace.ts` turns one back into the
 protobuf message and nothing downstream knows the difference.
 `packages/node/src/workspace.ts` reads the database and gives each document
-the path its file used to have. Only the MCP server reads a workspace so far.
+the path its file used to have. The MCP server and the desktop app read a
+workspace; the browser cannot.
 Slide text is written back into the Loro document itself, never from the
 converted message: `packages/core/src/lib/workspace-edit.ts` says what an
 edit is in the document's own terms and checks the result, and
@@ -156,9 +178,10 @@ corpus checked out once — `checkTypeFidelity()` takes the message type, so a
 presentation goes through the same gate as a playlist.
 
 The Media Bin's exports emit a differently named file rather than overwriting.
-Presentation text is written in place — by the web app's fixer and the MCP
-server's edit tools, both through `applyFixes()`, and into a ProPresenter 22
-workspace by the MCP server through `writeWorkspaceEdits()` — under four
+Presentation text is written in place — by the web app's fixer, the MCP
+server's edit tools and the desktop app, all through `applyFixes()`, and into
+a ProPresenter 22 workspace by the MCP server and the desktop app through
+`writeWorkspaceEdits()` — under four
 guards listed in [AGENTS.md](AGENTS.md), with where each surface keeps each
 one. Read those before adding anything that writes.
 
@@ -384,17 +407,24 @@ than an error. Emptiness is checked before decoding, not after it fails.
 **The browser never reveals a folder's path.** `showDirectoryPicker` hands back
 a handle carrying a name and nothing more, and the `webkitdirectory` fallback
 gives paths relative to the chosen folder. Do not build interface text that
-implies a full path is available.
+implies a full path is available, except where `folderAccess()` says
+`native`: the desktop app's shell opens the folder itself and gives the real
+path. Chromium's picker also refuses `AppData` outright, as a system folder,
+which is where ProPresenter keeps its libraries on Windows; the shell's
+dialog has no such list.
 
-**Folder permission lapses when the last tab for the origin closes.** An
-installed app keeps it; a plain tab does not. Re-requesting needs a user
-gesture, so offer a button rather than re-requesting on load --
-`handlePermission` and `requestHandlePermission` in `apps/web/src/lib/persistence.ts`
+**Folder permission can lapse when the last tab for the origin closes.**
+Re-requesting needs a user gesture, so offer a button rather than
+re-requesting on load -- `handlePermission` and `requestHandlePermission` in `apps/web/src/lib/persistence.ts`
 model this.
 
 **Only Chromium can write to a folder at all.** `folderAccess()` returns
-`readwrite` (File System Access API), `readonly` (`<input webkitdirectory>`,
-which hands over copies with no path back to the originals) or `unavailable`.
+`native` in the desktop app, `readwrite` (File System Access API), `readonly`
+(`<input webkitdirectory>`, which hands over copies with no path back to the
+originals) or `unavailable`. In the desktop app the page never writes: it
+sends the ticked lines to the shell, which works each fix out again from the
+file and writes through `packages/node/src/edits.ts` (`packages/core/src/lib/desktop.ts`
+is the whole of what the page can ask for).
 Every writing feature needs a non-writing fallback, or Safari and Firefox get a
 dead button.
 
@@ -488,9 +518,9 @@ maintainer's terminal before the publisher is added.
   exports are always a differently named copy the reader moves into place
   themselves, via `exportFilename()` in `packages/core/src/lib/operations.ts`. Presentation
   text is written in place only through `applyFixes()`, by the web app's
-  fixer and the MCP server's edit tools, and into a ProPresenter 22
-  workspace only through `writeWorkspaceEdits()`, under the four guards set
-  out in [AGENTS.md](AGENTS.md).
+  fixer, the MCP server's edit tools and the desktop app, and into a
+  ProPresenter 22 workspace only through `writeWorkspaceEdits()`, under the
+  four guards set out in [AGENTS.md](AGENTS.md).
 - **Never commit a real ProPresenter library.** Real `.pro` files, media-bin
   playlists and media folders are somebody's personal data. `private/` at
   the root is gitignored for exactly this; development copies go there, in
@@ -508,7 +538,8 @@ they may never read.
 ## Layout
 
 What other code imports or npm installs lives under `packages/`, and the
-deployed site under `apps/`, one version between all four:
+deployed site and the desktop app under `apps/`, one version between all
+five:
 
 - **`core`** (`@presenter-garage/core`, private): reading, checking and
   editing ProPresenter files — `src/lib/`, the vendored schema in `proto/`,
@@ -521,16 +552,24 @@ deployed site under `apps/`, one version between all four:
   whatever runs under Node — `library.ts` to find and read files without
   leaving the configured folders, `write.ts` to back them up and replace them,
   `workspace.ts` to read a ProPresenter 22 workspace as though it were those
-  files, `workspace-write.ts` to write slide text into one. Its one dependency, `loro-crdt`, is imported from its `base64` build,
+  files, `workspace-write.ts` to write slide text into one, and `planning.ts`
+  and `apply.ts` (with `plans.ts` and `styling.ts`, all re-exported as
+  `edits.ts`) to plan and apply an edit through them. Its one dependency, `loro-crdt`, is imported from its `base64` build,
   which carries the WebAssembly inline so the server stays one file.
-  Kept out of `mcp` so a command line can share the one write path rather
-  than grow a second.
-- **`web`** (`@presenter-garage/web`, private): the installable browser
-  app — React, the PWA, its stylesheet and icons, and the two browser-only
-  pieces of `lib/`, persistence and routing.
+  Kept out of `mcp` so the desktop app, and a command line later, share the
+  one write path rather than grow a second.
+- **`web`** (`@presenter-garage/web`, private): the browser app — React,
+  its stylesheet, and the two browser-only pieces of `lib/`, persistence and
+  routing.
 - **`mcp`** (`presenter-garage-mcp`, published to npm): the MCP server.
+- **`desktop`** (`@presenter-garage/desktop`, private): the web app in
+  Electron. Its main process (`main.ts`, the calls it answers in
+  `handlers.ts`) runs `node` unchanged, `node:sqlite` included, which is why
+  it is Electron and not Tauri (#29). The page runs sandboxed, with context
+  isolation and no Node; `channels.ts` lists every call it can make, and
+  none of them writes bytes to a path.
 
-`core`, `node` and `mcp` may import only what their own `package.json` declares, and
+`core`, `node`, `mcp` and `desktop` may import only what their own `package.json` declares, and
 `packages/mcp/src/__tests__/workspace.test.ts` fails if any reaches for
 anything else. npm hoists every dependency to the root, so an undeclared
 import would otherwise resolve quietly, and for `mcp` it would drag the app
@@ -556,8 +595,9 @@ test holds equal. It touches the disk only through `packages/node`.
 In `library.ts` there, every path a tool is given is resolved with `realpath`
 before it is compared with the configured folders, and nothing opens a file
 for writing; `write.ts` is the only code that does, `workspace-write.ts` the
-only code that opens a workspace's database for writing, and `edits.ts` in
-the server the only caller of either. Node has no
+only code that opens a workspace's database for writing, and `apply.ts`
+beside them the only caller of either, called in turn by the server and the
+desktop app. Node has no
 `openat`, so an open cannot be anchored to a folder; every file is checked
 again once it is open, and every folder before the walk lists it, so a folder
 swapped for a symlink in between is refused rather than followed out.

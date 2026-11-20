@@ -100,9 +100,9 @@ describe("permission on a remembered folder", () => {
   });
 
   it("treats a handle that cannot be asked as needing a prompt", async () => {
-    // An installed app often still holds permission; a plain tab often does
-    // not. Either way the caller must offer a button rather than re-request
-    // on load, since asking needs a user gesture.
+    // Permission may or may not have survived since the handle was stored.
+    // Either way the caller must offer a button rather than re-request on
+    // load, since asking needs a user gesture.
     expect(await handlePermission({})).toBe("prompt");
   });
 

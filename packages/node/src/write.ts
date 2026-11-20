@@ -291,6 +291,13 @@ async function replaceOne(roots: readonly string[], r: Replacement): Promise<Pic
   try {
     const { mode } = await fs.stat(r.path);
     await writeNew(temp, r.updated, mode & 0o777);
+    // Once more after staging, which took time too: a save made meanwhile
+    // is in neither the backup nor the replacement, so it must not be replaced.
+    const late = await stillPlanned(roots, r);
+    if (late) {
+      await fs.rm(temp, { force: true }).catch(() => undefined);
+      return { written: false, ...late };
+    }
     await fs.rename(temp, r.path);
   } catch (e) {
     // Best effort: a throw here would abandon the run, and with it the record

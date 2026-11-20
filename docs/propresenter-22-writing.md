@@ -144,8 +144,9 @@ back unless the row reads back as promised.
 
 The pure half is `packages/core/src/lib/workspace-edit.ts`, which needs
 neither SQLite nor Loro; the half that does is
-`packages/node/src/workspace-write.ts`. The MCP server's `plan_slide_edits`
-and `apply_slide_edits` (`packages/mcp/src/edits.ts`) are the only callers.
+`packages/node/src/workspace-write.ts`. `planning.ts` and `apply.ts` beside
+it are its only callers, used by the MCP server's `plan_slide_edits` and
+`apply_slide_edits` and by the desktop app.
 
 ### Planning
 
@@ -349,7 +350,7 @@ it -- and a few that would read back only beside another line.
 | --- | --- |
 | 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess. Anything else refuses that document |
 | 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made the run is rolled back and nothing is written |
-| 3. A person saw every line and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/mcp/src/edits.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
+| 3. A person saw every line and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
 | 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data` and ranges and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), and every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
 
 One place this differs from the design the experiments led to: that design

@@ -21,7 +21,7 @@ export const fr: Dictionary = {
 
   app: {
     title: "Presenter Garage",
-    offline: "Fonctionne hors ligne",
+    offline: "Fonctionne sur votre appareil",
     offlineHelp: "Les fichiers sont lus dans votre navigateur. Rien n'est envoyé.",
     schemaHelp: "{files} fichiers proto, générés le {date}",
     languageLabel: "Langue",
@@ -32,10 +32,6 @@ export const fr: Dictionary = {
     footnoteBefore: "Schéma {version} issu de",
     footnoteLink: "greyshirtguy/ProPresenter7-Proto",
     footnoteAfter: "Sans lien avec Renewed Vision.",
-    updateReady: "Une nouvelle version est disponible.",
-    updateNow: "Recharger",
-    updating: "Rechargement\u2026",
-    updateLater: "Ignorer",
   },
 
   assistants: {
@@ -245,8 +241,6 @@ export const fr: Dictionary = {
         "Ce navigateur peut lire un dossier mais pas y écrire. Safari et Firefox n'offrent aucun retour vers les fichiers d'origine — utilisez Chrome ou Edge pour enregistrer les corrections sur place.",
       unavailableNote:
         "Ce navigateur ne peut pas lire de dossier. Choisissez les fichiers .pro un à un.",
-      installNote:
-        "Installer l'application rend l'autorisation permanente : dans un onglet, elle expire à la fermeture du dernier.",
 
       found: ["{n} présentation", "{n} présentations"],
       noneFound: "Aucun fichier .pro trouvé dans {folder}. Les présentations se trouvent dans le dossier Libraries d'un espace de travail ProPresenter — choisissez celui-ci, ou l'espace de travail lui-même.",
@@ -258,7 +252,7 @@ export const fr: Dictionary = {
       remembered: "{folder} était ouvert la dernière fois.",
       reconnect: "Rouvrir {folder}",
       reconnectWhy:
-        "L'autorisation de lire le dossier a expiré à la fermeture de l'onglet. La rouvrir demande un clic ; installer l'application la rend permanente.",
+        "L'autorisation de lire le dossier a expiré à la fermeture de l'onglet. La rouvrir demande un clic.",
       forgetFolder: "Oublier ce dossier",
       clean: "Aucun problème de texte trouvé.",
       issuesFound: ["{n} problème dans {files}", "{n} problèmes dans {files}"],
@@ -344,6 +338,35 @@ export const fr: Dictionary = {
         "Enregistré sous {name}. Votre bibliothèque n’a pas été touchée.",
       permissionNeeded:
         "L’enregistrement nécessite l’autorisation d’écrire dans le dossier. Choisissez de nouveau le dossier et autorisez la modification.",
+      native: {
+        chooseHint:
+          "Choisissez votre dossier ProPresenter, son dossier Libraries, ou l’un des espaces de travail ProPresenter 22 ci-dessous. Tout est lu sur cet ordinateur ; rien n’est envoyé.",
+        note: "L’application lit le dossier directement et enregistre les corrections sur place, en sauvegardant chaque fichier avant de le modifier.",
+        workspaces: "Espaces de travail ProPresenter 22 sur cet ordinateur",
+        open: "Ouvrir",
+        inUse: "celui qu’ouvre ProPresenter",
+        cloud: "synchronisé avec ProPresenter Cloud",
+        cloudReadOnly:
+          "Cet espace de travail est synchronisé avec ProPresenter Cloud. Il peut être vérifié ici, mais pas encore modifié : ce que Cloud fait d’une modification faite hors de ProPresenter n’a pas encore été essayé. Faites les corrections dans ProPresenter lui-même.",
+        closeProPresenter:
+          "Ceci est un espace de travail ProPresenter 22. Quittez ProPresenter avant d’enregistrer : tant qu’il a l’espace de travail ouvert, rien n’est écrit.",
+        backupWhy:
+          "Chaque fichier est copié dans le dossier de sauvegarde de l’application et vérifié avant d’être modifié. Un fichier qui a changé depuis sa lecture est laissé tel quel.",
+        backedUpTo: "Les fichiers tels qu’ils étaient se trouvent dans {folder}.",
+        showBackups: "Afficher les sauvegardes",
+        backupsUnshown: "Le dossier de sauvegarde n’a pas pu être ouvert. Il a peut-être été déplacé ou supprimé ; le chemin ci-dessus indique où les sauvegardes ont été faites.",
+        truncated:
+          "Ce dossier contient plus de présentations que ce qui est lu en une fois : elles ne sont donc pas toutes listées. Choisissez plutôt le dossier Libraries, ou une seule bibliothèque.",
+      },
+      runRefusals: {
+        propresenterOpen:
+          "ProPresenter a cet espace de travail ouvert : rien n’a été écrit, car une modification faite sous lui serait perdue à son prochain enregistrement. Quittez ProPresenter et enregistrez de nouveau.",
+        cloudWorkspace:
+          "Cet espace de travail est synchronisé avec ProPresenter Cloud, où rien n’est encore écrit : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
+        unverifiedWorkspace:
+          "Le format de cet espace de travail n’est pas l’un de ceux que l’application a vérifiés : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
+        failed: "Rien n’a été écrit : {detail}",
+      },
       refusals: {
         lossy:
           "ce fichier utilise quelque chose que le schéma ne couvre pas : l’enregistrer pourrait perdre des données",

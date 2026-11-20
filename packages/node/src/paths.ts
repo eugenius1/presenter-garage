@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { WorkspaceRefusalCode } from "@presenter-garage/core/lib/desktop";
 
 /**
  * What both halves of reading a library need: the folder of files in
@@ -12,6 +13,28 @@ export class LibraryError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "LibraryError";
+  }
+}
+
+/**
+ * A workspace that cannot be written at all, which refuses a whole run. The
+ * message is English for a model; `code` is what an app words for itself.
+ */
+export class WorkspaceRefused extends LibraryError {
+  readonly code: WorkspaceRefusalCode;
+
+  constructor(message: string, code: WorkspaceRefusalCode) {
+    super(message);
+    this.name = "WorkspaceRefused";
+    this.code = code;
+  }
+}
+
+/** A file the fidelity gate will not let be written (guard 1): one file's refusal, not the run's. */
+export class LossyFile extends LibraryError {
+  constructor(message: string) {
+    super(message);
+    this.name = "LossyFile";
   }
 }
 
@@ -31,6 +54,11 @@ export interface FoundFile {
    * never be written back, and say nothing of whether the document could be.
    */
   converted?: true;
+  /**
+   * For converted bytes, the hash of the stored snapshot they were made
+   * from: looked up with the bytes, so the two describe the same snapshot.
+   */
+  sha256?: string;
 }
 
 export interface FoundTheme {

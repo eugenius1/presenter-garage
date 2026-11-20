@@ -4,7 +4,6 @@
     "tsBuildInfoFile": "../../node_modules/.tmp/web-test.tsbuildinfo",
     "types": [
       "vite/client",
-      "vite-plugin-pwa/client",
       "node"
     ]
   },

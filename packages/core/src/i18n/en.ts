@@ -17,7 +17,7 @@ export const en = {
 
   app: {
     title: "Presenter Garage",
-    offline: "Runs offline",
+    offline: "Runs on your device",
     offlineHelp: "Files are read in your browser. Nothing is uploaded.",
     schemaHelp: "{files} proto files, built {date}",
     languageLabel: "Language",
@@ -28,10 +28,6 @@ export const en = {
     footnoteBefore: "Schema {version} from",
     footnoteLink: "greyshirtguy/ProPresenter7-Proto",
     footnoteAfter: "Not affiliated with Renewed Vision.",
-    updateReady: "A new version is available.",
-    updateNow: "Reload",
-    updating: "Reloading\u2026",
-    updateLater: "Dismiss",
   },
 
   assistants: {
@@ -237,8 +233,6 @@ export const en = {
         "This browser can read a folder but cannot write to it. Safari and Firefox offer no way back to the original files — use Chrome or Edge if you want fixes saved in place.",
       unavailableNote:
         "This browser cannot read a folder. Pick the .pro files individually instead.",
-      installNote:
-        "Installing the app makes the permission stick: in a tab it lapses when you close the last one.",
 
       found: ["{n} presentation", "{n} presentations"],
       noneFound: "No .pro files found in {folder}. Presentations live in the Libraries folder of a ProPresenter workspace — pick that, or the workspace itself.",
@@ -250,7 +244,7 @@ export const en = {
       remembered: "{folder} was open last time.",
       reconnect: "Reopen {folder}",
       reconnectWhy:
-        "Permission to read the folder lapsed when the tab closed. Reopening needs one click; installing the app makes it stick.",
+        "Permission to read the folder lapsed when the tab closed. Reopening needs one click.",
       forgetFolder: "Forget this folder",
       clean: "No text problems found.",
       issuesFound: ["{n} problem in {files}", "{n} problems in {files}"],
@@ -334,6 +328,37 @@ export const en = {
       downloadedFixed: "Saved as {name}. Your library has not been touched.",
       permissionNeeded:
         "Saving needs permission to write to the folder. Choose the folder again and allow editing.",
+      // The desktop app, which reads and writes the folder itself.
+      native: {
+        chooseHint:
+          "Pick your ProPresenter folder, its Libraries folder, or one of the ProPresenter 22 workspaces below. Everything is read on this computer; nothing is uploaded.",
+        note: "The app reads the folder directly and saves fixes in place, backing up every file before it changes.",
+        workspaces: "ProPresenter 22 workspaces on this computer",
+        open: "Open",
+        inUse: "the one ProPresenter opens",
+        cloud: "synced with ProPresenter Cloud",
+        cloudReadOnly:
+          "This workspace is synced with ProPresenter Cloud. It can be checked here but not changed yet: what Cloud does with a change made outside ProPresenter has not been tried. Make the fixes in ProPresenter itself.",
+        closeProPresenter:
+          "This is a ProPresenter 22 workspace. Quit ProPresenter before saving: while it has the workspace open, nothing is written.",
+        backupWhy:
+          "Each file is copied to the app's backup folder and checked before it changes. A file that changed since it was read is left alone.",
+        backedUpTo: "The files as they were are in {folder}.",
+        showBackups: "Show backups",
+        backupsUnshown: "The backup folder could not be opened. It may have been moved or removed; the path above is where the backups were made.",
+        truncated:
+          "This folder holds more presentations than are read at once, so not all of them are listed. Pick the Libraries folder, or one library, instead.",
+      },
+      // Why a desktop run wrote nothing at all.
+      runRefusals: {
+        propresenterOpen:
+          "ProPresenter has this workspace open, so nothing was written: a change made under it would be lost the next time it saves. Quit ProPresenter and save again.",
+        cloudWorkspace:
+          "This workspace is synced with ProPresenter Cloud, which is not written to yet, so nothing was written. Make the change in ProPresenter itself.",
+        unverifiedWorkspace:
+          "This workspace's format is not one the app has been checked against, so nothing was written. Make the change in ProPresenter itself.",
+        failed: "Nothing was written: {detail}",
+      },
       refusals: {
         lossy:
           "this file uses something the schema does not cover, so saving it could lose data",

@@ -35,7 +35,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      # Nothing here launches the desktop app, so Electron's binary is not
+      # fetched; the desktop job below does that on the systems it ships for.
       - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
       # Generates the proto descriptor, then lints, typechecks and tests.
       # Tests needing a real ProPresenter file skip here by design -- see
@@ -51,3 +55,29 @@ jobs:
           use_oidc: true
           files: coverage/lcov.info
           fail_ci_if_error: false
+
+  desktop:
+    # A dev build of the desktop app launches on each system it is for (#30):
+    # the page loads over the app's own scheme, finds its bridge, and the
+    # main process opens SQLite. Signed installers are a later step.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run desktop:build
+
+      - run: npm run smoke -w @presenter-garage/desktop

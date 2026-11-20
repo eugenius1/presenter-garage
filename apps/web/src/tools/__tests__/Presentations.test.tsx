@@ -5,9 +5,23 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Presentations } from "../Presentations";
 import { I18nProvider } from "../../i18n";
-import { checkPresentation, decodePresentation, readPresentation } from "@presenter-garage/core/lib/presentation";
-import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import {
+  checkPresentation,
+  decodePresentation,
+  encodePresentation,
+  readPresentation,
+  writeTextBoxes,
+} from "@presenter-garage/core/lib/presentation";
+import { rtfWithHeader, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { applyFixes, examine, fixKey, planFixes } from "@presenter-garage/core/lib/fixes";
 import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
+import {
+  BRIDGE_GLOBAL,
+  type ChosenFile,
+  type DesktopBridge,
+  type NativeApplyResult,
+  type NativeFolder,
+} from "@presenter-garage/core/lib/desktop";
 
 /**
  * A folder held in memory, standing in for one on disk.
@@ -554,5 +568,343 @@ describe("a browser that cannot write", () => {
     expect(issuesIn(original)).not.toHaveLength(0);
 
     downloads.restore();
+  });
+});
+
+describe("the desktop app", () => {
+  const ROOT = "/Users/someone/ProPresenter";
+  let applied: ChosenFile[][];
+  let result: NativeApplyResult;
+  let shown: string[];
+
+  function fakeBridge(folder: Partial<NativeFolder> = {}): DesktopBridge {
+    const opened = (): NativeFolder => ({
+      root: ROOT,
+      name: "ProPresenter",
+      files: [...store.keys()].map((path) => ({ path: `${ROOT}/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+      ...folder,
+    });
+    return {
+      pickFolder: async () => opened(),
+      reopenLast: async () => null,
+      forgetLast: async () => {},
+      workspaces: async () => [{ root: "/ws/1", name: "Church", active: true, cloud: false }],
+      openWorkspace: async () => opened(),
+      read: async (path) => ({ bytes: store.get(path.slice(ROOT.length + 1))!, sha256: `sha of ${path}` }),
+      applyFixes: async (files) => {
+        applied.push(files);
+        return result;
+      },
+      showBackups: async (dir) => void shown.push(dir),
+    };
+  }
+
+  beforeEach(() => {
+    access = "native";
+    applied = [];
+    shown = [];
+    result = { backupFolder: "/backups/run", files: [] };
+  });
+
+  it("shows the folder's real path and ProPresenter's workspaces", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    expect(await screen.findByText("Church")).toBeInTheDocument();
+    await openFolder(user);
+    expect(screen.getByText(ROOT)).toBeInTheDocument();
+  });
+
+  it("sends the shell only the lines left ticked, as they were shown, and asks for no backup itself", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    // The shell makes the backup; there is nothing to download first.
+    expect(screen.queryByRole("button", { name: /Download a backup/ })).not.toBeInTheDocument();
+    const boxes = screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ });
+    await user.click(boxes[0]);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+
+    const [file] = applied[0];
+    expect(file.path).toBe(`${ROOT}/Chants/Checked Song.pro`);
+    expect(file.sha256).toBe(`sha of ${ROOT}/Chants/Checked Song.pro`);
+    expect(file.kinds).toEqual(["leadingSpace", "trailingSpace", "blankLine", "repeatedSpace"]);
+    expect(file.lines).toHaveLength(boxes.length - 1);
+    // What was shown, never bytes: the shell works the fix out again itself.
+    for (const line of file.lines) expect(Object.keys(line).sort()).toEqual(["after", "before", "boxIndex", "lineIndex"]);
+    // Every line as shown but the one unticked, which is the first.
+    const { report, fixable } = examine("Checked Song.pro", store.get("Chants/Checked Song.pro")!);
+    const every = planFixes(fixable, report.issues.filter((issue) => file.kinds.includes(issue.kind))).map(
+      ({ boxIndex, lineIndex, before, after }) => ({ boxIndex, lineIndex, before, after })
+    );
+    expect(every).toHaveLength(boxes.length);
+    expect(file.lines).toEqual(every.slice(1));
+
+    await user.click(await screen.findByRole("button", { name: "Show backups" }));
+    expect(shown).toEqual(["/backups/run"]);
+  });
+
+  it("says so when the backup folder will not open, and keeps its path in view", async () => {
+    const shell = fakeBridge();
+    shell.showBackups = async () => {
+      throw new Error("not found");
+    };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await user.click(await screen.findByRole("button", { name: "Show backups" }));
+
+    expect(await screen.findByText(/The backup folder could not be opened/)).toBeInTheDocument();
+    expect(screen.getByText(/\/backups\/run/)).toBeInTheDocument();
+  });
+
+  it("keeps lines unticked in a file the save did not touch", async () => {
+    store.set("Chants/Other Song.pro", syntheticTextPresentation("Other Song"));
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    result = { backupFolder: "/backups/run", files: [{ path: `${ROOT}/Chants/Other Song.pro`, lines: 1, written: true }] };
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    // Leave out the whole of the first song; save the second.
+    await user.click(screen.getAllByRole("checkbox", { name: "Select every line in this file" })[0]);
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+    expect(applied[0].map((file) => file.path)).toEqual([`${ROOT}/Chants/Other Song.pro`]);
+    await screen.findByRole("button", { name: "Show backups" });
+
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(2));
+    expect(applied[1].map((file) => file.path)).toEqual([`${ROOT}/Chants/Other Song.pro`]);
+  });
+
+  it.each([
+    ["shown", false],
+    ["hidden by a filter while the file was saved", true],
+  ])("keeps a line unticked in a file the save changed, though the save moved it: %s", async (_, hide) => {
+    // A blank line, then a line ending in a space, in one box: removing the
+    // first moves the second up.
+    const doc = decodePresentation(syntheticTextPresentation());
+    writeTextBoxes(doc, new Map([[3, rtfWithHeader("\\cb3 Above\\par\\pard\\li0\\qc\\fs200\\par\\pard\\cb3 Below ")]]));
+    store.set("Chants/Checked Song.pro", encodePresentation(doc));
+    const shell = fakeBridge();
+    // Writes what it was sent, so the rescan reads the file as saved.
+    shell.applyFixes = async (files) => {
+      applied.push(files);
+      for (const file of files) {
+        const name = file.path.slice(ROOT.length + 1);
+        const bytes = store.get(name)!;
+        const { report, fixable } = examine(name, bytes);
+        const sent = new Set(file.lines.map(fixKey));
+        const fixes = planFixes(fixable, report.issues.filter((issue) => file.kinds.includes(issue.kind)));
+        store.set(name, applyFixes(bytes, fixes.filter((fix) => sent.has(fixKey(fix)))));
+      }
+      return { backupFolder: "/backups/run", files: files.map((file) => ({ path: file.path, lines: file.lines.length, written: true })) };
+    };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    const kept = screen.getByRole("checkbox", { name: "slide 4 line 3" });
+    await user.click(kept);
+    if (hide) await user.click(screen.getByRole("button", { name: /^Trailing space/ }));
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await screen.findByRole("button", { name: "Show backups" });
+    if (hide) await user.click(screen.getByRole("button", { name: /^Trailing space/ }));
+
+    // Moved up a line by the blank one's removal, and still unticked.
+    expect(screen.queryByRole("checkbox", { name: "slide 4 line 3" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "slide 4 line 2" })).not.toBeChecked();
+  });
+
+  // Copies of one line cannot be told apart once the file may have changed:
+  // neither their number nor their order says which was which.
+  it.each([
+    ["a save that wrote nothing", "\\cb3 Same \\par\\pard\\cb3 Same ", "slide 4 line 2", "\\cb3 Same \\par\\pard\\cb3 Same "],
+    ["a copy removed elsewhere", "\\cb3 Same \\par\\pard\\cb3 Same \\par\\pard\\cb3 Same ", "slide 4 line 3", "\\cb3 Same \\par\\pard\\cb3 Same "],
+    ["the copies moved elsewhere", "\\cb3 Same \\par\\pard\\cb3 Same \\par\\pard\\cb3 Other", "slide 4 line 2", "\\cb3 Same \\par\\pard\\cb3 Other\\par\\pard\\cb3 Same "],
+  ])("unticks every copy of a line when one was unticked, after %s", async (_, lines, untick, after) => {
+    const withBox = (rtf: string) => {
+      const doc = decodePresentation(syntheticTextPresentation());
+      writeTextBoxes(doc, new Map([[3, rtfWithHeader(rtf)]]));
+      return encodePresentation(doc);
+    };
+    store.set("Chants/Checked Song.pro", withBox(lines));
+    result = { files: [{ path: `${ROOT}/Chants/Checked Song.pro`, lines: 1, written: false, reason: "stale" }] };
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("checkbox", { name: untick }));
+    // Whatever changed the file before the save, the save is refused as stale.
+    store.set("Chants/Checked Song.pro", withBox(after));
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
+
+    // Slide 4's only fixable lines are the copies, and every one waits for a new choice.
+    const copies = screen.getAllByRole("checkbox", { name: /^slide 4 line \d+$/ });
+    expect(copies).toHaveLength(2);
+    for (const copy of copies) expect(copy).not.toBeChecked();
+  });
+
+  it("shows nothing that was still opening when the folder was cleared", async () => {
+    let finishOpen: () => void = () => {};
+    const shell = fakeBridge();
+    const workspace = (): NativeFolder => ({
+      root: "/ws/1",
+      name: "Church",
+      files: [...store.keys()].map((path) => ({ path: `/ws/1/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+    });
+    shell.openWorkspace = () => new Promise<NativeFolder>((resolve) => (finishOpen = () => resolve(workspace())));
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    finishOpen();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.queryByText("/ws/1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Fix these" })).not.toBeInTheDocument();
+  });
+
+  it("says nothing of an open a later one overtook", async () => {
+    let failFirst: () => void = () => {};
+    const shell = fakeBridge();
+    shell.pickFolder = () => new Promise<NativeFolder>((_, reject) => (failFirst = () => reject(new Error("overtaken"))));
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await user.click(await screen.findByRole("button", { name: /Choose a folder/ }));
+    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await screen.findByRole("heading", { name: "Fix these" });
+
+    failFirst();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("overtaken")).not.toBeInTheDocument();
+  });
+
+  it("says why a run wrote nothing, in the reader's language", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: false } }));
+    result = { files: [], refused: { code: "propresenterOpen", detail: "English from the shell" } };
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.getByText(/Quit ProPresenter before saving/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    expect(await screen.findByText(/ProPresenter has this workspace open, so nothing was written/)).toBeInTheDocument();
+    expect(screen.queryByText("English from the shell")).not.toBeInTheDocument();
+  });
+
+  it("keeps the folder opened last when an earlier one finishes opening after it", async () => {
+    let finishFirst: (folder: NativeFolder) => void = () => {};
+    const shell = fakeBridge();
+    // The dialog's folder takes its time; the workspace opened meanwhile does not.
+    shell.pickFolder = () => new Promise<NativeFolder>((resolve) => (finishFirst = resolve));
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await user.click(await screen.findByRole("button", { name: /Choose a folder/ }));
+    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await screen.findByRole("heading", { name: "Fix these" });
+
+    finishFirst({ root: "/Users/someone/Slow", name: "Slow", files: [], truncated: false });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByText(ROOT)).toBeInTheDocument();
+    expect(screen.queryByText("/Users/someone/Slow")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Fix these" })).toBeInTheDocument();
+  });
+
+  it("leaves a folder opened during a save to itself when the save finishes", async () => {
+    const WORKSPACE = "/ws/1";
+    let finishOpen: () => void = () => {};
+    let finishSave: () => void = () => {};
+    let saved = false;
+    const shell = fakeBridge();
+    const workspace = (): NativeFolder => ({
+      root: WORKSPACE,
+      name: "Church",
+      files: [...store.keys()].map((path) => ({ path: `${WORKSPACE}/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+    });
+    shell.openWorkspace = () => new Promise<NativeFolder>((resolve) => (finishOpen = () => resolve(workspace())));
+    // Once saved, the first folder's copy can no longer be read: a rescan of it would say so.
+    shell.read = async (path) => {
+      if (saved && path.startsWith(ROOT)) throw new Error("moved away");
+      return { bytes: store.get(path.replace(/^\/(Users\/someone\/ProPresenter|ws\/1)\//, ""))!, sha256: `sha of ${path}` };
+    };
+    shell.applyFixes = () =>
+      new Promise<NativeApplyResult>((resolve) => (finishSave = () => ((saved = true), resolve(result))));
+    result = { backupFolder: "/backups/run", files: [{ path: `${ROOT}/Chants/Checked Song.pro`, lines: 1, written: true }] };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    await user.click(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }));
+    finishOpen();
+    expect(await screen.findByText(WORKSPACE)).toBeInTheDocument();
+    // Hidden while a run is in progress, so counted once it is over.
+    finishSave();
+    await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
+
+    expect(screen.getByText(WORKSPACE)).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ })).toHaveLength(4);
+    expect(screen.queryByText(/Could not be read/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show backups" })).not.toBeInTheDocument();
+  });
+
+  it("offers nothing to save from the last folder while the next one is read", async () => {
+    let finishRead: () => void = () => {};
+    const shell = fakeBridge();
+    const plain = shell.read;
+    shell.openWorkspace = async () => ({
+      root: "/ws/1",
+      name: "Church",
+      files: [...store.keys()].map((path) => ({ path: `/ws/1/${path}`, relative: path, name: path.split("/").pop()! })),
+      truncated: false,
+    });
+    shell.read = async (path) => {
+      if (!path.startsWith("/ws/1/")) return plain(path);
+      await new Promise<void>((resolve) => (finishRead = resolve));
+      return plain(`${ROOT}/${path.slice("/ws/1/".length)}`);
+    };
+    vi.stubGlobal(BRIDGE_GLOBAL, shell);
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    expect(await screen.findByText("/ws/1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Fix \d+ lines?$/ })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("checkbox", { name: /^slide \d+ line \d+$/ })).toHaveLength(0);
+
+    finishRead();
+    expect(await screen.findByRole("button", { name: /^Fix \d+ lines?$/ })).toBeInTheDocument();
+  });
+
+  it("reads a Cloud workspace but offers no way to write to it", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: true } }));
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.getByText(/synced with ProPresenter Cloud\. It can be checked here/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ })).toBeDisabled();
   });
 });

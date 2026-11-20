@@ -334,18 +334,21 @@ export class Workspace {
       throw new LibraryError(`${file}: not downloaded to this computer yet. Open the workspace in ProPresenter to sync it.`);
     }
     let bytes = document.sha256 ? this.recall(document.sha256) : undefined;
+    let digest = document.sha256;
     if (!bytes) {
       const row = await this.withStore((db) =>
         db.prepare("SELECT snapshot, sha256 FROM workspace_streams WHERE document_id = ? AND scope = 0").get(document.id)
       );
       if (!row?.snapshot) throw new LibraryError(`Could not read ${file}: it is no longer in the workspace`);
       const sha = hex(row.sha256);
+      // ProPresenter may have saved since `document` was looked up: these bytes are this row's.
+      digest = sha;
       // A snapshot stored with no hash has nothing to be remembered under:
       // one entry would answer for every such document.
       const convert = () => convertSnapshot(document.kind, row.snapshot as Uint8Array, file);
       bytes = sha ? (this.recall(sha) ?? this.remember(sha, convert())) : convert();
     }
-    return { bytes, size: bytes.length, modified: document.modified, converted: true };
+    return { bytes, size: bytes.length, modified: document.modified, converted: true, sha256: digest };
   }
 
   private recall(sha: string): Uint8Array | undefined {
@@ -455,6 +458,17 @@ export const WORKSPACE_READ_ONLY =
   "This is a ProPresenter 22 workspace, which has no files to write: its documents live in a database. " +
   "Only slide text can be changed in it, with plan_slide_edits and apply_slide_edits; " +
   "make any other change in ProPresenter itself.";
+
+/**
+ * Whether a workspace's folder carries ProPresenter Cloud's marker. The
+ * registry says so too, as `cloud_uuid`; this is the half that needs no
+ * registry, asked by whatever decides whether a workspace can be written.
+ */
+export const hasCloudImprint = (root: string) =>
+  fs.stat(path.join(root, "imprint.cloud")).then(
+    () => true,
+    () => false
+  );
 
 /** Whether a path is inside a ProPresenter 22 workspace, and so is not a file that can be written. */
 export async function isInWorkspace(p: string): Promise<boolean> {

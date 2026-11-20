@@ -1,4 +1,4 @@
-// Generate the PWA icons as PNGs with no image dependencies:
+// Generate the app icons as PNGs with no image dependencies:
 // rasterise a few rounded rectangles into an RGBA buffer, then deflate it into
 // a minimal single-IDAT PNG.
 import { deflateSync } from "node:zlib";

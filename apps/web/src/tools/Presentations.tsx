@@ -25,7 +25,6 @@ import {
   planFixes,
   unreadable,
   type Examined,
-  type FixOutcome,
   type LineFix,
 } from "@presenter-garage/core/lib/fixes";
 import {
@@ -36,6 +35,14 @@ import {
   type TrailingPunctuation,
 } from "@presenter-garage/core/lib/presentation";
 import { groupBy, toggled } from "@presenter-garage/core/lib/collections";
+import {
+  desktopBridge,
+  type DesktopBridge,
+  type NativeFileOutcome,
+  type NativeFolder,
+  type NativeWorkspace,
+  type RunRefusal,
+} from "@presenter-garage/core/lib/desktop";
 import { zip } from "@presenter-garage/core/lib/zip";
 import { useI18n } from "../i18n";
 
@@ -105,6 +112,35 @@ interface Progress {
   total: number;
 }
 
+/**
+ * What a run did with one file: the web app's own outcome, or the desktop
+ * shell's, which can refuse for more reasons -- a backup that failed, a
+ * workspace's formatting that cannot be moved.
+ */
+type Outcome = Pick<NativeFileOutcome, "path" | "reason" | "rangeReason">;
+
+/**
+ * A folder the desktop shell opened, as the files the scan reads. Each is
+ * read through the shell, which hands back the hash it was read at; that is
+ * kept on the file, for a save to send back.
+ */
+function nativeFiles(bridge: DesktopBridge, folder: NativeFolder): FolderFile[] {
+  return folder.files.map((file) => {
+    const native: NonNullable<FolderFile["native"]> = { path: file.path };
+    return {
+      path: file.relative,
+      name: file.name,
+      size: 0,
+      native,
+      read: async () => {
+        const { bytes, sha256 } = await bridge.read(file.path);
+        native.sha256 = sha256;
+        return bytes;
+      },
+    };
+  });
+}
+
 /** One line of one file, as the list shows it and the fix run names it. */
 interface Row {
   key: string;
@@ -141,6 +177,25 @@ function rowsOf(filename: string, issues: TextIssue[], fixes: LineFix[]): Row[] 
   }));
 }
 
+/** A file's rows for the kinds on screen. */
+function rowsFor({ report, fixable }: Examined, shown: ReadonlySet<TextIssueKind>): Row[] {
+  const issues = report.issues.filter((i) => shown.has(i.kind));
+  return issues.length === 0 ? [] : rowsOf(report.filename, issues, planFixes(fixable, issues));
+}
+
+/** The file a row's key belongs to: everything before its line's address. */
+const fileOfKey = (key: string) => key.slice(0, key.lastIndexOf(" "));
+
+/**
+ * A fixable line by its box and what it says rather than where it is: a line
+ * a save removed above it moves it up, and its address with it. Not by what
+ * it becomes, which depends on the kinds on screen.
+ */
+const lineOf = (row: Row) => JSON.stringify([row.fix!.boxIndex, row.text]);
+
+/** Every kind, for what has to hold whichever are on screen. */
+const EVERY_KIND: ReadonlySet<TextIssueKind> = new Set(ALL_KINDS);
+
 /**
  * Check the text of every presentation in a library, and put it right.
  *
@@ -161,7 +216,22 @@ export function Presentations() {
 
   // What this browser can do with a folder does not change while it is open.
   const access = useMemo(() => folderAccess(), []);
+  /** The desktop shell, when this is the desktop app, which is when `access` is `native`. */
+  const bridge = useMemo(() => desktopBridge(), []);
+  const nativeText = p.native;
   const input = useRef<HTMLInputElement>(null);
+  /**
+   * Bumped by every folder that starts opening. An open that finds it moved
+   * on was overtaken by a later one, and is not shown at all.
+   */
+  const opening = useRef(0);
+  /**
+   * The open whose folder is on screen. A read or a save that finds it moved
+   * on was for a folder no longer shown, and leaves the screen to this one:
+   * otherwise a slow first folder finishing last shows its findings beside
+   * the second folder's files.
+   */
+  const displayed = useRef(0);
 
   const [scanned, setScanned] = useState<Examined[] | null>(null);
   const [files, setFiles] = useState<FolderFile[]>([]);
@@ -185,8 +255,10 @@ export function Presentations() {
    * drop whatever appeared since.
    */
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  /** Whether the system would not open the backup folder when asked. */
+  const [backupsUnshown, setBackupsUnshown] = useState(false);
   const [backup, setBackup] = useState<{ name: string; paths: Set<string> } | null>(null);
-  const [outcomes, setOutcomes] = useState<FixOutcome[] | null>(null);
+  const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const [savedZip, setSavedZip] = useState<string | null>(null);
   // The permission refusal is ours to word, so it is kept as a fact and
   // worded at render; anything else is an error's own message.
@@ -202,6 +274,16 @@ export function Presentations() {
    */
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
+
+  /** In the desktop app, the folder its shell opened, with its real path. */
+  const [native, setNative] = useState<NativeFolder | null>(null);
+  /** In the desktop app, ProPresenter 22's workspaces on this computer. */
+  const [workspaces, setWorkspaces] = useState<NativeWorkspace[]>([]);
+  /** What the last desktop run said of itself as a whole: where its backups went, or why it wrote nothing. */
+  const [nativeRun, setNativeRun] = useState<{
+    backupFolder?: string;
+    refused?: { code: RunRefusal; detail: string };
+  } | null>(null);
 
   /**
    * The files in alphabetical order.
@@ -260,19 +342,26 @@ export function Presentations() {
   /** The kinds both switched on and not filtered out by a pill. */
   const shown = useMemo(() => new Set(kinds.filter((kind) => active.has(kind))), [kinds, active]);
 
+  /** A ProPresenter Cloud workspace: read here, and not written until #55 says how. */
+  const cloud = native?.workspace?.cloud === true;
+
   /** Whether anything could be written back at all, before the reader chooses. */
-  const canWrite = access === "readwrite" && handle !== null;
+  const canWrite = bridge ? native !== null && !cloud : access === "readwrite" && handle !== null;
 
   function clearRun() {
     setBackup(null);
     setOutcomes(null);
     setSavedZip(null);
     setFixError(null);
+    setNativeRun(null);
+    setBackupsUnshown(false);
   }
 
-  async function scan(list: FolderFile[]) {
+  /** Read and check each file, saying which one is being read, until a later folder overtakes it. */
+  async function examineAll(list: FolderFile[], mine: number): Promise<Examined[] | null> {
     const out: Examined[] = [];
     for (const file of list) {
+      if (mine !== displayed.current) return null;
       setBusy(file.name);
       let bytes: Uint8Array;
       try {
@@ -285,29 +374,102 @@ export function Presentations() {
       }
       out.push(examine(file.path, bytes));
     }
+    if (mine !== displayed.current) return null;
     setBusy(null);
-    setScanned(out);
+    return out;
+  }
+
+  async function scan(list: FolderFile[], mine = displayed.current) {
+    const examined = await examineAll(list, mine);
+    if (!examined || mine !== displayed.current) return;
+    setScanned(examined);
     setExcluded(new Set());
   }
 
-  /** Make a freshly opened folder the one on screen, and read it. */
-  function load(folder: { name: string; files: FolderFile[] }, folderHandle: unknown) {
+  /**
+   * Read again only the files a save in the desktop app touched, keeping
+   * what is in hand for the rest: nothing else can have changed, and reading
+   * a whole library through the shell again is seconds of copying for nothing.
+   */
+  async function rescan(list: FolderFile[], mine: number) {
+    const examined = await examineAll(list, mine);
+    if (!examined || mine !== displayed.current) return;
+    const fresh = new Map(examined.map((one) => [one.report.filename, one]));
+    setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
+    // A line left unticked stays unticked, or the next save would take it
+    // without anyone choosing it: in a file not read again, by its address;
+    // in one that was, by what it says, since the save may have moved it.
+    // Every kind, not just those on screen: a line unticked and then hidden
+    // by a filter is still unticked when the filter is lifted.
+    const before = new Map((scanned ?? []).map((one) => [one.report.filename, one]));
+    setExcluded((prev) => {
+      const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
+      for (const [filename, one] of fresh) {
+        // Lines that had a copy unticked. Copies of one line cannot be told
+        // apart once the file may have changed -- the save changed some, or
+        // something else did, and neither count nor order says which -- so
+        // every copy of such a line is unticked: an unticked line must never
+        // come back ticked. A line that occurs once keeps its own choice.
+        const unticked = new Set<string>();
+        const was = before.get(filename);
+        for (const row of was ? rowsFor(was, EVERY_KIND) : []) {
+          if (row.fix && prev.has(row.key)) unticked.add(lineOf(row));
+        }
+        for (const row of rowsFor(one, EVERY_KIND)) {
+          if (row.fix && unticked.has(lineOf(row))) next.add(row.key);
+        }
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Make a freshly opened folder the one on screen, and read it. `mine` is
+   * the caller's, taken before its own first wait, where it has one.
+   */
+  function load(folder: { name: string; files: FolderFile[] }, folderHandle: unknown, mine = ++opening.current) {
+    if (mine !== opening.current) return Promise.resolve();
+    displayed.current = mine;
     setPending(null);
     clearRun();
+    // The last folder's findings go with it: left up while this one is read,
+    // a line of one could be saved against a file of the same name in the other.
+    setScanned(null);
+    setExcluded(new Set());
     setFolderName(folder.name);
     setFiles(folder.files);
     setHandle(folderHandle);
-    return scan(folder.files);
+    return scan(folder.files, mine);
+  }
+
+  /** Make a folder the desktop shell opened the one on screen. */
+  function loadNative(shell: DesktopBridge, folder: NativeFolder, mine: number) {
+    if (mine !== opening.current) return Promise.resolve();
+    setNative(folder);
+    return load({ name: folder.name, files: nativeFiles(shell, folder) }, null, mine);
+  }
+
+  /** Open a folder through the desktop shell: its dialog, or a workspace it listed. */
+  async function chooseNative(open: () => Promise<NativeFolder | null>) {
+    setError(null);
+    const mine = ++opening.current;
+    try {
+      const folder = await open();
+      if (folder) await loadNative(bridge!, folder, mine);
+    } catch (e) {
+      // An open a later one overtook says so; the one on screen has nothing to answer for.
+      if (mine === opening.current) setError((e as Error).message);
+    }
   }
 
   /**
    * Pick up where the last visit left off.
    *
-   * A directory handle survives in IndexedDB, but permission may not: in an
-   * ordinary tab it lapses once the last tab for the origin closes, while an
-   * installed app keeps it. Where it is still granted the folder is simply
-   * reread; where it is not, asking again needs a user gesture, so the folder
-   * is offered as a button rather than re-requested on load.
+   * A directory handle survives in IndexedDB, but permission may not: it can
+   * lapse once the last tab for the origin closes. Where it is still granted
+   * the folder is simply reread; where it is not, asking again needs a user
+   * gesture, so the folder is offered as a button rather than re-requested on
+   * load.
    */
   useEffect(() => {
     void (async () => {
@@ -324,6 +486,24 @@ export function Presentations() {
     let cancelled = false;
 
     void (async () => {
+      // The desktop app keeps the folder itself, as a path, so there is no
+      // permission to lapse and nothing to ask for again. Asked for afresh
+      // rather than taken from `bridge`, so this runs once, on mount.
+      const shell = desktopBridge();
+      if (shell) {
+        const mine = ++opening.current;
+        try {
+          const [last, listed] = await Promise.all([shell.reopenLast(), shell.workspaces()]);
+          if (cancelled) return;
+          setWorkspaces(listed);
+          if (last) await loadNative(shell, last, mine);
+        } catch (e) {
+          if (!cancelled) setError((e as Error).message);
+        }
+        return;
+      }
+
+      const mine = ++opening.current;
       const saved = await remember<unknown>(KEYS.presentationsFolder);
       if (!saved || cancelled) return;
 
@@ -337,11 +517,11 @@ export function Presentations() {
           await forget(KEYS.presentationsFolder);
           return;
         }
-        if (!cancelled) await load(folder, saved);
+        if (!cancelled) await load(folder, saved, mine);
         return;
       }
 
-      if (!cancelled) setPending({ handle: saved, name });
+      if (!cancelled && mine === opening.current) setPending({ handle: saved, name });
     })();
 
     return () => {
@@ -361,15 +541,22 @@ export function Presentations() {
   }
 
   function forgetFolder() {
+    // An open still under way, or a scan, belongs to the folder just cleared:
+    // landing later, it would show a folder the shell has already let go of.
+    opening.current++;
+    displayed.current = opening.current;
+    setBusy(null);
     setPending(null);
     setFellBack(false);
     setError(null);
     setScanned(null);
     setFiles([]);
     setHandle(null);
+    setNative(null);
     setFolderName("");
     clearRun();
-    void forget(KEYS.presentationsFolder);
+    if (bridge) void bridge.forgetLast();
+    else void forget(KEYS.presentationsFolder);
   }
 
   async function chooseFolder() {
@@ -400,8 +587,13 @@ export function Presentations() {
     await load(folder, folder.handle ?? null);
   }
 
-  /** The picker where this browser has one, the directory input otherwise. */
-  const choose = () => (access === "readwrite" ? void chooseFolder() : input.current?.click());
+  /** The system's dialog in the desktop app, the picker where this browser has one, the directory input otherwise. */
+  const choose = () =>
+    bridge
+      ? void chooseNative(() => bridge.pickFolder())
+      : access === "readwrite"
+        ? void chooseFolder()
+        : input.current?.click();
 
   const withIssues = useMemo(
     () => reports.filter((r) => r.issues.some((i) => shown.has(i.kind)) || r.error),
@@ -430,10 +622,9 @@ export function Presentations() {
    */
   const rows = useMemo(() => {
     const byFile = new Map<string, Row[]>();
-    for (const { report, fixable } of examined) {
-      const issues = report.issues.filter((i) => shown.has(i.kind));
-      if (issues.length === 0) continue;
-      byFile.set(report.filename, rowsOf(report.filename, issues, planFixes(fixable, issues)));
+    for (const one of examined) {
+      const lines = rowsFor(one, shown);
+      if (lines.length > 0) byFile.set(one.report.filename, lines);
     }
     return byFile;
   }, [examined, shown]);
@@ -555,14 +746,53 @@ export function Presentations() {
     return file.read();
   };
 
+  /**
+   * Save through the desktop shell, which does the whole of it: reads each
+   * file again, works its fixes out again, and backs up, writes and reads
+   * back only the lines that come out as they were shown here.
+   */
+  async function saveNative() {
+    // The checks on screen now, which decided what every fix shown does.
+    const kinds = [...shown];
+    // The folder the save is for: one opened while it runs has files of its own.
+    const mine = displayed.current;
+    await run("applying", async (step) => {
+      await step(chosen[0]?.path ?? "", 0, chosen.length);
+      const result = await bridge!.applyFixes(
+        chosen.map((plan) => {
+          const native = fileByPath.get(plan.path)?.native;
+          return {
+            path: native?.path ?? plan.path,
+            sha256: native?.sha256 ?? "",
+            kinds,
+            lines: plan.fixes.map(({ boxIndex, lineIndex, before, after }) => ({ boxIndex, lineIndex, before, after })),
+          };
+        })
+      );
+      if (mine !== displayed.current) return;
+      const shownAs = new Map(files.map((file) => [file.native?.path, file.path]));
+      setNativeRun({ backupFolder: result.backupFolder, refused: result.refused });
+      setBackupsUnshown(false);
+      // A refused run replaces the last run's outcomes too: an earlier success is not this run's.
+      setOutcomes(result.refused ? null : result.files.map((file) => ({ ...file, path: shownAs.get(file.path) ?? file.path })));
+      // Read again what the run may have changed, so what is on screen is what is on disk.
+      await rescan(chosen.flatMap((plan) => fileByPath.get(plan.path) ?? []), mine);
+    });
+  }
+
   async function saveFixes() {
+    if (bridge) return saveNative();
     setFixError(null);
+    // Taken before the prompt, which waits on the person: a folder opened
+    // while it is up is not the one whose handle and files this save holds.
+    const mine = displayed.current;
     // Scanning only ever asked to read. Writing is a separate promise, made
     // here where the reader has just asked for it and a gesture is in hand.
     if ((await requestHandlePermission(handle, "readwrite")) !== "granted") {
-      setFixError("permissionNeeded");
+      if (mine === displayed.current) setFixError("permissionNeeded");
       return;
     }
+    if (mine !== displayed.current) return;
 
     await run("applying", async (onFile) => {
       const result = await fixFiles(chosen, {
@@ -574,11 +804,12 @@ export function Presentations() {
         },
         onFile,
       });
+      if (mine !== displayed.current) return;
       setOutcomes(result);
       // The backup describes files that no longer look like that.
       setBackup(null);
       // Read the folder again, so what is on screen is what is on disk.
-      await scan(files);
+      await scan(files, mine);
     });
   }
 
@@ -595,6 +826,17 @@ export function Presentations() {
       setSavedZip(name);
     });
 
+  /** What the fix card says of saving, which depends on what this app can do with the folder. */
+  function fixWhy(): string {
+    if (bridge) {
+      if (cloud) return nativeText.cloudReadOnly;
+      return native?.workspace ? `${nativeText.backupWhy} ${nativeText.closeProPresenter}` : nativeText.backupWhy;
+    }
+    if (!canWrite) return p.downloadFixedWhy;
+    if (!backup) return `${plural(p.backupCount, chosen.length)}. ${p.backupWhy}`;
+    return backedUp ? f(p.backupDone, { name: backup.name }) : p.backupStale;
+  }
+
   const saved = outcomes?.filter((outcome) => !outcome.reason) ?? [];
   const refused = outcomes?.filter((outcome) => outcome.reason) ?? [];
 
@@ -602,17 +844,18 @@ export function Presentations() {
     <>
       <div className="card">
         <h2>{p.name}</h2>
-        <p className="sub">{p.chooseHint}</p>
+        <p className="sub">{bridge ? nativeText.chooseHint : p.chooseHint}</p>
 
         <div className="editor-bar">
           {/* Once a folder is chosen it replaces the button, so what is loaded
-              is on screen rather than implied. Only its name: the browser
-              never reveals where the folder sits on disk, by design. */}
+              is on screen rather than implied. Only its name in a browser,
+              which never reveals where the folder sits on disk, by design;
+              the whole path in the desktop app, which knows it. */}
           {folderName ? (
             <>
-              <span className="chosen">
+              <span className="chosen" title={native?.root}>
                 <FolderOpen size={15} aria-hidden="true" />
-                <span className="chosen-name">{folderName}</span>
+                <span className="chosen-name">{native?.root ?? folderName}</span>
               </span>
               {/* Not while a run is going either: it rereads the folder it
                   started with when it finishes, over whatever replaced it. */}
@@ -664,6 +907,39 @@ export function Presentations() {
           {busy && <span className="editor-count">{f(p.scanning, { n: busy })}</span>}
         </div>
 
+        {/* ProPresenter 22 keeps its libraries in its own support folder,
+            which nobody finds in a dialog, so the ones its registry knows
+            are offered directly. */}
+        {bridge && workspaces.length > 0 && (
+          <>
+            <p className="sub">{nativeText.workspaces}</p>
+            <ul className="rows">
+              {workspaces.map((workspace) => (
+                <li key={workspace.root}>
+                  <div className="fix-head">
+                    <button
+                      className="btn"
+                      onClick={() => void chooseNative(() => bridge.openWorkspace(workspace.root))}
+                      disabled={busy !== null || running}
+                    >
+                      {nativeText.open}
+                    </button>
+                    <span>
+                      {workspace.name}
+                      <span className="node-count">
+                        {[workspace.active && nativeText.inUse, workspace.cloud && nativeText.cloud]
+                          .filter(Boolean)
+                          .map((tag) => ` · ${tag}`)
+                          .join("")}
+                      </span>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
         {/* The opt-in checks, offered where the folder is chosen rather than
             among the findings: they change what counts as a problem, which is
             a decision made before reading rather than while sifting. */}
@@ -679,13 +955,16 @@ export function Presentations() {
         ))}
 
         <p className="why">
-          {access === "readwrite"
-            ? p.readwriteNote
-            : access === "readonly"
-              ? p.readonlyNote
-              : p.unavailableNote}{" "}
-          {access === "readwrite" && p.installNote}
+          {
+            {
+              native: nativeText.note,
+              readwrite: p.readwriteNote,
+              readonly: p.readonlyNote,
+              unavailable: p.unavailableNote,
+            }[access]
+          }
         </p>
+        {native?.truncated && <p className="why warn-inline">{nativeText.truncated}</p>}
 
         {pending && (
           <>
@@ -751,7 +1030,17 @@ export function Presentations() {
               {excluded.size > 0 ? p.selectAll : p.selectNone}
             </button>
 
-            {canWrite ? (
+            {bridge ? (
+              // No backup to take first: the shell makes one of every file
+              // before it changes, and writes nothing if it cannot.
+              <button
+                className="btn primary"
+                onClick={() => void saveFixes()}
+                disabled={!canWrite || chosenLines === 0 || running}
+              >
+                {plural(p.applyFixes, chosenLines)}
+              </button>
+            ) : canWrite ? (
               <>
                 <button
                   className={backedUp ? "btn" : "btn primary"}
@@ -781,15 +1070,32 @@ export function Presentations() {
 
           {progress && <ProgressBar progress={progress} />}
 
-          <p className="why">
-            {!canWrite
-              ? p.downloadFixedWhy
-              : backup
-                ? backedUp
-                  ? f(p.backupDone, { name: backup.name })
-                  : p.backupStale
-                : `${plural(p.backupCount, chosen.length)}. ${p.backupWhy}`}
-          </p>
+          <p className="why">{fixWhy()}</p>
+
+          {nativeRun?.refused && (
+            <p className="why warn-inline">
+              {nativeRun.refused.code === "failed"
+                ? f(p.runRefusals.failed, { detail: nativeRun.refused.detail })
+                : p.runRefusals[nativeRun.refused.code]}
+            </p>
+          )}
+          {nativeRun?.backupFolder && (
+            <div className="editor-bar" style={{ paddingTop: 0 }}>
+              <span className="editor-count">{f(nativeText.backedUpTo, { folder: nativeRun.backupFolder })}</span>
+              <span className="spacer" />
+              <button
+                className="btn"
+                onClick={() => {
+                  setBackupsUnshown(false);
+                  // Moved or removed since: the path above still says where they were.
+                  bridge?.showBackups(nativeRun.backupFolder!).catch(() => setBackupsUnshown(true));
+                }}
+              >
+                {nativeText.showBackups}
+              </button>
+            </div>
+          )}
+          {nativeRun?.backupFolder && backupsUnshown && <p className="why warn-inline">{nativeText.backupsUnshown}</p>}
 
           {savedZip && <p className="why">{f(p.downloadedFixed, { name: savedZip })}</p>}
           {fixError && (
@@ -809,7 +1115,10 @@ export function Presentations() {
               {refused.map((outcome) => (
                 <li key={outcome.path}>
                   <span className="path">{outcome.path}</span>{" "}
-                  <span className="node-count">{p.refusals[outcome.reason!]}</span>
+                  <span className="node-count">
+                    {p.refusals[outcome.reason!]}
+                    {outcome.rangeReason && `: ${p.rangeRefusals[outcome.rangeReason]}`}
+                  </span>
                 </li>
               ))}
             </ul>

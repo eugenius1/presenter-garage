@@ -21,6 +21,11 @@ export default defineConfig({
         // Only starts the MCP server on stdio; the suite drives the server
         // itself in-process, and a child process would not be measured.
         "packages/mcp/src/main.ts",
+        // Electron's entry points, which need Electron itself: CI's desktop
+        // job launches them on macOS and Windows (npm run smoke), and the
+        // suite drives what they call -- handlers.ts, serve.ts -- directly.
+        "apps/desktop/src/main.ts",
+        "apps/desktop/src/preload.ts",
       ],
       reporter: ["lcov", "text-summary"],
     },
