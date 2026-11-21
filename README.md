@@ -161,7 +161,7 @@ Claude Code can also install it as a plugin from this repository's marketplace,
 which starts the same `npx` server and offers a **Read only** option:
 
 ```
-/plugin marketplace add eugenius1/propresenter-garage
+/plugin marketplace add eugenius1/presenter-garage
 /plugin install presenter-garage@presenter-garage
 ```
 
