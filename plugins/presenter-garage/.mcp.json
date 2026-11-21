@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "presenter-garage": {
+      "command": "npx",
+      "args": ["-y", "presenter-garage-mcp@latest", "--read-only=${user_config.read_only}"]
+    }
+  }
+}

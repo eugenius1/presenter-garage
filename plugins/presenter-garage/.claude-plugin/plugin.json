@@ -1,0 +1,20 @@
+{
+  "name": "presenter-garage",
+  "description": "Read a ProPresenter 7+ library and edit its slide text from Claude: search presentations, run text checks, audit the media bin, and change lines only once you confirm them, with a backup first.",
+  "author": {
+    "name": "Eusebius Ngemera",
+    "url": "https://github.com/eugenius1"
+  },
+  "homepage": "https://github.com/eugenius1/presenter-garage#for-ai-assistants-mcp",
+  "repository": "https://github.com/eugenius1/presenter-garage",
+  "license": "GPL-3.0-or-later",
+  "keywords": ["propresenter", "church", "lyrics", "slides", "media", "mcp"],
+  "userConfig": {
+    "read_only": {
+      "type": "boolean",
+      "title": "Read only",
+      "description": "Never change a file. The tools that edit slide text are then not offered at all.",
+      "default": false
+    }
+  }
+}
