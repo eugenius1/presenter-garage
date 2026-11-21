@@ -1,6 +1,6 @@
 {
   "name": "presenter-garage",
-  "description": "Read a ProPresenter 7 library and edit its slide text from Claude: search presentations, run text checks, audit the media bin, and change lines only once you confirm them, with a backup first.",
+  "description": "Read a ProPresenter 7+ library and edit its slide text from Claude: search presentations, run text checks, audit the media bin, and change lines only once you confirm them, with a backup first.",
   "author": {
     "name": "Eusebius Ngemera",
     "url": "https://github.com/eugenius1"
