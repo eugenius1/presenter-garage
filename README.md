@@ -157,6 +157,17 @@ has open, else `~/Documents/ProPresenter`, else the one workspace ProPresenter
 `--read-only` to turn editing off. Reading a ProPresenter 22 workspace needs
 Node 22.13 or later.
 
+Claude Code can also install it as a plugin from this repository's marketplace,
+which starts the same `npx` server and offers a **Read only** option:
+
+```
+/plugin marketplace add eugenius1/propresenter-garage
+/plugin install presenter-garage@presenter-garage
+```
+
+The plugin reads the folders it finds on its own (see above). To point it at
+others, use `claude mcp add` as shown instead.
+
 To run it from a checkout instead, or to build the extension yourself
 (`npm run mcp:pack` writes it to `packages/mcp/dist/presenter-garage.mcpb`):
 
