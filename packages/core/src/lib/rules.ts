@@ -63,7 +63,12 @@ export interface RuleBase {
 
 export type Rule = RuleBase &
   (
-    | { check: "leading-trailing-space" | "repeated-space" | "blank-line" | "trailing-comma" | "trailing-full-stop" | "trailing-semicolon" | "repeated-group-text" }
+    | { check: "leading-trailing-space" | "repeated-space" | "blank-line" | "trailing-comma" | "trailing-full-stop" | "trailing-semicolon" }
+    | {
+        check: "repeated-group-text";
+        /** Where a line breaks on a slide does not count, only the words. Off by default: a repeat is shown as it was first. */
+        ignoreLineBreaks?: boolean;
+      }
     | {
         check: "line-marker";
         /** Literal words, or patterns where `{n}` stands for a count: `x{n}`, `({n}x)`, `bis`. */
@@ -132,7 +137,9 @@ export const CHECK_GUIDE: Record<CheckName, string> = {
   "no-group-after": "Group `group` straight after group `after`, e.g. a Pause right after an Intro.",
   "first-group": "A song that does not start with group `group`.",
   "last-group": "A song that does not end in group `group`.",
-  "repeated-group-text": "A group used more than once whose words differ, spacing and end punctuation aside. No parameters.",
+  "repeated-group-text":
+    "A group used more than once whose words or line breaks differ, spacing and end punctuation aside. " +
+    "ignoreLineBreaks: true to compare only the words on each slide, wherever its lines break.",
   "slide-macros":
     "The macros switched on on a slide. where: \"first\" (the first slide) or \"rest\" (every slide no other slide-macros rule selects, " +
     "including rules that are off). required: every one must be there. allowed: may be there too; once required or allowed is given, any other macro " +
@@ -167,7 +174,7 @@ const PARAMS: Record<CheckName, { required: string[]; optional: string[] }> = {
   "trailing-comma": { required: [], optional: [] },
   "trailing-full-stop": { required: [], optional: [] },
   "trailing-semicolon": { required: [], optional: [] },
-  "repeated-group-text": { required: [], optional: [] },
+  "repeated-group-text": { required: [], optional: ["ignoreLineBreaks"] },
   "line-marker": { required: ["markers"], optional: ["at", "means"] },
   "group-names": { required: [], optional: ["names"] },
   "no-group-after": { required: ["group", "after"], optional: [] },
@@ -240,6 +247,9 @@ export function parseRules(value: unknown): RuleSet {
         break;
       case "group-names":
         if (r.names !== undefined && !isStrings(r.names)) at(name, "names must be a list of group names");
+        break;
+      case "repeated-group-text":
+        if (r.ignoreLineBreaks !== undefined && typeof r.ignoreLineBreaks !== "boolean") at(name, "ignoreLineBreaks must be true or false");
         break;
       case "no-group-after":
       case "first-group":
@@ -491,7 +501,7 @@ export function checkRules(doc: PresentationDoc, set: RuleSet, target: RuleTarge
         break;
       }
       case "repeated-group-text": {
-        const words = slideWords(doc);
+        const words = slideWords(doc, rule.ignoreLineBreaks === true);
         const first = new Map<string, { start: number; text: string }>();
         for (const run of runs) {
           if (run.name === "") continue;
@@ -607,11 +617,11 @@ export function groupRuns(groupNames: readonly string[]): GroupRun[] {
 }
 
 /**
- * Each slide's shown words, compared loosely: spacing and end punctuation are
- * the text checks' business, and where a line breaks is layout, so the same
- * words broken over two lines on one slide are still the same words.
+ * Each slide's shown lines, compared loosely: spacing and end punctuation are
+ * the text checks' business. Where a line breaks counts unless the rule says
+ * not, since a repeat is meant to be shown as it was the first time.
  */
-function slideWords(doc: PresentationDoc): string[] {
+function slideWords(doc: PresentationDoc, ignoreLineBreaks: boolean): string[] {
   const words: string[][] = doc.slides.map(() => []);
   for (const box of doc.textBoxes) {
     if (!hasText(box)) continue;
@@ -622,7 +632,8 @@ function slideWords(doc: PresentationDoc): string[] {
       if (loose) words[box.slideIndex]?.push(loose);
     }
   }
-  return words.map((slide) => slide.join(" "));
+  // A line break is not a character a line can hold, so it cannot be confused with the text around it.
+  return words.map((slide) => slide.join(ignoreLineBreaks ? " " : "\n"));
 }
 
 /**

@@ -40,6 +40,8 @@ export interface Difference extends Proposal {
   row: number;
   group: string;
   breaks: { a: [number, number]; b: [number, number] };
+  /** Only one side has this group: it is kept, and a person decides whether it goes. */
+  decide?: true;
 }
 
 export interface Pair {
@@ -174,9 +176,10 @@ function baseOf({ labels, prefer }: CompareOptions): "a" | "b" {
 
 /**
  * Each place the versions differ, and which to take there, in the order the
- * plan settles a conflict: fewer rule breaks in that group (where both sides
- * have it), tier 1 first, then the later edit where both dates are known, then the base. Spelling is
- * not judged here: that is for a person reading the two.
+ * plan settles a conflict: fewer rule breaks in that group, tier 1 first,
+ * then the later edit where both dates are known, then the base. A group
+ * only one side has is kept and flagged for a person. Spelling is not
+ * judged here: that is for a person reading the two.
  */
 function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions): Difference[] {
   const { labels } = options;
@@ -192,9 +195,15 @@ function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions):
     if (JSON.stringify(ga) === JSON.stringify(gb)) return;
     const breaks = { a: breaksIn(a, ga), b: breaksIn(b, gb) };
     const group = (ga ?? gb)!.name;
-    // A group only one side has is no fewer breaks on the side without it:
-    // that would drop a whole group for a comma. Its dates decide, then the base.
-    for (const tier of ga && gb ? ([0, 1] as const) : []) {
+    // A group only one side has is never proposed for dropping, by its breaks,
+    // its dates or the base: losing a verse is not a tidy-up. It is kept and
+    // left for a person to decide.
+    if (!ga || !gb) {
+      const keep = ga ? "a" : "b";
+      differences.push({ row, group, breaks, pick: keep, reason: `only ${labels[keep]} has this group: kept, for you to decide`, decide: true });
+      return;
+    }
+    for (const tier of [0, 1] as const) {
       if (breaks.a[tier] !== breaks.b[tier]) {
         const pick = breaks.a[tier] < breaks.b[tier] ? "a" : "b";
         const other = pick === "a" ? "b" : "a";

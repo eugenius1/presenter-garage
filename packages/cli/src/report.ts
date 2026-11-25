@@ -310,7 +310,7 @@ const CLIENT = String.raw`
       var d = differences[row];
       if (d) {
         body.appendChild(el("tr", { "class": "difference" }, [el("td", { colspan: "2" }, [
-          el("strong", { text: "Take " + L[d.pick] + " here. " }), d.reason
+          el("strong", { text: (d.decide ? "Kept from " : "Take ") + L[d.pick] + " here. " }), d.reason
         ])]));
       }
       body.appendChild(el("tr", null, [
