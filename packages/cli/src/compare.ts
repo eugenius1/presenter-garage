@@ -184,7 +184,7 @@ function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions):
   const breaksIn = (song: Song, group: Group | undefined): [number, number] => {
     const index = group ? song.groups.indexOf(group) : -1;
     const counts: [number, number] = [0, 0];
-    for (const f of song.findings) if (f.group === index && !f.excepted && f.tier < 3) counts[f.tier - 1]++;
+    for (const f of song.findings) if (f.group === index && f.excepted === undefined && f.tier < 3) counts[f.tier - 1]++;
     return counts;
   };
   const differences: Difference[] = [];

@@ -105,6 +105,25 @@ describe("rules.json", () => {
     expect(() => parseRules({ version: 1, rules: [], exceptions: [{ song: "Psalm 2" }] })).toThrow("exceptions[0]: needs the rule it is an exception to");
   });
 
+  it("says when the file is not shaped like rules at all", () => {
+    const problems = (value: unknown) => {
+      try {
+        parseRules(value);
+      } catch (e) {
+        return (e as RulesError).problems;
+      }
+      return [];
+    };
+    expect(problems([])).toEqual(["the file must hold one JSON object"]);
+    expect(problems({ version: 1, source: "RULES.md", rules: {}, exceptions: {}, extra: 1 })).toEqual([
+      "extra: unknown key",
+      "source: must be { file, sha256 }",
+      "rules: must be a list",
+      "exceptions: must be a list",
+    ]);
+    expect(problems({ version: 1, rules: [null], exceptions: [null] })).toEqual(["rules[0]: must be an object", "exceptions[0]: must be an object"]);
+  });
+
   it("names every macro a rule gives that ProPresenter's list does not hold", () => {
     const set = rules(
       { id: "a", check: "slide-macros", tier: 2, where: "first", required: ["Welcome"], allowed: ["Praise"] },
@@ -251,6 +270,17 @@ describe("the checks", () => {
     ]);
     expect(countByTier(findings)).toEqual([0, 1, 0]);
   });
+
+  it("leaves out of the counts an exception given without a reason too", () => {
+    const set: RuleSet = {
+      version: 1,
+      rules: [{ id: "groups", check: "group-names", tier: 2, names: ["Verse"] }],
+      exceptions: [{ rule: "groups", value: "Bridge" }],
+    };
+    const findings = run(song([{ group: "Bridge" }]), set);
+    expect(findings.map((f) => f.excepted)).toEqual([""]);
+    expect(countByTier(findings)).toEqual([0, 0, 0]);
+  });
 });
 
 describe("findings in words", () => {
@@ -266,6 +296,37 @@ describe("findings in words", () => {
     expect(describeFinding(fr, ends)).toBe("Se termine par « Verse », pas par « Pause »");
     expect(describeFinding(en, marker)).toBe('Repeat marker "x3": sung 3 times');
     expect(findingTags(fr, { ...marker, excepted: "" })).toBe("niveau 2, exception");
+  });
+});
+
+describe("every finding in words", () => {
+  const finding = (detail: Finding["detail"]): Finding => ({ rule: "r", check: "last-group", tier: 2, slideIndex: 0, detail });
+  const details: Finding["detail"][] = [
+    { kind: "text", issue: "trailingComma" },
+    { kind: "marker", marker: "(chorus)" },
+    { kind: "marker", marker: "x2", count: 2, means: "repeat" },
+    { kind: "groupName", group: "Bridge" },
+    { kind: "groupName", group: "Verse\u00a01", spacing: "Verse 1" },
+    { kind: "groupAfter", group: "Blank", after: "Intro" },
+    { kind: "lastGroup", expected: "Blank", actual: "Verse" },
+    { kind: "lastGroup", expected: "Blank" },
+    { kind: "repeatedGroup", group: "Chorus", firstSlide: 1 },
+    { kind: "slideMacros", where: "rest", missing: ["Song"], extra: [], count: 0, disabled: ["Song"] },
+    { kind: "slideMacros", where: "first", missing: [], extra: ["Lights"], count: 3, min: 1, max: 2, disabled: [] },
+    { kind: "slideMacros", where: "first", missing: [], extra: [], count: 0, min: 1, disabled: [] },
+    { kind: "macroAlone", macro: "Song", others: ["Welcome"] },
+  ];
+
+  it("has a sentence in each language for every kind, and never the same one in both", () => {
+    const en = createI18n("en");
+    const fr = createI18n("fr");
+    for (const detail of details) {
+      const [english, french] = [describeFinding(en, finding(detail)), describeFinding(fr, finding(detail))];
+      expect(english, detail.kind).not.toBe("");
+      expect(french, detail.kind).not.toBe(english);
+    }
+    expect(describeFinding(en, finding(details[10]))).toBe('Not expected here: "Lights"; Takes at most 2 macros');
+    expect(findingTags(en, { ...finding(details[0]), excepted: "kept" })).toBe("tier 2, excepted: kept");
   });
 });
 

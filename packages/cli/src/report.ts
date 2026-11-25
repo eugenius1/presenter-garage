@@ -247,7 +247,7 @@ const CLIENT = String.raw`
     var e = song.edited;
     var date = e.at ? e.at.slice(0, 16).replace("T", " ") : (e.notAfter ? "not since " + e.notAfter.slice(0, 10) : "unknown");
     var byRule = {};
-    song.findings.forEach(function (f) { if (!f.excepted) byRule[f.rule] = (byRule[f.rule] || 0) + 1; });
+    song.findings.forEach(function (f) { if (f.excepted === undefined) byRule[f.rule] = (byRule[f.rule] || 0) + 1; });
     var rules = Object.keys(byRule).map(function (k) { return k + " " + byRule[k]; }).join(", ");
     return el("div", null, [
       el("div", { "class": "side" }, [label, p.later === side ? el("span", { "class": "later", text: " · edited later" }) : null]),

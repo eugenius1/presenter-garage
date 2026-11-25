@@ -537,7 +537,7 @@ function covers(e: RuleException, finding: Finding, target: RuleTarget): boolean
 /** How many of each tier, leaving out what a person has excepted. */
 export function countByTier(findings: readonly Finding[]): [number, number, number] {
   const counts: [number, number, number] = [0, 0, 0];
-  for (const f of findings) if (!f.excepted) counts[f.tier - 1]++;
+  for (const f of findings) if (f.excepted === undefined) counts[f.tier - 1]++;
   return counts;
 }
 
