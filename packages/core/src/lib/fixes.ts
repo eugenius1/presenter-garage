@@ -19,19 +19,18 @@ import {
   type TextIssueKind,
   type TrailingPunctuation,
 } from "./presentation";
+import { extractLines, type RtfLine } from "./rtf";
 import {
   applyEdits,
   cutsToEdits,
-  extractLines,
   hasLineControl,
   insertLineEdit,
   lineEdit,
   replaceLineText,
   type InsertSide,
-  type RtfLine,
   type SourceEdit,
   type TextCut,
-} from "./rtf";
+} from "./rtf-edit";
 import { groupBy } from "./collections";
 import type { RawDoc } from "./decode";
 import type { Finding } from "./rules";

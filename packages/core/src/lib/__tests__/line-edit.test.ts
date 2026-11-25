@@ -1,17 +1,17 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { applyFixes, EditError, FixError, planLineEdits, type LineChange } from "../fixes";
 import { decodePresentation, readPresentation } from "../presentation";
+import { extractLines } from "../rtf";
 import {
   applyEdits,
   encodeRtfText,
-  extractLines,
   insertLineEdit,
   lineEdit,
   replaceLineText,
   unicodeSkipAt,
   type InsertSide,
   type SourceEdit,
-} from "../rtf";
+} from "../rtf-edit";
 import { hasRealLibrary, libraryFiles, readLibraryFile } from "./corpus";
 import { rtfWithHeader as rtf, syntheticTextPresentation, textLines } from "./synthetic";
 

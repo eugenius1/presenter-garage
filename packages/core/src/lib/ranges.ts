@@ -1,5 +1,5 @@
 import type { LineFix } from "./fixes";
-import { lineSplice } from "./rtf";
+import { lineSplice } from "./rtf-edit";
 
 /**
  * Where a text box's attribute ranges go when its lines change: the one rule

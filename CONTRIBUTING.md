@@ -368,7 +368,7 @@ the way in. A span covering only `\u233 ` would leave a stray "?" on the slide
 when the é is deleted.
 
 **Writing new text meets the same traps from the other side.** `replaceLineText`
-in `packages/core/src/lib/rtf.ts` splices in only what differs, so formatting
+in `packages/core/src/lib/rtf-edit.ts` splices in only what differs, so formatting
 elsewhere on the line survives, and `encodeRtfText` writes the text the way
 ProPresenter does. Three things it has to get right: an escape written in
 must carry exactly as many fallback characters as the `\ucN` in force there
