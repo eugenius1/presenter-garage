@@ -1,0 +1,74 @@
+import {
+  decodeGroupsDocument,
+  decodeMacrosDocument,
+  readGroups,
+  readMacros,
+  type ConfiguredGroup,
+  type ConfiguredMacro,
+} from "@presenter-garage/core/lib/configuration";
+import { findGroups, findMacros, LibraryError, readLibraryFile } from "@presenter-garage/node/library";
+
+/** ProPresenter's configured groups and macros: `read_configuration`. */
+
+export interface Configuration {
+  /** The groups a slide can be put in, in ProPresenter's order. */
+  groups: ConfiguredGroup[];
+  groupsPath?: string;
+  /** The macros a slide can trigger, in ProPresenter's order. */
+  macros: ConfiguredMacro[];
+  macrosPath?: string;
+  /** Why a list is empty because it could not be found or read; absent when both were read. */
+  unreadable?: { groups?: string; macros?: string };
+}
+
+/** One configured list, or why not. */
+async function readConfigured<T>(
+  roots: readonly string[],
+  find: (roots: readonly string[]) => Promise<string | undefined>,
+  missing: string,
+  read: (bytes: Uint8Array) => T[]
+): Promise<{ path?: string; items: T[]; problem?: string }> {
+  const file = await find(roots);
+  if (!file) return { items: [], problem: missing };
+  try {
+    // Through the roots, as every other read: `Configuration` can be a symlink leading out of them.
+    const { path: real, bytes } = await readLibraryFile(roots, file);
+    return { path: real, items: read(bytes) };
+  } catch (e) {
+    // protobuf.js says why it could not decode; a LibraryError says why it could not read.
+    return { path: file, items: [], problem: (e as Error).message };
+  }
+}
+
+/**
+ * ProPresenter's configured groups and macros: the lists a presentation's
+ * groups and macros are meant to come from.
+ *
+ * Names exactly as stored. `answer()` in the server makes a non-breaking
+ * space visible on the wire, which is what tells `Couplet 1` from
+ * `Couplet\u00a01`.
+ */
+export async function readConfiguration(roots: readonly string[]): Promise<Configuration> {
+  const [groups, macros] = await Promise.all([
+    readConfigured(roots, findGroups, "No `Configuration/Groups` beside `Libraries`, and no workspace `Groups` document.", (bytes) =>
+      readGroups(decodeGroupsDocument(bytes))
+    ),
+    readConfigured(roots, findMacros, "No `Configuration/Macros` beside `Libraries`, and no workspace `Macros` document.", (bytes) =>
+      readMacros(decodeMacrosDocument(bytes))
+    ),
+  ]);
+  if (!groups.path && !macros.path) {
+    throw new LibraryError(
+      "Found neither ProPresenter's configured groups nor its macros. Point the server at the ProPresenter " +
+        "folder (the one holding `Libraries` and `Configuration`) or at a ProPresenter 22 workspace."
+    );
+  }
+  const unreadable = groups.problem || macros.problem ? { groups: groups.problem, macros: macros.problem } : undefined;
+  return {
+    groups: groups.items,
+    groupsPath: groups.path,
+    macros: macros.items,
+    macrosPath: macros.path,
+    ...(unreadable ? { unreadable } : {}),
+  };
+}
