@@ -1,3 +1,6 @@
+// Kept whole: one operation, giving slides another slide's look, from the plan
+// (`planStyle`) through applying it and checking the result against that plan.
+
 import {
   canonicalObject,
   checkTypeFidelity,
@@ -13,7 +16,8 @@ import {
   shownBounds,
   slidesInOrder,
 } from "./presentation";
-import { decodeRtf, encodeRtf, endsWithControlWord, extractLines } from "./rtf";
+import { decodeRtf, encodeRtf, extractLines } from "./rtf";
+import { endsWithControlWord } from "./rtf-edit";
 
 /**
  * Giving one presentation's slides the look of another's.

@@ -1,13 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import {
-  applyEdits,
-  cutsToEdits,
-  decodeRtf,
-  encodeRtf,
-  extractLines,
-  lineEdit,
-  type RtfLine,
-} from "../rtf";
+import { decodeRtf, encodeRtf, extractLines, type RtfLine } from "../rtf";
+import { applyEdits, cutsToEdits, lineEdit } from "../rtf-edit";
 import { decodePresentation, readPresentation } from "../presentation";
 import { hasRealLibrary, libraryFiles, readLibraryFile } from "./corpus";
 import { rtfWithHeader as rtf, syntheticTextPresentation } from "./synthetic";

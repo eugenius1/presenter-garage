@@ -1,3 +1,6 @@
+/* Kept whole: one stylesheet whose later rules override earlier ones. Split,
+   the cascade would rest on the order of imports instead of on this file. */
+
 /*
  * Colour comes from Radix Colors: twelve-step scales with light and dark
  * counterparts, built so that step 11 text clears 4.5:1 on steps 1-3 and step 9

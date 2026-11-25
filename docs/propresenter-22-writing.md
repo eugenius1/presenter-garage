@@ -292,7 +292,7 @@ with new text: after a line it goes at that line's break, as a break of the
 same kind and the text, so it reads in the state the old line ended in and
 the next line starts as it did; before a line it goes after that line's own
 formatting. Not a character already in the box is touched. Details and the
-edge cases are in `insertLineEdit()` in `packages/core/src/lib/rtf.ts`.
+edge cases are in `insertLineEdit()` in `packages/core/src/lib/rtf-edit.ts`.
 
 The ranges follow the same idea: a new line is to be covered by exactly the
 ranges that cover all of the line it copies. The run of added lines is one

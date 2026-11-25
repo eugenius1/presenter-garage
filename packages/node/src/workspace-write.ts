@@ -1,3 +1,7 @@
+// Kept whole: one transaction. Every step of a workspace write runs inside the
+// same exclusive lock, in the order AGENTS.md's guards need; split, the
+// lock's start and its end would sit in different files.
+
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
