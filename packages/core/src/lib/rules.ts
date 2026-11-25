@@ -299,17 +299,18 @@ export interface RuleConfiguration {
  *
  * Given a song's library (`undefined` for a song in none), only the rules
  * that apply to it count: a rule kept to another library runs nothing there,
- * and a macro it names need not be in that song's list. `null`, the default,
- * counts every rule.
+ * and a macro it names need not be in that song's list. With no song given,
+ * every rule counts. An object rather than a bare argument, so a song in no
+ * library cannot be mistaken for no song at all.
  */
-export function unknownMacros(set: RuleSet, config: RuleConfiguration, library: string | undefined | null = null): string[] {
+export function unknownMacros(set: RuleSet, config: RuleConfiguration, song?: { library: string | undefined }): string[] {
   if (!config.macros?.length) return [];
   const known = new Set(config.macros.map((m) => m.name));
   const missing = new Set<string>();
   for (const rule of set.rules) {
     // A rule that is off runs nothing, so a macro it names that has since gone stops no check.
     if (rule.tier === "off") continue;
-    if (library !== null && !appliesTo(rule, library)) continue;
+    if (song && !appliesTo(rule, song.library)) continue;
     for (const name of macroNames(rule)) if (!known.has(name)) missing.add(name);
   }
   return [...missing];

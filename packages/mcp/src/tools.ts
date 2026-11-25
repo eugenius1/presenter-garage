@@ -492,7 +492,7 @@ export async function checkPresentations(
     const key = `${root}\u0000${library}`;
     if (asked.has(key)) continue;
     asked.add(key);
-    const unknown = unknownMacros(loaded.set, config, library);
+    const unknown = unknownMacros(loaded.set, config, { library });
     if (unknown.length) throw new LibraryError(`The rules name macros ProPresenter's list in ${root} does not have: ${unknown.join(", ")}`);
   }
 
