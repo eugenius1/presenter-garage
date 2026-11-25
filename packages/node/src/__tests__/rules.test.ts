@@ -89,6 +89,11 @@ describe("a song's library", () => {
     // A library read on its own keeps its name, so rules kept to it still run.
     expect(libraryOf("/pp/Libraries/Songs", path.join("/pp/Libraries/Songs", "Holy.pro"))).toBe("Songs");
     expect(libraryOf("/pp/Libraries", path.join("/pp/Libraries", "Holy.pro"))).toBeUndefined();
+    // A song in a folder inside a library is in that library, whichever folder is read.
+    const advent = path.join("/pp", "Libraries", "Songs", "Advent", "Holy.pro");
+    expect(libraryOf("/pp", advent)).toBe("Songs");
+    expect(libraryOf("/pp/Libraries/Songs", advent)).toBe("Songs");
+    expect(libraryOf("/pp/Libraries/Songs/Advent", advent)).toBe("Songs");
   });
 });
 

@@ -73,6 +73,7 @@ import {
 import { explain, open, presentationName } from "@presenter-garage/node/presentations";
 import { isInWorkspace } from "@presenter-garage/node/workspace";
 import { sha256 } from "@presenter-garage/node/write";
+import { isInside } from "@presenter-garage/node/paths";
 import { findRules, libraryOf, loadRules, RULES_JSON, RULES_MD, rulesConfiguration, saveRules, type LoadedRules } from "@presenter-garage/node/rules";
 
 /**
@@ -450,9 +451,8 @@ function rulesNotes(loaded: LoadedRules): string[] {
 /** The configured folder a file is in, for the library it belongs to. */
 const rootOf = (roots: readonly string[], file: string) =>
   // The deepest that holds it: of two folders one inside the other, the inner one's lists are the song's.
-  roots
-    .filter((root) => !path.relative(root, file).startsWith(".."))
-    .sort((a, b) => b.length - a.length)[0];
+  // `isInside`, not a test for "..", which a root on another drive would pass.
+  roots.filter((root) => isInside(root, file)).sort((a, b) => b.length - a.length)[0];
 
 /**
  * The team's rules, run on one file or a whole folder.
@@ -476,14 +476,25 @@ export async function checkPresentations(
   // the list of the library they came from, never another's.
   const configs = new Map(await Promise.all(roots.map(async (root) => [root, await rulesConfiguration([root])] as const)));
   const problems = [...configs.values()].flatMap((c) => c.problems);
-  for (const [root, config] of configs) {
-    const unknown = unknownMacros(loaded.set, config);
-    if (unknown.length) throw new LibraryError(`The rules name macros ProPresenter's list in ${root} does not have: ${unknown.join(", ")}`);
-  }
   const i18n = createI18n(lang);
   const { files, truncated } = single
     ? { files: [resolved], truncated: false }
     : await findPresentations(resolved ? [resolved] : roots);
+  const placeOf = (file: string) => {
+    const root = rootOf(roots, file);
+    return { root, library: root ? libraryOf(root, file) : undefined, config: (root && configs.get(root)) || {} };
+  };
+  // Asked only of the songs being checked, and of each in its own library's
+  // terms: a macro a rule needs is missing only where that rule runs.
+  const asked = new Set<string>();
+  for (const file of files) {
+    const { root, library, config } = placeOf(file);
+    const key = `${root}\u0000${library}`;
+    if (asked.has(key)) continue;
+    asked.add(key);
+    const unknown = unknownMacros(loaded.set, config, library);
+    if (unknown.length) throw new LibraryError(`The rules name macros ProPresenter's list in ${root} does not have: ${unknown.join(", ")}`);
+  }
 
   // Truncated either way: a walk that hit its cap left files unchecked, and a
   // list that hit `limit` left findings unlisted. Both mean "not everything".
@@ -526,9 +537,9 @@ export async function checkPresentations(
       list({ path: file, name: presentationName(file), error: explain(opened.problem, opened.detail), findings: [] });
       continue;
     }
-    const root = rootOf(roots, file);
+    const { library, config } = placeOf(file);
     const name = presentationName(file);
-    const findings = checkRules(opened.doc, loaded.set, { song: name, library: root ? libraryOf(root, file) : undefined }, (root && configs.get(root)) || {});
+    const findings = checkRules(opened.doc, loaded.set, { song: name, library }, config);
     if (findings.length === 0) continue;
     for (const finding of findings) {
       if (finding.excepted !== undefined) result.excepted++;
@@ -580,11 +591,13 @@ export async function readRules(rulesDirs: readonly string[]): Promise<RulesAnsw
     problems = [e.message];
   }
   const markdown = loaded?.markdown ?? found?.markdown;
+  const text = markdown ? await prose(markdown) : undefined;
   return {
-    ...(markdown ? { markdown: await prose(markdown) } : {}),
+    ...(text ? { markdown: text } : {}),
     ...(loaded?.json ? { json: { path: loaded.json, rules: loaded.set } } : {}),
     ...(problems ? { problems } : {}),
-    stale: loaded?.stale ?? true,
+    // From the same bytes as the prose returned, so the two cannot describe different files.
+    stale: text ? !loaded?.json || loaded.set.source?.sha256 !== text.sha256 : (loaded?.stale ?? true),
     searched: rulesDirs,
     checks: CHECK_GUIDE,
   };
@@ -612,11 +625,12 @@ export async function saveRulesFile(rulesDirs: readonly string[], rules: unknown
     if (e instanceof RulesError) throw new LibraryError(e.message);
     throw e;
   }
-  // Refused before writing: a name a library's list lacks would make its rule find nothing there, or everything.
-  for (const root of roots) {
-    const unknown = unknownMacros(set, await rulesConfiguration([root]));
-    if (unknown.length) throw new LibraryError(`These macros are not in ProPresenter's list in ${root}: ${unknown.join(", ")}. Nothing was written.`);
-  }
+  // Refused before writing: a name no library's list has would make its rule
+  // find nothing, or everything. Which library a scoped rule's macros must be
+  // in is not known until a song is checked, so a check asks that per song.
+  const macros = (await Promise.all(roots.map((root) => rulesConfiguration([root])))).flatMap((c) => c.macros ?? []);
+  const unknown = unknownMacros(set, { macros });
+  if (unknown.length) throw new LibraryError(`These macros are not in ProPresenter's list: ${unknown.join(", ")}. Nothing was written.`);
   const saved = await saveRules(found.markdown, set, compiledFrom);
   return { path: saved.path, rules: saved.set.rules.length, exceptions: saved.set.exceptions.length };
 }

@@ -296,17 +296,28 @@ export interface RuleConfiguration {
  * slide, and either way say nothing true, so a caller refuses the rules until
  * the name is put right. Without the list there is nothing to check against,
  * and names are then matched as the slides record them.
+ *
+ * Given a song's library (`undefined` for a song in none), only the rules
+ * that apply to it count: a rule kept to another library runs nothing there,
+ * and a macro it names need not be in that song's list. `null`, the default,
+ * counts every rule.
  */
-export function unknownMacros(set: RuleSet, config: RuleConfiguration): string[] {
+export function unknownMacros(set: RuleSet, config: RuleConfiguration, library: string | undefined | null = null): string[] {
   if (!config.macros?.length) return [];
   const known = new Set(config.macros.map((m) => m.name));
   const missing = new Set<string>();
   for (const rule of set.rules) {
     // A rule that is off runs nothing, so a macro it names that has since gone stops no check.
     if (rule.tier === "off") continue;
+    if (library !== null && !appliesTo(rule, library)) continue;
     for (const name of macroNames(rule)) if (!known.has(name)) missing.add(name);
   }
   return [...missing];
+}
+
+/** Whether a rule runs on songs in this library: every rule does, but one kept to some libraries. */
+export function appliesTo(rule: Rule, library: string | undefined): boolean {
+  return !rule.libraries || (library !== undefined && rule.libraries.some((l) => looseName(l) === looseName(library)));
 }
 
 function macroNames(rule: Rule): string[] {
@@ -388,8 +399,7 @@ export function checkRules(doc: PresentationDoc, set: RuleSet, target: RuleTarge
   const macroKey = macroIdentity(config);
   const slideGroups = doc.slides.map((s) => s.groupName ?? "");
   const runs = groupRuns(slideGroups);
-  const inScope = (rule: Rule) =>
-    !rule.libraries || (target.library !== undefined && rule.libraries.some((l) => looseName(l) === looseName(target.library!)));
+  const inScope = (rule: Rule) => appliesTo(rule, target.library);
   // A first-slide rule keeps the first slide from "rest" only where it applies, but even when it is off.
   const selectedFirst = set.rules.some((r) => r.check === "slide-macros" && r.where === "first" && inScope(r));
 
@@ -545,11 +555,14 @@ function covers(e: RuleException, finding: Finding, target: RuleTarget): boolean
  * it: the folder under `Libraries` that holds it, or the first folder under
  * the one read. A song straight inside the folder read is in that folder's
  * library, so a library gets its own name whether it or a folder above it is
- * the one read, and rules kept to it run either way.
+ * the one read, and rules kept to it run either way. Only a caller that knows
+ * the folders above the one read can also place a song in a folder inside a
+ * library, as `libraryOf` in `packages/node` does; the browser is told the
+ * chosen folder's name and no more.
  */
 export function libraryOfSong(folder: string, relative: readonly string[]): string | undefined {
-  const parts = [...relative];
-  if (parts[0] === "Libraries") parts.shift();
+  const at = relative.lastIndexOf("Libraries");
+  const parts = at >= 0 ? relative.slice(at + 1) : relative;
   if (parts.length > 1) return parts[0];
   return folder && folder !== "Libraries" ? folder : undefined;
 }

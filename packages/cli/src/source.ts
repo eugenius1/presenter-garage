@@ -83,10 +83,14 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
   const { files, truncated } = await findPresentations([root]);
   const { problems: ruleNotes, ...config } = options.rules ? await rulesConfiguration([root]) : { problems: [] };
   if (options.rules) {
-    // A macro name the list does not hold would make its rule find nothing, or everything.
-    const unknown = unknownMacros(options.rules, config);
-    if (unknown.length) {
-      throw new LibraryError(`${spec.label}: the rules name macros ProPresenter's list does not have: ${unknown.join(", ")}`);
+    // A macro name the list does not hold would make its rule find nothing,
+    // or everything; asked of each library here, since a rule kept to one
+    // library needs its macros only where it runs.
+    for (const library of new Set(files.map((file) => libraryOf(root, file)))) {
+      const unknown = unknownMacros(options.rules, config, library);
+      if (unknown.length) {
+        throw new LibraryError(`${spec.label}: the rules name macros ProPresenter's list does not have: ${unknown.join(", ")}`);
+      }
     }
   }
   const songs: Song[] = [];

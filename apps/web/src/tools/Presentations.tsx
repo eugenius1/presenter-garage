@@ -264,6 +264,8 @@ export function Presentations() {
    * call that sets the state, and would otherwise read the last folder's name.
    */
   const reading = useRef("");
+  /** The files of the folder on screen, for the same reason: rules may arrive after another folder was opened. */
+  const readingFiles = useRef<FolderFile[]>([]);
   /**
    * The open whose folder is on screen. A read or a save that finds it moved
    * on was for a folder no longer shown, and leaves the screen to this one:
@@ -477,11 +479,12 @@ export function Presentations() {
     rulesInUse.current = next?.set ?? null;
     setRules(next);
     if (next) setOptional(optionalFrom(next.set));
-    if (files.length === 0) return;
+    const current = readingFiles.current;
+    if (current.length === 0) return;
     const mine = ++opening.current;
     displayed.current = mine;
     // Read again as after a save, so a line the person unticked stays unticked.
-    void rescan(files, mine);
+    void rescan(current, mine);
   }
 
   /** A rules.json the person chose: parsed as `parseRules` has it, and every problem shown if it will not. */
@@ -537,7 +540,8 @@ export function Presentations() {
     const examined = await examineAll(list, mine);
     if (!examined || mine !== displayed.current) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
-    setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
+    // A folder whose first read was overtaken has nothing to merge into: this read is its first.
+    setScanned((prev) => (prev === null ? examined : prev.map((one) => fresh.get(one.report.filename) ?? one)));
     // A line left unticked stays unticked, or the next save would take it
     // without anyone choosing it: in a file not read again, by its address;
     // in one that was, by what it says, since the save may have moved it.
@@ -579,6 +583,7 @@ export function Presentations() {
     setScanned(null);
     setExcluded(new Set());
     reading.current = folder.name;
+    readingFiles.current = folder.files;
     setFolderName(folder.name);
     setFiles(folder.files);
     setHandle(folderHandle);
@@ -697,6 +702,7 @@ export function Presentations() {
     setHandle(null);
     setNative(null);
     reading.current = "";
+    readingFiles.current = [];
     setFolderName("");
     clearRun();
     if (bridge) void bridge.forgetLast();

@@ -132,6 +132,12 @@ describe("rules.json", () => {
     );
     expect(unknownMacros(set, { macros: [{ name: "Praise", collections: [] }] })).toEqual(["Welcome"]);
     expect(unknownMacros(set, {})).toEqual([]);
+    // A rule kept to one library needs its macros only there.
+    const scoped = rules({ id: "a", check: "macro-alone", tier: 2, macro: "Welcome", libraries: ["Songs"] });
+    const praiseOnly = { macros: [{ name: "Praise", collections: [] }] };
+    expect(unknownMacros(scoped, praiseOnly, "Readings")).toEqual([]);
+    expect(unknownMacros(scoped, praiseOnly, "Songs")).toEqual(["Welcome"]);
+    expect(unknownMacros(scoped, praiseOnly)).toEqual(["Welcome"]);
     // A rule that is off stops nothing for a macro since removed.
     const off = rules({ id: "a", check: "macro-alone", tier: "off", macro: "Gone" });
     expect(unknownMacros(off, { macros: [{ name: "Praise", collections: [] }] })).toEqual([]);

@@ -106,6 +106,17 @@ describe("the team's rules", () => {
     await client.close();
   });
 
+  it("ask for a rule's macros only where it runs, and only of the songs checked", async () => {
+    const { client, call } = await connect([church], { rulesDirs: [] });
+    const rule = { id: "x", check: "macro-alone", tier: 2, macro: "Absent", libraries: ["Elsewhere"] };
+    const kept = (await call("check_presentations", { rules: { version: 1, rules: [rule], exceptions: [] } })).json();
+    expect(kept.totals).toEqual({});
+    const everywhere = await call("check_presentations", { rules: { version: 1, rules: [{ ...rule, libraries: undefined }], exceptions: [] } });
+    expect(everywhere.isError).toBe(true);
+    expect(everywhere.text).toContain("Absent");
+    await client.close();
+  });
+
   it("cannot be saved by a read-only server", async () => {
     const { client } = await connect([church], { readOnly: true, rulesDirs: [team] });
     const { tools } = await client.listTools();

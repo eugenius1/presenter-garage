@@ -192,9 +192,15 @@ export async function rulesConfiguration(roots: readonly string[]): Promise<Rule
 }
 
 /**
- * The library a song is in, as `libraryOfSong` has it: a song straight
- * inside the folder read is in that folder's library.
+ * The library a song is in. Where a `Libraries` folder holds it, whichever
+ * folder was read, the one directly under `Libraries`: a song in
+ * `Libraries/Songs/Advent` is in Songs read from the ProPresenter folder or
+ * from `Songs` itself, so rules and exceptions kept to Songs cover the same
+ * songs either way. Elsewhere, as `libraryOfSong` has it.
  */
 export function libraryOf(root: string, file: string): string | undefined {
+  const parts = path.resolve(file).split(path.sep);
+  const at = parts.lastIndexOf("Libraries");
+  if (at >= 0 && at < parts.length - 2) return parts[at + 1];
   return libraryOfSong(path.basename(root), path.relative(root, file).split(path.sep));
 }

@@ -1001,6 +1001,20 @@ describe("the team's rules", () => {
     expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
   });
 
+  it("reads the folder in full when rules arrive before its first read is done", async () => {
+    let let_go: () => void = () => {};
+    beforeRead = () => new Promise<void>((resolve) => (let_go = resolve));
+    const user = userEvent.setup();
+    renderTool();
+    await user.click(await screen.findByRole("button", { name: /Choose a folder/ }));
+    // The folder is part-way through its first read when the rules come in.
+    await load(user, rulesFile(groupRules));
+    beforeRead = null;
+    let_go();
+    await screen.findByRole("heading", { name: "Fix these" });
+    expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
+  });
+
   it("lists nothing of the kind until rules are loaded", async () => {
     const user = userEvent.setup();
     renderTool();
