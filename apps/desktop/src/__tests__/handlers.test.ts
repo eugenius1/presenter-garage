@@ -92,6 +92,7 @@ const make = (dir = backups) =>
     stateFile: path.join(tmp, "state.json"),
     backupDir: dir,
     workspacesDir: path.join(tmp, "Workspaces"),
+    rulesDirs: [path.join(tmp, "Rules")],
   });
 
 beforeEach(() => {
@@ -569,5 +570,39 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
 
     expect(run.refused?.code).toBe("cloudWorkspace");
     expect(store()).toEqual(before);
+  });
+});
+
+describe("the team's rules", () => {
+  const rulesDir = () => path.join(tmp, "Rules");
+  const compiled = { version: 1, rules: [{ id: "commas", check: "trailing-comma", tier: 2 }], exceptions: [] };
+
+  it("reads rules.json and says nothing is stale without a RULES.md", async () => {
+    fs.mkdirSync(rulesDir());
+    fs.writeFileSync(path.join(rulesDir(), "rules.json"), JSON.stringify(compiled));
+    const found = await bridge.loadTeamRules();
+    expect(found.set.rules.map((r) => r.id)).toEqual(["commas"]);
+    expect(found).toMatchObject({ stale: false, defaulted: false, json: path.join(rulesDir(), "rules.json") });
+  });
+
+  it("says when RULES.md has changed since rules.json was compiled, and writes nothing", async () => {
+    fs.mkdirSync(rulesDir());
+    fs.writeFileSync(path.join(rulesDir(), "RULES.md"), "Pas de virgule.");
+    fs.writeFileSync(path.join(rulesDir(), "rules.json"), JSON.stringify(compiled));
+    const before = fs.readdirSync(rulesDir()).sort();
+    expect(await bridge.loadTeamRules()).toMatchObject({ stale: true, defaulted: false });
+    expect(fs.readdirSync(rulesDir()).sort()).toEqual(before);
+  });
+
+  it("falls back to the defaults, with no file named, when none is found", async () => {
+    const found = await bridge.loadTeamRules();
+    expect(found).toMatchObject({ defaulted: true, stale: false });
+    expect(found.markdown ?? found.json).toBeUndefined();
+  });
+
+  it("refuses a rules.json that does not parse", async () => {
+    fs.mkdirSync(rulesDir());
+    fs.writeFileSync(path.join(rulesDir(), "rules.json"), "{ not json");
+    await expect(bridge.loadTeamRules()).rejects.toThrow(/not JSON/);
   });
 });

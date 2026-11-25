@@ -1,0 +1,2 @@
+# The sample rules.json records RULES.md's hash, which a CRLF checkout would change.
+docs/rules/RULES.md text eol=lf

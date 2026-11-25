@@ -2,7 +2,9 @@
 
 Everything a contributor needs. The [README](README.md) is for people using the
 app; this is for people changing it; [AGENTS.md](AGENTS.md) holds the handful
-of rules that bind coding agents specifically.
+of rules that bind coding agents specifically. [CONTEXT.md](CONTEXT.md) is the
+glossary: what a rule, a finding, a tier or a difference means here. Add to it
+when a term is settled.
 
 ## Running it
 
@@ -296,6 +298,36 @@ What each version was checked for, and what turned up, is in
 [docs/propresenter-versions.md](docs/propresenter-versions.md). Each run adds
 its own entry there.
 
+## A team's rules
+
+A team writes its rules in `RULES.md`, in its own words and language, and no
+tool reads that file as rules: the command line has no model, and putting a
+whole library through one would cost and send every lyric out. An assistant
+reads it instead and compiles it into `rules.json` beside it, which every
+surface runs. A rule there names one of the generic checks in
+`packages/core/src/lib/rules.ts` and gives it the team's own group and macro
+names; nothing in the code knows any team's names. `parseRules()` refuses an
+unknown key rather than ignoring it, since a misspelt parameter passed over in
+silence turns a rule into a different one.
+
+`packages/node/src/rules.ts` finds the files (the folder the command or agent
+runs in, then `Documents/ProPresenter`; never a workspace folder, which is
+ProPresenter's), loads them, and writes `rules.json`, the only file it writes,
+stamped with the hash of the `RULES.md` it came from so that a later change
+shows as stale. It is not a ProPresenter file, so AGENTS.md's write guards are
+not what protects it.
+
+To add a check: its name in `CHECKS`, its parameters in `PARAMS` and the
+`Rule` type, what it does in `CHECK_GUIDE` (the assistant compiling a
+`RULES.md` reads that through `read_rules`), its finding in `FindingDetail`,
+and its sentence in `describeFinding()` with both dictionaries. Findings are
+structured, never sentences, for the reason in *Localisation*.
+
+The sample in [`docs/rules/`](docs/rules/) is in English and uses no team's
+names; a test holds its `rules.json` compiled from its `RULES.md`, so change
+both together. A team's own `RULES.md` and `rules.json` stay out of the
+repository.
+
 ## Things that will bite you
 
 Each of these has already cost someone a debugging session, and several have
@@ -573,7 +605,7 @@ six:
   whatever runs under Node — `library.ts` to find and read files without
   leaving the configured folders, `write.ts` to back them up and replace them,
   `workspace.ts` to read a ProPresenter 22 workspace as though it were those
-  files, `workspace-write.ts` to write slide text into one, and `planning.ts`
+  files, `rules.ts` to find, load and save a team's rules, `workspace-write.ts` to write slide text into one, and `planning.ts`
   and `apply.ts` (with `plans.ts` and `styling.ts`, all re-exported as
   `edits.ts`) to plan and apply an edit through them. Its one dependency, `loro-crdt`, is imported from its `base64` build,
   which carries the WebAssembly inline so the server stays one file.
@@ -585,9 +617,13 @@ six:
 - **`mcp`** (`presenter-garage-mcp`, published to npm): the MCP server.
 - **`cli`** (`@presenter-garage/cli`, private): the `presenter-garage`
   command, `npm run cli -- <command>` from a checkout. Read-only so far:
-  `sources`, `dump` and `compare`, all reading through `node` as the server
-  does, a workspace only through `openDatabase()`. `compare` matches songs
-  (`compare.ts`), lays two versions side by side with every differing word
+  `sources`, `dump`, `compare`, `check` and `rules check`, all reading
+  through `node` as the server does, a workspace only through
+  `openDatabase()`. `check` (`check.ts`) prints each rule break with two
+  slides either side. `compare` matches songs
+  (`compare.ts`), proposes a version for each place two versions differ by
+  the rules, tier by tier, then the edit dates, then the base library, lays
+  them side by side with every differing word
   marked (`diff.ts`), and writes `report.html` (`report.ts`), one file with
   its data and script inline so it opens from the disk and can be passed on.
   The page builds its elements with `textContent`, never `innerHTML`: its
@@ -628,7 +664,8 @@ nothing to install. npm packs only what is inside the package, so
 test holds equal. It touches the disk only through `packages/node`.
 In `library.ts` there, every path a tool is given is resolved with `realpath`
 before it is compared with the configured folders, and nothing opens a file
-for writing; `write.ts` is the only code that does, `workspace-write.ts` the
+for writing; `write.ts` is the only code that does, apart from `rules.ts`
+writing a team's `rules.json` beside its `RULES.md`, `workspace-write.ts` the
 only code that opens a workspace's database for writing, and `apply.ts`
 beside them the only caller of either, called in turn by the server and the
 desktop app. Node has no

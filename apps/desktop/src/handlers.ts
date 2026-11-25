@@ -6,10 +6,12 @@ import type {
   DesktopBridge,
   NativeApplyResult,
   NativeFolder,
+  NativeRules,
   NativeWorkspace,
 } from "@presenter-garage/core/lib/desktop";
 import { applyPlan, everyLine, planChosenFixes, readWithHash } from "@presenter-garage/node/edits";
 import { findPresentations, LibraryError, openRoots, resolveInRoots } from "@presenter-garage/node/library";
+import { findRules, loadRules, rulesSearchDirs } from "@presenter-garage/node/rules";
 import { WorkspaceRefused } from "@presenter-garage/node/paths";
 import { hasCloudImprint, registeredWorkspaces, workspaceAt, workspacesDir } from "@presenter-garage/node/workspace";
 
@@ -36,6 +38,8 @@ export interface ShellDeps {
   backupDir: string;
   /** ProPresenter 22's `Workspaces` folder, beside its registry. */
   workspacesDir?: string;
+  /** Where the team's rules are looked for, as the MCP server and the command line do by default. */
+  rulesDirs?: string[];
 }
 
 export function createHandlers(deps: ShellDeps): DesktopBridge {
@@ -196,6 +200,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
         const code = e instanceof WorkspaceRefused ? e.code : "failed";
         return { files: [], refused: { code, detail: (e as Error).message } };
       }
+    },
+
+    async loadTeamRules(): Promise<NativeRules> {
+      // Read only: `loadRules` opens `RULES.md` and `rules.json` and nothing else.
+      const { set, stale, defaulted, markdown, json } = await loadRules(await findRules(undefined, deps.rulesDirs ?? rulesSearchDirs()));
+      return { set, stale, defaulted, ...(markdown && { markdown }), ...(json && { json }) };
     },
 
     async showBackups(folder: string) {

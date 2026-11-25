@@ -1,4 +1,5 @@
 import type { FixRefusal } from "./fixes";
+import type { RuleSet } from "./rules";
 import type { TextIssueKind } from "./presentation";
 import type { RangeRefusal } from "./workspace-edit";
 
@@ -122,6 +123,18 @@ export interface NativeApplyResult {
   refused?: { code: RunRefusal; detail: string };
 }
 
+/** The team's rules as the shell found them, read and never written. */
+export interface NativeRules {
+  set: RuleSet;
+  /** `RULES.md` has changed since `rules.json` was compiled from it. */
+  stale: boolean;
+  /** No `rules.json` was found, so the default text checks stand in. */
+  defaulted: boolean;
+  /** Where each was found, when it was. Neither means the team has no rules written down. */
+  markdown?: string;
+  json?: string;
+}
+
 export interface DesktopBridge {
   /** Show the system's folder dialog. Null when it was dismissed. */
   pickFolder(): Promise<NativeFolder | null>;
@@ -136,6 +149,8 @@ export interface DesktopBridge {
   read(path: string): Promise<NativeRead>;
   /** Back up, fix and read back the ticked lines. The only call that changes anything. */
   applyFixes(files: ChosenFile[]): Promise<NativeApplyResult>;
+  /** Read the team's `RULES.md` and `rules.json` where the shell looks for them. Changes nothing. */
+  loadTeamRules(): Promise<NativeRules>;
   /** Open a backup folder this session's runs made in the system's file manager. */
   showBackups(folder: string): Promise<void>;
 }

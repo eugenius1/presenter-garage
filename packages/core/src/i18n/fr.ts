@@ -338,6 +338,23 @@ export const fr: Dictionary = {
         "Enregistré sous {name}. Votre bibliothèque n’a pas été touchée.",
       permissionNeeded:
         "L’enregistrement nécessite l’autorisation d’écrire dans le dossier. Choisissez de nouveau le dossier et autorisez la modification.",
+      teamRules: {
+        title: "Règles de l’équipe",
+        hint: "Chargez le rules.json que votre équipe a compilé depuis son RULES.md. Ce que les règles trouvent est listé sous les corrections de texte, et rien n’est modifié à partir de là.",
+        load: "Charger un rules.json…",
+        useTeam: "Utiliser les règles de l’équipe",
+        clear: "Ne plus utiliser de règles",
+        loaded: "Règles utilisées\u202f: {name}",
+        loadedTeam: "Les règles de l’équipe, depuis {file}",
+        notJson: "Ce fichier n’est pas du JSON\u202f: {reason}",
+        problems: "Ces règles sont inutilisables\u202f:",
+        stale: "RULES.md a changé depuis la compilation de rules.json, ces règles sont peut-être périmées. Demandez à votre agent de le compiler de nouveau.",
+        defaulted: "RULES.md n’a pas encore été compilé en rules.json\u202f: seules les vérifications de texte par défaut sont utilisées.",
+        none: "Aucun RULES.md ni rules.json n’a été trouvé dans le dossier d’où l’application a été lancée, ni dans Documents/ProPresenter.",
+        error: "Les règles de l’équipe n’ont pas pu être chargées\u202f: {message}",
+        findings: ["{n} constat selon les règles", "{n} constats selon les règles"],
+        nothingFound: "Les règles n’ont rien trouvé à signaler.",
+      },
       native: {
         chooseHint:
           "Choisissez votre dossier ProPresenter, son dossier Libraries, ou l’un des espaces de travail ProPresenter 22 ci-dessous. Tout est lu sur cet ordinateur ; rien n’est envoyé.",
@@ -523,6 +540,28 @@ export const fr: Dictionary = {
         emptyPlaylist: "vide",
       },
     },
+  },
+
+  rules: {
+    tier: "niveau {n}",
+    excepted: "exception",
+    exceptedBecause: "exception\u202f: {reason}",
+    separator: "\u202f; ",
+    marker: "Marqueur de ligne {marker}",
+    repeatMarker: ["Marqueur de répétition {marker}\u202f: chanté {n} fois", "Marqueur de répétition {marker}\u202f: chanté {n} fois"],
+    groupName: "Le groupe {group} n'est pas dans la liste des groupes",
+    groupNameSpacing: "Le groupe {group} ne diffère de {listed}, dans la liste, que par ses espaces",
+    groupAfter: "{group} juste après {after}",
+    lastGroup: "Se termine par {actual}, pas par {expected}",
+    lastGroupUnnamed: "Se termine par une diapositive sans groupe, pas par {expected}",
+    repeatedGroup: "{group} ne dit pas la même chose qu'à sa première apparition, diapositive {slide}",
+    macrosMissing: "Il manque {macros}",
+    macrosExtra: "Inattendu ici\u202f: {macros}",
+    macrosNone: "Aucune macro",
+    macrosTooFew: ["Il faut au moins {n} macro", "Il faut au moins {n} macros"],
+    macrosTooMany: ["Au plus {n} macro", "Au plus {n} macros"],
+    macrosDisabled: "désactivées\u202f: {macros}",
+    macroAlone: "{macro} avec {others}",
   },
 
   units: {

@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "source": {
+    "file": "RULES.md",
+    "sha256": "966c705b6470ec8cf270f03714378b397daee59fa56684c2d7acfe3c77982097"
+  },
+  "rules": [
+    {
+      "id": "edge-spaces",
+      "check": "leading-trailing-space",
+      "tier": 1
+    },
+    {
+      "id": "double-spaces",
+      "check": "repeated-space",
+      "tier": 1
+    },
+    {
+      "id": "end-comma",
+      "check": "trailing-comma",
+      "tier": 1
+    },
+    {
+      "id": "end-full-stop",
+      "check": "trailing-full-stop",
+      "tier": 1
+    },
+    {
+      "id": "end-semicolon",
+      "check": "trailing-semicolon",
+      "tier": 1
+    },
+    {
+      "id": "repeat-markers",
+      "check": "line-marker",
+      "tier": 2,
+      "markers": [
+        "x{n}",
+        "({n}x)",
+        "(x{n})",
+        "{n}x",
+        "rpt"
+      ],
+      "means": "repeat"
+    },
+    {
+      "id": "listed-groups",
+      "check": "group-names",
+      "tier": 2
+    },
+    {
+      "id": "ends-blank",
+      "check": "last-group",
+      "tier": 2,
+      "group": "Blank",
+      "libraries": [
+        "Songs",
+        "Hymns"
+      ]
+    },
+    {
+      "id": "no-blank-after-intro",
+      "check": "no-group-after",
+      "tier": 2,
+      "group": "Blank",
+      "after": "Intro",
+      "libraries": [
+        "Songs",
+        "Hymns"
+      ]
+    },
+    {
+      "id": "same-repeated-group",
+      "check": "repeated-group-text",
+      "tier": 2,
+      "libraries": [
+        "Songs",
+        "Hymns"
+      ]
+    },
+    {
+      "id": "first-slide",
+      "check": "slide-macros",
+      "tier": 2,
+      "where": "first",
+      "allowed": [
+        "Welcome",
+        "Song Start"
+      ],
+      "min": 1
+    },
+    {
+      "id": "song-alone",
+      "check": "macro-alone",
+      "tier": 2,
+      "macro": "Song"
+    },
+    {
+      "id": "song-everywhere",
+      "check": "slide-macros",
+      "tier": 3,
+      "where": "rest",
+      "required": [
+        "Song"
+      ],
+      "max": 1
+    }
+  ],
+  "exceptions": [
+    {
+      "rule": "listed-groups",
+      "song": "Psalm 23",
+      "value": "Psalm 23:1-6",
+      "reason": "A reading heading, not a group in the list"
+    }
+  ]
+}

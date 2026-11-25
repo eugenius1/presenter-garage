@@ -4,7 +4,9 @@ import { openPresentation } from "@presenter-garage/core/lib/presentation";
 import { findPresentations, LibraryError, openRoots, readFoundFile } from "@presenter-garage/node/library";
 import { explain } from "@presenter-garage/node/presentations";
 import { documentAt, isEdit, registeredWorkspaces, workspaceAt } from "@presenter-garage/node/workspace";
-import { fileEdited, nameKey, songOf, type Edited, type Song } from "./song";
+import { unknownMacros, type RuleSet } from "@presenter-garage/core/lib/rules";
+import { libraryOf, rulesConfiguration } from "@presenter-garage/node/rules";
+import { fileEdited, nameKey, songOf, type Edited, type Song, type SongRules } from "./song";
 
 /**
  * Where songs come from: a folder of `.pro` files, a ProPresenter 22
@@ -54,6 +56,8 @@ export interface Source {
   upgradedAt?: string;
   /** The folder of `.pro` files the workspace was made from, when edit dates before the upgrade came from it. */
   legacy?: string;
+  /** What kept the rules from being checked in full here: a configured list that could not be read. */
+  ruleNotes: string[];
 }
 
 /** The root of the workspace ProPresenter 22 has open, or an error saying there is none. */
@@ -68,6 +72,8 @@ export interface ReadOptions {
   legacy?: string;
   /** Told each file as it is read, for a progress line. */
   progress?: (done: number, total: number) => void;
+  /** The rules to check each song against; the default text checks when absent. */
+  rules?: RuleSet;
 }
 
 export async function readSource(spec: SourceSpec, options: ReadOptions = {}): Promise<Source> {
@@ -75,6 +81,14 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
   const [root] = await openRoots([given]);
   const workspace = await workspaceAt(root);
   const { files, truncated } = await findPresentations([root]);
+  const { problems: ruleNotes, ...config } = options.rules ? await rulesConfiguration([root]) : { problems: [] };
+  if (options.rules) {
+    // A macro name the list does not hold would make its rule find nothing, or everything.
+    const unknown = unknownMacros(options.rules, config);
+    if (unknown.length) {
+      throw new LibraryError(`${spec.label}: the rules name macros ProPresenter's list does not have: ${unknown.join(", ")}`);
+    }
+  }
   const songs: Song[] = [];
   const failures: SongFailure[] = [];
   let upgradedAt: string | undefined;
@@ -108,7 +122,8 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
       } else {
         edited = fileEdited(opened.raw, found.modified);
       }
-      const song = songOf(relative, opened.raw, opened.doc, edited);
+      const rules: SongRules | undefined = options.rules && { set: options.rules, config, library: libraryOf(root, file) };
+      const song = songOf(relative, opened.raw, opened.doc, edited, rules);
       songs.push(song);
       if (edited.source === "none") undated.push(song);
     } catch (e) {
@@ -133,6 +148,7 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
     truncated,
     upgradedAt,
     legacy,
+    ruleNotes,
   };
 }
 

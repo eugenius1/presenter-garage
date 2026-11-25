@@ -129,15 +129,16 @@ const READING_TOOLS = [
   "read_media_bin",
   "read_playlists",
   "read_presentation",
+  "read_rules",
   "search_text",
 ];
 
 describe("the tools offered", () => {
   it("read, except the one that applies a confirmed edit", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...READING_TOOLS, "apply_slide_edits", "plan_slide_edits"].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...READING_TOOLS, "apply_slide_edits", "plan_slide_edits", "save_rules"].sort());
     for (const tool of tools) {
-      expect(tool.annotations?.readOnlyHint, tool.name).toBe(tool.name !== "apply_slide_edits");
+      expect(tool.annotations?.readOnlyHint, tool.name).toBe(tool.name !== "apply_slide_edits" && tool.name !== "save_rules");
     }
     expect(tools.find((t) => t.name === "apply_slide_edits")?.annotations?.destructiveHint).toBe(true);
   });
@@ -327,7 +328,10 @@ describe("check_presentations", () => {
   it("gives the same findings as the browser tool", async () => {
     const result = (await call("check_presentations", { path: "Libraries/Default/Checked Song.pro" })).json();
     expect(result.filesChecked).toBe(1);
-    expect(result.totals).toMatchObject({ leadingSpace: 1, trailingSpace: 1, blankLine: 1, repeatedSpace: 1 });
+    expect(result.totals).toMatchObject({ "leading-trailing-space": 2, "blank-line": 1, "repeated-space": 1 });
+    // With no rules.json anywhere it looked, the default text checks ran, and it says so.
+    expect(result.rules).toMatchObject({ defaulted: true });
+    expect(result.notes).toEqual([expect.stringContaining("only the default text checks ran")]);
   });
 
   it("refuses a file that is not a presentation", async () => {
@@ -341,7 +345,7 @@ describe("check_presentations", () => {
     const byName = Object.fromEntries(
       result.files.map((f: { path: string }) => [path.basename(f.path), f])
     );
-    expect(byName["Checked Song.pro"].issues.length).toBeGreaterThan(0);
+    expect(byName["Checked Song.pro"].findings.length).toBeGreaterThan(0);
     expect(byName["Chords.pro"].error).toMatch(/ChordPro/);
     if (can.lock) expect(byName["Locked.pro"].error).toMatch(/Could not read/);
     expect(byName["Clean.pro"]).toBeUndefined();

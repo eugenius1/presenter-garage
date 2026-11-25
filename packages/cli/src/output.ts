@@ -163,6 +163,7 @@ export async function writeCompare(
       content: pair.content,
       later: pair.later,
       proposed: pair.proposed,
+      differences: pair.differences,
       text: textOf.get(pair),
       a: pair.a && songMeta(pair.a),
       b: pair.b && songMeta(pair.b),

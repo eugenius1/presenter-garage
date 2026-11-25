@@ -31,8 +31,11 @@ describe("a song", () => {
       // The blank lines around the words are padding, not part of them.
       { name: "Refrain", slides: [{ lines: ["Gloire à toi, "], macros: ["Louange"] }] },
     ]);
-    expect(s.issues).toEqual({ trailingSpace: 1, trailingComma: 1 });
-    expect(s.ruleBreaks).toBe(2);
+    expect(s.findings.map((f) => [f.rule, f.group, f.lineIndex])).toEqual([
+      ["leading-trailing-space", 1, 1],
+      ["trailing-comma", 1, 1],
+    ]);
+    expect(s.breaks).toEqual([2, 0, 0]);
   });
 
   it("reads as [Group] headers, then each slide's lines", () => {
@@ -171,7 +174,10 @@ describe("comparing two libraries", () => {
     it("fewer rule breaks first, whatever the dates", () => {
       const pair = only(run([clean(at("2020-01-01T00:00:00Z"))], [messy(at("2026-01-01T00:00:00Z"))]));
       expect(pair.later).toBe("b");
-      expect(pair.proposed).toEqual({ pick: "a", reason: "fewer rule breaks: bas has 0, haut 1" });
+      expect(pair.proposed).toEqual({ pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" });
+      expect(pair.differences).toEqual([
+        { row: 0, group: "Couplet 1", breaks: { a: [0, 0], b: [1, 0] }, pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" },
+      ]);
     });
 
     it("then the later edit", () => {
@@ -184,15 +190,28 @@ describe("comparing two libraries", () => {
       expect(only(run([since], [untouched])).proposed).toEqual({ pick: "a", reason: "bas edited later (2026-11-10 against not after 2026-11-07)" });
     });
 
-    it("then the main library, or the first named when neither is", () => {
+    it("each difference on its own, keeping the base and taking the other's better groups", () => {
+      const better = { name: "Refrain", slides: [["Gloire à toi"]] };
+      const worse = { name: "Refrain", slides: [["Gloire à toi,"]] };
+      const bas = song({ name: "S", groups: [VERSE, better] });
+      const haut = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }, worse] });
+      const pair = only(run([bas], [haut]));
+      expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
+        ["Couplet 1", "b", "no edit dates to tell them apart; haut is the base"],
+        ["Refrain", "a", "fewer tier 1 rule breaks: bas has 0, haut 1"],
+      ]);
+      expect(pair.proposed).toEqual({ pick: "b", reason: "haut is the base; take bas's version at 1 of 2 differences" });
+    });
+
+    it("then the base: the main library, or the first named when neither is", () => {
       const other = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }] });
       expect(only(run([other], [clean({ source: "none" })])).proposed).toEqual({
         pick: "b",
-        reason: "no edit dates to tell them apart; haut is the main library",
+        reason: "no edit dates to tell them apart; haut is the base",
       });
       expect(only(run([other], [clean({ source: "none" })], "elsewhere")).proposed).toEqual({
         pick: "a",
-        reason: "no edit dates to tell them apart; bas named first",
+        reason: "no edit dates to tell them apart; bas is the base",
       });
     });
   });

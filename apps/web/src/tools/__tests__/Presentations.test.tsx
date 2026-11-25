@@ -12,8 +12,9 @@ import {
   readPresentation,
   writeTextBoxes,
 } from "@presenter-garage/core/lib/presentation";
-import { rtfWithHeader, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { rtfWithHeader, syntheticMacroSong, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { applyFixes, examine, fixKey, planFixes } from "@presenter-garage/core/lib/fixes";
+import { DEFAULT_RULES, parseRules } from "@presenter-garage/core/lib/rules";
 import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
 import {
   BRIDGE_GLOBAL,
@@ -21,6 +22,7 @@ import {
   type DesktopBridge,
   type NativeApplyResult,
   type NativeFolder,
+  type NativeRules,
 } from "@presenter-garage/core/lib/desktop";
 
 /**
@@ -576,6 +578,7 @@ describe("the desktop app", () => {
   let applied: ChosenFile[][];
   let result: NativeApplyResult;
   let shown: string[];
+  let teamRules: () => Promise<NativeRules>;
 
   function fakeBridge(folder: Partial<NativeFolder> = {}): DesktopBridge {
     const opened = (): NativeFolder => ({
@@ -597,6 +600,7 @@ describe("the desktop app", () => {
         return result;
       },
       showBackups: async (dir) => void shown.push(dir),
+      loadTeamRules: async () => teamRules(),
     };
   }
 
@@ -605,6 +609,9 @@ describe("the desktop app", () => {
     applied = [];
     shown = [];
     result = { backupFolder: "/backups/run", files: [] };
+    teamRules = async () => {
+      throw new Error("not set up");
+    };
   });
 
   it("shows the folder's real path and ProPresenter's workspaces", async () => {
@@ -906,5 +913,180 @@ describe("the desktop app", () => {
     await openFolder(user);
     expect(screen.getByText(/synced with ProPresenter Cloud\. It can be checked here/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ })).toBeDisabled();
+  });
+
+  describe("the team's rules", () => {
+    const RULES_PATH = "/Users/someone/Documents/ProPresenter/rules.json";
+    const groupRules = { version: 1, rules: [{ id: "groups", check: "group-names", tier: 2, names: ["Refrain"] }], exceptions: [] };
+
+    it("offers the team's rules, and checks with them", async () => {
+      store.clear();
+      store.set("Chants/Macro Song.pro", syntheticMacroSong());
+      teamRules = async () => ({ set: parseRules(groupRules), stale: false, defaulted: false, json: RULES_PATH });
+      vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
+      expect(screen.getByText(`The team's rules, from ${RULES_PATH}`)).toBeInTheDocument();
+      expect(screen.queryByText(/has changed since/)).not.toBeInTheDocument();
+    });
+
+    it("says when RULES.md has changed since rules.json was compiled", async () => {
+      teamRules = async () => ({ set: parseRules(groupRules), stale: true, defaulted: false, json: RULES_PATH });
+      vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      expect(await screen.findByText(/RULES.md has changed since rules.json was compiled/)).toBeInTheDocument();
+    });
+
+    it("says when none were found, and keeps checking as before", async () => {
+      teamRules = async () => ({ set: DEFAULT_RULES, stale: false, defaulted: true });
+      vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      expect(await screen.findByText(/No RULES.md or rules.json was found/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Stop using rules" })).not.toBeInTheDocument();
+    });
+
+    it("shows what the shell could not read", async () => {
+      vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      expect(await screen.findByText(/could not be loaded: not set up/)).toBeInTheDocument();
+    });
+
+    it("is not offered in a browser", async () => {
+      access = "readwrite";
+      renderTool();
+      await screen.findByRole("button", { name: "Load rules.json…" });
+      expect(screen.queryByRole("button", { name: "Use the team's rules" })).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe("the team's rules", () => {
+  const rulesFile = (value: unknown, text = JSON.stringify(value)) => new File([text], "rules.json", { type: "application/json" });
+  const load = (user: ReturnType<typeof userEvent.setup>, file: File) => user.upload(screen.getByLabelText("Load rules.json…"), file);
+  const groupRules = { version: 1, rules: [{ id: "groups", check: "group-names", tier: 2, names: ["Refrain"] }], exceptions: [] };
+
+  beforeEach(() => {
+    // Alone, so each finding is on the one song.
+    store.clear();
+    store.set("Chants/Macro Song.pro", syntheticMacroSong());
+  });
+
+  it("lists nothing of the kind until rules are loaded", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.queryByText(/by the rules/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/is not in the group list/)).not.toBeInTheDocument();
+  });
+
+  it("lists what a loaded rules.json finds, read-only, beside the slide and group", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    const before = screen.getByRole("button", { name: /^Fix \d+ lines?$/ }).textContent;
+
+    await load(user, rulesFile(groupRules));
+    expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("(tier 2)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^slide \d+ · \S/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Rules in use: rules.json")).toBeInTheDocument();
+    // The text fixes are what they were, and the findings carry no tick boxes of their own.
+    expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ }).textContent).toBe(before);
+    for (const found of screen.getAllByText(/is not in the group list/)) {
+      expect(found.closest("li")!.querySelector("input")).toBeNull();
+    }
+  });
+
+  it("shows the line a finding is on, and dims one a person excepted", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await load(
+      user,
+      rulesFile({
+        version: 1,
+        rules: [{ id: "groups", check: "group-names", tier: 2, names: ["Refrain"] }],
+        exceptions: [{ rule: "groups", value: "Chorus", reason: "ours" }],
+      })
+    );
+    const rows = (await screen.findAllByText(/is not in the group list/)).map((found) => found.closest("li")!);
+    const excepted = rows.filter((row) => row.textContent!.includes("tier 2, excepted: ours"));
+    expect(excepted).toHaveLength(1);
+    expect(excepted[0]).toHaveStyle({ opacity: "0.55" });
+    // Only the group a person excepted is dimmed.
+    for (const row of rows.filter((r) => r !== excepted[0])) expect(row).not.toHaveStyle({ opacity: "0.55" });
+  });
+
+  it("shows every problem of a rules.json that will not do, and keeps the page as it was", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await load(user, rulesFile({ version: 1, rules: [{ id: "x", check: "nope", tier: 9 }], exceptions: [] }));
+    const problems = await screen.findByText("These rules cannot be used:");
+    expect(problems.querySelectorAll("li").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Stop using rules" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/by the rules/)).not.toBeInTheDocument();
+  });
+
+  it("refuses a file that is not JSON", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    await load(user, rulesFile(null, "{ not json"));
+    expect(await screen.findByText(/This file is not JSON/)).toBeInTheDocument();
+  });
+
+  it("starts the optional punctuation checks from the rules, and leaves them the person's to flip", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    await load(
+      user,
+      rulesFile({
+        version: 1,
+        rules: [
+          { id: "commas", check: "trailing-comma", tier: 2 },
+          { id: "stops", check: "trailing-full-stop", tier: "off" },
+        ],
+        exceptions: [],
+      })
+    );
+    const comma = screen.getByRole("checkbox", { name: "Also look for trailing commas" });
+    await waitFor(() => expect(comma).toBeChecked());
+    expect(screen.getByRole("checkbox", { name: "Also look for trailing full stops" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Also look for trailing semicolons" })).not.toBeChecked();
+
+    await user.click(screen.getByRole("checkbox", { name: "Also look for trailing full stops" }));
+    expect(screen.getByRole("checkbox", { name: "Also look for trailing full stops" })).toBeChecked();
+  });
+
+  it("goes back to checking as before when the rules are put away", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    await load(user, rulesFile(groupRules));
+    await screen.findAllByText(/is not in the group list/);
+
+    await user.click(screen.getByRole("button", { name: "Stop using rules" }));
+    await waitFor(() => expect(screen.queryByText(/is not in the group list/)).not.toBeInTheDocument());
   });
 });
