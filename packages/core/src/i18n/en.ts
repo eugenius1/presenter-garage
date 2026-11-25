@@ -531,6 +531,8 @@ export const en = {
     groupName: "Group {group} is not in the group list",
     groupNameSpacing: "Group {group} differs from the listed {listed} only in its spaces",
     groupAfter: "{group} straight after {after}",
+    firstGroup: "Starts on {actual}, not {expected}",
+    firstGroupUnnamed: "Starts on a slide in no group, not {expected}",
     lastGroup: "Ends on {actual}, not {expected}",
     lastGroupUnnamed: "Ends on a slide in no group, not {expected}",
     repeatedGroup: "{group} reads differently from where it first appears, on slide {slide}",

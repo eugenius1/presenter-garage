@@ -213,6 +213,16 @@ describe("the checks", () => {
     expect(run(song([{ group: "Verse" }, { group: "Pause" }]), set)).toEqual([]);
   });
 
+  it("finds a song that does not start on the right group", () => {
+    const set = rules({ id: "starts-on-intro", check: "first-group", tier: 2, group: "Intro" });
+    expect(run(song([{ group: "Verse" }, { group: "Intro" }]), set).map((f) => [f.slideIndex, f.detail])).toEqual([
+      [0, { kind: "firstGroup", expected: "Intro", actual: "Verse" }],
+    ]);
+    expect(run(song([{}, { group: "Intro" }]), set).map((f) => f.detail)).toEqual([{ kind: "firstGroup", expected: "Intro" }]);
+    expect(run(song([{ group: "Intro" }, { group: "Verse" }]), set)).toEqual([]);
+    expect(run(song([]), set)).toEqual([]);
+  });
+
   it("finds a repeated group whose words differ, ignoring what the text checks already report", () => {
     const set = rules({ id: "same-chorus", check: "repeated-group-text", tier: 2 });
     const chorus = (lines: string[]) => ({ group: "Chorus", lines });
@@ -353,6 +363,8 @@ describe("every finding in words", () => {
     { kind: "groupAfter", group: "Blank", after: "Intro" },
     { kind: "lastGroup", expected: "Blank", actual: "Verse" },
     { kind: "lastGroup", expected: "Blank" },
+    { kind: "firstGroup", expected: "Intro", actual: "Verse" },
+    { kind: "firstGroup", expected: "Intro" },
     { kind: "repeatedGroup", group: "Chorus", firstSlide: 1 },
     { kind: "slideMacros", where: "rest", missing: ["Song"], extra: [], count: 0, disabled: ["Song"] },
     { kind: "slideMacros", where: "first", missing: [], extra: ["Lights"], count: 3, min: 1, max: 2, disabled: [] },
@@ -368,7 +380,7 @@ describe("every finding in words", () => {
       expect(english, detail.kind).not.toBe("");
       expect(french, detail.kind).not.toBe(english);
     }
-    expect(describeFinding(en, finding(details[10]))).toBe('Not expected here: "Lights"; Takes at most 2 macros');
+    expect(describeFinding(en, finding(details[12]))).toBe('Not expected here: "Lights"; Takes at most 2 macros');
     // Adding the missing one would still leave the slide short.
     const short = finding({ kind: "slideMacros", where: "first", missing: ["Song"], extra: [], count: 1, min: 3, disabled: [] });
     expect(describeFinding(en, short)).toBe('Missing "Song"; Needs at least 3 macros');

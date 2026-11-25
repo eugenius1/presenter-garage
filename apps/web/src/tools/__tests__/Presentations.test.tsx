@@ -12,7 +12,7 @@ import {
   readPresentation,
   writeTextBoxes,
 } from "@presenter-garage/core/lib/presentation";
-import { rtfWithHeader, syntheticMacroSong, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { MACROS, rtfWithHeader, syntheticMacroSong, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { applyFixes, examine, fixKey, planFixes } from "@presenter-garage/core/lib/fixes";
 import { DEFAULT_RULES, parseRules } from "@presenter-garage/core/lib/rules";
 import type { FolderAccess, PickedFolder } from "@presenter-garage/core/lib/folder";
@@ -22,6 +22,7 @@ import {
   type DesktopBridge,
   type NativeApplyResult,
   type NativeFolder,
+  type NativeConfiguration,
   type NativeRules,
 } from "@presenter-garage/core/lib/desktop";
 
@@ -582,6 +583,7 @@ describe("the desktop app", () => {
   let result: NativeApplyResult;
   let shown: string[];
   let teamRules: () => Promise<NativeRules>;
+  let configuration: NativeConfiguration;
 
   function fakeBridge(folder: Partial<NativeFolder> = {}): DesktopBridge {
     const opened = (): NativeFolder => ({
@@ -604,11 +606,13 @@ describe("the desktop app", () => {
       },
       showBackups: async (dir) => void shown.push(dir),
       loadTeamRules: async () => teamRules(),
+      readConfiguration: async () => configuration,
     };
   }
 
   beforeEach(() => {
     access = "native";
+    configuration = { problems: [] };
     applied = [];
     shown = [];
     result = { backupFolder: "/backups/run", files: [] };
@@ -935,6 +939,23 @@ describe("the desktop app", () => {
       expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
       expect(screen.getByText(`The team's rules, from ${RULES_PATH}`)).toBeInTheDocument();
       expect(screen.queryByText(/has changed since/)).not.toBeInTheDocument();
+    });
+
+    it("matches a renamed macro by its uuid through the folder's own list", async () => {
+      store.clear();
+      store.set("Chants/Macro Song.pro", syntheticMacroSong());
+      // ProPresenter's list calls the slides' "Louange" macro "Praise" now.
+      configuration = { macros: [{ name: "Praise", uuid: MACROS.louange.uuid, collections: [] }], problems: [] };
+      const rules = { version: 1, rules: [{ id: "praise", check: "slide-macros", tier: 3, where: "rest", required: ["Praise"] }], exceptions: [] };
+      teamRules = async () => ({ set: parseRules(rules), stale: false, defaulted: false, json: RULES_PATH });
+      vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      // Only the slides with no macro at all, not the ones carrying it under its old name.
+      expect(await screen.findAllByText(/Missing/)).toHaveLength(3);
     });
 
     it("says when RULES.md has changed since rules.json was compiled", async () => {

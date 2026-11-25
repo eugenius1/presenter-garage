@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChosenFile, DesktopBridge } from "@presenter-garage/core/lib/desktop";
 import { examine, planFixes } from "@presenter-garage/core/lib/fixes";
 import type { TextIssueKind } from "@presenter-garage/core/lib/presentation";
-import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { syntheticMacrosFile, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
 import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
 import { CHANNELS } from "../channels";
@@ -598,6 +598,18 @@ describe("the team's rules", () => {
     const found = await bridge.loadTeamRules();
     expect(found).toMatchObject({ defaulted: true, stale: false });
     expect(found.markdown ?? found.json).toBeUndefined();
+  });
+
+  it("reads ProPresenter's configured lists from the folder open, and nothing before one is", async () => {
+    expect(await bridge.readConfiguration()).toEqual({ problems: [] });
+    song("Checked Song");
+    fs.mkdirSync(path.join(library, "Configuration"));
+    fs.writeFileSync(path.join(library, "Configuration", "Macros"), syntheticMacrosFile());
+    shown.push(library);
+    await bridge.pickFolder();
+    const config = await bridge.readConfiguration();
+    expect(config.macros?.map((m) => m.name)).toEqual(["Bienvenue", "Louange", "Lumières"]);
+    expect(config.problems).toEqual(["No configured groups found."]);
   });
 
   it("refuses a rules.json that does not parse", async () => {

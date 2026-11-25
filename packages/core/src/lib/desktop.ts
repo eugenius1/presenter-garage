@@ -1,5 +1,5 @@
 import type { FixRefusal } from "./fixes";
-import type { RuleSet } from "./rules";
+import type { RuleConfiguration, RuleSet } from "./rules";
 import type { TextIssueKind } from "./presentation";
 import type { RangeRefusal } from "./workspace-edit";
 
@@ -135,6 +135,11 @@ export interface NativeRules {
   json?: string;
 }
 
+/** ProPresenter's configured groups and macros for the folder open, and why a list is missing. */
+export interface NativeConfiguration extends RuleConfiguration {
+  problems: string[];
+}
+
 export interface DesktopBridge {
   /** Show the system's folder dialog. Null when it was dismissed. */
   pickFolder(): Promise<NativeFolder | null>;
@@ -151,6 +156,11 @@ export interface DesktopBridge {
   applyFixes(files: ChosenFile[]): Promise<NativeApplyResult>;
   /** Read the team's `RULES.md` and `rules.json` where the shell looks for them. Changes nothing. */
   loadTeamRules(): Promise<NativeRules>;
+  /**
+   * ProPresenter's configured groups and macros for the folder open, so the
+   * rules match a slide's macro by uuid as everywhere else. Changes nothing.
+   */
+  readConfiguration(): Promise<NativeConfiguration>;
   /** Open a backup folder this session's runs made in the system's file manager. */
   showBackups(folder: string): Promise<void>;
 }

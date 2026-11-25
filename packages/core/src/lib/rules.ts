@@ -35,6 +35,7 @@ export const CHECKS = [
   "line-marker",
   "group-names",
   "no-group-after",
+  "first-group",
   "last-group",
   "repeated-group-text",
   "slide-macros",
@@ -77,6 +78,7 @@ export type Rule = RuleBase &
         names?: string[];
       }
     | { check: "no-group-after"; group: string; after: string }
+    | { check: "first-group"; group: string }
     | { check: "last-group"; group: string }
     | {
         check: "slide-macros";
@@ -128,6 +130,7 @@ export const CHECK_GUIDE: Record<CheckName, string> = {
     "means: \"repeat\" when the marker says to sing the lines again (a marker without {n} then counts as 2).",
   "group-names": "A group name not in the list. names: the allowed names; ProPresenter's configured groups when left out. Names match exactly, a non-breaking space being a different name.",
   "no-group-after": "Group `group` straight after group `after`, e.g. a Pause right after an Intro.",
+  "first-group": "A song that does not start with group `group`.",
   "last-group": "A song that does not end in group `group`.",
   "repeated-group-text": "A group used more than once whose words differ, spacing and end punctuation aside. No parameters.",
   "slide-macros":
@@ -168,6 +171,7 @@ const PARAMS: Record<CheckName, { required: string[]; optional: string[] }> = {
   "line-marker": { required: ["markers"], optional: ["at", "means"] },
   "group-names": { required: [], optional: ["names"] },
   "no-group-after": { required: ["group", "after"], optional: [] },
+  "first-group": { required: ["group"], optional: [] },
   "last-group": { required: ["group"], optional: [] },
   "slide-macros": { required: ["where"], optional: ["required", "allowed", "min", "max"] },
   "macro-alone": { required: ["macro"], optional: [] },
@@ -238,6 +242,7 @@ export function parseRules(value: unknown): RuleSet {
         if (r.names !== undefined && !isStrings(r.names)) at(name, "names must be a list of group names");
         break;
       case "no-group-after":
+      case "first-group":
       case "last-group":
         for (const key of ["group", "after"]) {
           if (r[key] !== undefined && (typeof r[key] !== "string" || r[key] === "")) at(name, `${key} must be a group name`);
@@ -333,6 +338,7 @@ export type FindingDetail =
   | { kind: "marker"; marker: string; count?: number; means?: "repeat" }
   | { kind: "groupName"; group: string; /** A listed name this one differs from only in its spaces. */ spacing?: string }
   | { kind: "groupAfter"; group: string; after: string }
+  | { kind: "firstGroup"; expected: string; actual?: string }
   | { kind: "lastGroup"; expected: string; actual?: string }
   | { kind: "repeatedGroup"; group: string; /** The slide where the group first appears. */ firstSlide: number }
   | {
@@ -470,6 +476,13 @@ export function checkRules(doc: PresentationDoc, set: RuleSet, target: RuleTarge
           }
         }
         break;
+      case "first-group": {
+        const first = runs[0];
+        if (first && first.name !== rule.group) {
+          add(0, { kind: "firstGroup", expected: rule.group, ...(first.name ? { actual: first.name } : {}) }, { value: first.name });
+        }
+        break;
+      }
       case "last-group": {
         const last = runs.at(-1);
         if (last && last.name !== rule.group) {

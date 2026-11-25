@@ -26,6 +26,10 @@ export function describeFinding(i18n: I18n, finding: Finding): string {
       return f(r.groupName, { group: quote(d.group) });
     case "groupAfter":
       return f(r.groupAfter, { group: quote(d.group), after: quote(d.after) });
+    case "firstGroup":
+      return d.actual
+        ? f(r.firstGroup, { actual: quote(d.actual), expected: quote(d.expected) })
+        : f(r.firstGroupUnnamed, { expected: quote(d.expected) });
     case "lastGroup":
       return d.actual
         ? f(r.lastGroup, { actual: quote(d.actual), expected: quote(d.expected) })

@@ -2,7 +2,7 @@
   "version": 1,
   "source": {
     "file": "RULES.md",
-    "sha256": "966c705b6470ec8cf270f03714378b397daee59fa56684c2d7acfe3c77982097"
+    "sha256": "f305af82f7397b5ca04677dc206df340614b03f29dbc36a7328dff4cb8edf08b"
   },
   "rules": [
     {
@@ -47,6 +47,16 @@
       "id": "listed-groups",
       "check": "group-names",
       "tier": 2
+    },
+    {
+      "id": "starts-intro",
+      "check": "first-group",
+      "tier": 2,
+      "group": "Intro",
+      "libraries": [
+        "Songs",
+        "Hymns"
+      ]
     },
     {
       "id": "ends-blank",

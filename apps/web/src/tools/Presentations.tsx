@@ -42,6 +42,7 @@ import {
   RulesError,
   type CheckName,
   type Finding,
+  type RuleConfiguration,
   type RuleSet,
 } from "@presenter-garage/core/lib/rules";
 import { describeFinding, findingTags } from "@presenter-garage/core/i18n/rules";
@@ -445,6 +446,17 @@ export function Presentations() {
   /** Read and check each file, saying which one is being read, until a later folder overtakes it. */
   async function examineAll(list: FolderFile[], mine: number): Promise<Examined[] | null> {
     const out: Examined[] = [];
+    // In the desktop app, ProPresenter's own lists for the folder open, so a
+    // macro renamed since it was put on a slide is still matched by its uuid.
+    // A browser cannot reach them, and matches by the names slides recorded.
+    let config: RuleConfiguration = {};
+    if (rulesInUse.current && bridge && list.some((file) => file.native)) {
+      try {
+        config = await bridge.readConfiguration();
+      } catch {
+        // No lists is what a browser has too; the findings say no less for it.
+      }
+    }
     for (const file of list) {
       if (mine !== displayed.current) return null;
       setBusy(file.name);
@@ -464,7 +476,7 @@ export function Presentations() {
         examine(
           file.path,
           bytes,
-          set ? (doc) => checkRules(doc, set, { song: doc.name, ...(library ? { library } : {}) }) : undefined
+          set ? (doc) => checkRules(doc, set, { song: doc.name, ...(library ? { library } : {}) }, config) : undefined
         )
       );
     }

@@ -18,6 +18,7 @@ export const CHANNELS = [
   "read",
   "applyFixes",
   "loadTeamRules",
+  "readConfiguration",
   "showBackups",
 ] as const satisfies readonly (keyof DesktopBridge)[];
 

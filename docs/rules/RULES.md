@@ -46,6 +46,7 @@ heading that is not meant to be a group in the list.
 
 Tier 2, for the libraries Songs and Hymns only.
 
+- Every song starts with an Intro group.
 - Every song ends with a Blank group, so the screen clears after the last
   verse.
 - No Blank group straight after an Intro group: its slide belongs in the

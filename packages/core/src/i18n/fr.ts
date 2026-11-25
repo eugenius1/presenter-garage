@@ -552,6 +552,8 @@ export const fr: Dictionary = {
     groupName: "Le groupe {group} n'est pas dans la liste des groupes",
     groupNameSpacing: "Le groupe {group} ne diffère de {listed}, dans la liste, que par ses espaces",
     groupAfter: "{group} juste après {after}",
+    firstGroup: "Commence par {actual}, pas par {expected}",
+    firstGroupUnnamed: "Commence par une diapositive sans groupe, pas par {expected}",
     lastGroup: "Se termine par {actual}, pas par {expected}",
     lastGroupUnnamed: "Se termine par une diapositive sans groupe, pas par {expected}",
     repeatedGroup: "{group} ne dit pas la même chose qu'à sa première apparition, diapositive {slide}",

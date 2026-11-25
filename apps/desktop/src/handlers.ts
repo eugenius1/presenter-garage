@@ -11,7 +11,7 @@ import type {
 } from "@presenter-garage/core/lib/desktop";
 import { applyPlan, everyLine, planChosenFixes, readWithHash } from "@presenter-garage/node/edits";
 import { findPresentations, LibraryError, openRoots, resolveInRoots } from "@presenter-garage/node/library";
-import { findRules, loadRules, rulesSearchDirs } from "@presenter-garage/node/rules";
+import { findRules, loadRules, rulesConfiguration, rulesSearchDirs } from "@presenter-garage/node/rules";
 import { WorkspaceRefused } from "@presenter-garage/node/paths";
 import { hasCloudImprint, registeredWorkspaces, workspaceAt, workspacesDir } from "@presenter-garage/node/workspace";
 
@@ -206,6 +206,11 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       // Read only: `loadRules` opens `RULES.md` and `rules.json` and nothing else.
       const { set, stale, defaulted, markdown, json } = await loadRules(await findRules(undefined, deps.rulesDirs ?? rulesSearchDirs()));
       return { set, stale, defaulted, ...(markdown && { markdown }), ...(json && { json }) };
+    },
+
+    async readConfiguration() {
+      // Read only, and only from the folder open: `rulesConfiguration` reads through the roots, as every read here does.
+      return roots.length ? rulesConfiguration(roots) : { problems: [] };
     },
 
     async showBackups(folder: string) {
