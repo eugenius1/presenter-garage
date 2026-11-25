@@ -210,8 +210,12 @@ describe("the checks", () => {
     const chorus = (lines: string[]) => ({ group: "Chorus", lines });
     const doc = song([chorus(["Holy holy,"]), { group: "Verse", lines: ["Words"] }, chorus(["Holy  holy."]), { group: "Verse", lines: ["Other words"] }]);
     expect(run(doc, set).map((f) => f.detail)).toEqual([{ kind: "repeatedGroup", group: "Verse", firstSlide: 1 }]);
-    // The same words broken over two lines are the same words.
-    expect(run(song([chorus(["Holy holy"]), chorus(["Holy", "holy"])]), set)).toEqual([]);
+    // The same words broken over two lines on one slide are the same words...
+    const between = { group: "Verse", lines: ["Words"] };
+    expect(run(song([chorus(["Holy holy"]), between, chorus(["Holy", "holy"])]), set)).toEqual([]);
+    // ...but split over two slides they are not: a slide shows them apart.
+    const split = run(song([chorus(["Holy holy"]), between, chorus(["Holy"]), chorus(["holy"])]), set);
+    expect(split.map((f) => f.detail)).toEqual([{ kind: "repeatedGroup", group: "Chorus", firstSlide: 0 }]);
   });
 
   it("holds each slide's macros to the set, the first slide apart from the rest", () => {

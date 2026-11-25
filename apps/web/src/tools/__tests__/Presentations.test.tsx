@@ -36,11 +36,13 @@ let access: FolderAccess = "readwrite";
 let writable = true;
 /** Set by a test that wants to watch a run part-way through. */
 let beforeRead: ((path: string) => Promise<void>) | null = null;
+/** The name of the folder a person chooses. */
+let folderName = "Libraries";
 
 function fakeFolder(): PickedFolder {
   return {
-    name: "Libraries",
-    handle: writable ? { name: "Libraries" } : undefined,
+    name: folderName,
+    handle: writable ? { name: folderName } : undefined,
     files: [...store.keys()].map((path) => ({
       path,
       name: path.split("/").pop()!,
@@ -110,6 +112,7 @@ beforeEach(() => {
   access = "readwrite";
   writable = true;
   beforeRead = null;
+  folderName = "Libraries";
   store.clear();
   store.set("Chants/Checked Song.pro", syntheticTextPresentation());
 });
@@ -985,6 +988,17 @@ describe("the team's rules", () => {
     // Alone, so each finding is on the one song.
     store.clear();
     store.set("Chants/Macro Song.pro", syntheticMacroSong());
+  });
+
+  it("runs rules kept to a library on a library chosen on its own, rules loaded first", async () => {
+    store.clear();
+    store.set("Macro Song.pro", syntheticMacroSong());
+    folderName = "Chants";
+    const user = userEvent.setup();
+    renderTool();
+    await load(user, rulesFile({ ...groupRules, rules: [{ ...groupRules.rules[0], libraries: ["Chants"] }] }));
+    await openFolder(user);
+    expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
   });
 
   it("lists nothing of the kind until rules are loaded", async () => {

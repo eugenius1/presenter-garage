@@ -448,7 +448,11 @@ function rulesNotes(loaded: LoadedRules): string[] {
 }
 
 /** The configured folder a file is in, for the library it belongs to. */
-const rootOf = (roots: readonly string[], file: string) => roots.find((root) => !path.relative(root, file).startsWith(".."));
+const rootOf = (roots: readonly string[], file: string) =>
+  // The deepest that holds it: of two folders one inside the other, the inner one's lists are the song's.
+  roots
+    .filter((root) => !path.relative(root, file).startsWith(".."))
+    .sort((a, b) => b.length - a.length)[0];
 
 /**
  * The team's rules, run on one file or a whole folder.

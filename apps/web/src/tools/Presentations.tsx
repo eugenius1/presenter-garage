@@ -259,6 +259,12 @@ export function Presentations() {
    */
   const opening = useRef(0);
   /**
+   * The name of the folder being read, for the library its songs are in. A
+   * ref rather than the state beside it, because a scan starts in the same
+   * call that sets the state, and would otherwise read the last folder's name.
+   */
+  const reading = useRef("");
+  /**
    * The open whose folder is on screen. A read or a save that finds it moved
    * on was for a folder no longer shown, and leaves the screen to this one:
    * otherwise a slow first folder finishing last shows its findings beside
@@ -441,7 +447,7 @@ export function Presentations() {
       }
       const set = rulesInUse.current;
       // The chosen folder's name too: a library chosen on its own keeps its name, so rules kept to it still run.
-      const library = libraryOfSong(folderName, file.path.split("/"));
+      const library = libraryOfSong(reading.current, file.path.split("/"));
       out.push(
         examine(
           file.path,
@@ -572,6 +578,7 @@ export function Presentations() {
     // a line of one could be saved against a file of the same name in the other.
     setScanned(null);
     setExcluded(new Set());
+    reading.current = folder.name;
     setFolderName(folder.name);
     setFiles(folder.files);
     setHandle(folderHandle);
@@ -689,6 +696,7 @@ export function Presentations() {
     setFiles([]);
     setHandle(null);
     setNative(null);
+    reading.current = "";
     setFolderName("");
     clearRun();
     if (bridge) void bridge.forgetLast();

@@ -97,6 +97,15 @@ describe("the team's rules", () => {
     await client.close();
   });
 
+  it("check each song against the lists of the deepest folder holding it", async () => {
+    // The folder above the church comes first and has no lists of its own; the church's songs still get the church's.
+    const { client, call } = await connect([tmp, church], { rulesDirs: [] });
+    const rules = { version: 1, rules: [{ id: "groupes", check: "group-names", tier: 2 }], exceptions: [] };
+    const check = (await call("check_presentations", { path: church, rules })).json();
+    expect(check.totals).toEqual({ groupes: 1 });
+    await client.close();
+  });
+
   it("cannot be saved by a read-only server", async () => {
     const { client } = await connect([church], { readOnly: true, rulesDirs: [team] });
     const { tools } = await client.listTools();
