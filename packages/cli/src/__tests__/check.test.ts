@@ -141,4 +141,21 @@ describe("rules check", () => {
     expect(io.stdout).toContain("ends-on-pause: last-group, tier 2, only in Songs");
     expect(io.stdout).toContain("compile it again");
   });
+
+  it("stops the whole read with exit 1, a clean error and nothing printed as findings, when a song opens and its rules name a macro the list lacks", async () => {
+    const church = path.join(tmp, "church2");
+    writeLibrary(church, { "Songs/Holy.pro": { name: "Holy", groups: [{ name: "Verse", slides: [["Words"]] }] } });
+    fs.mkdirSync(path.join(church, "Configuration"));
+    fs.writeFileSync(path.join(church, "Configuration", "Macros"), syntheticMacrosFile());
+    const rules = path.join(tmp, "kept2");
+    fs.mkdirSync(rules);
+    fs.writeFileSync(
+      path.join(rules, "rules.json"),
+      JSON.stringify({ version: 1, rules: [{ id: "absent", check: "macro-alone", tier: 2, macro: "Absent" }], exceptions: [] })
+    );
+    const io = capture();
+    expect(await run(["check", `church=${church}`, "--rules", rules, "--lang", "en"], io)).toBe(1);
+    expect(io.stderr).toContain("the rules name macros ProPresenter's list does not have: Absent");
+    expect(io.stdout).toBe("");
+  });
 });

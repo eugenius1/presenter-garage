@@ -461,6 +461,8 @@ export function Presentations() {
         problems = [(e as Error).message];
       }
     }
+    // Only the scan on screen says why: one overtaken while the lists were read must not leave its answer behind.
+    if (mine !== displayed.current) return null;
     setListProblems(problems);
     for (const file of list) {
       if (mine !== displayed.current) return null;
@@ -734,6 +736,7 @@ export function Presentations() {
     setNative(null);
     reading.current = "";
     readingFiles.current = [];
+    setListProblems([]);
     setFolderName("");
     clearRun();
     if (bridge) void bridge.forgetLast();
