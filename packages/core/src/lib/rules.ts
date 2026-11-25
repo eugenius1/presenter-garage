@@ -629,7 +629,9 @@ function slideWords(doc: PresentationDoc, ignoreLineBreaks: boolean): string[] {
     const [first, last] = shownBounds(texts);
     for (const text of texts.slice(first, last + 1)) {
       const loose = text.replace(SPACES, " ").trim().replace(/[\s.,;:]+$/, "");
-      if (loose) words[box.slideIndex]?.push(loose);
+      // A blank line between shown ones is a break like any other: it counts
+      // unless the rule says only the words do.
+      if (loose || !ignoreLineBreaks) words[box.slideIndex]?.push(loose);
     }
   }
   // A line break is not a character a line can hold, so it cannot be confused with the text around it.

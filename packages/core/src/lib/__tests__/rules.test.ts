@@ -241,6 +241,11 @@ describe("the checks", () => {
     expect(run(reflowed, set).map((f) => f.detail)).toEqual([{ kind: "repeatedGroup", group: "Chorus", firstSlide: 0 }]);
     // ...unless the rule says only the words count.
     expect(run(reflowed, rules({ id: "same-chorus", check: "repeated-group-text", tier: 2, ignoreLineBreaks: true }))).toEqual([]);
+    // A blank line between two shown ones is a break too; blank lines around them are not.
+    const gapped = song([chorus(["", "Holy", "", "holy", ""]), between, chorus(["Holy", "holy"])]);
+    expect(run(gapped, set).map((f) => f.detail)).toEqual([{ kind: "repeatedGroup", group: "Chorus", firstSlide: 0 }]);
+    expect(run(gapped, rules({ id: "same-chorus", check: "repeated-group-text", tier: 2, ignoreLineBreaks: true }))).toEqual([]);
+    expect(run(song([chorus(["", "Holy", "holy", ""]), between, chorus(["Holy", "holy"])]), set)).toEqual([]);
     // Split over two slides they differ either way: a slide shows them apart.
     const split = run(song([chorus(["Holy holy"]), between, chorus(["Holy"]), chorus(["holy"])]), set);
     expect(split.map((f) => f.detail)).toEqual([{ kind: "repeatedGroup", group: "Chorus", firstSlide: 0 }]);
