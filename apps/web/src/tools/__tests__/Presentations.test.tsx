@@ -1015,6 +1015,20 @@ describe("the team's rules", () => {
     expect((await screen.findAllByText(/is not in the group list/)).length).toBeGreaterThan(0);
   });
 
+  it("keeps a line the person unticked unticked when rules are loaded", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    const fix = () => screen.getByRole("button", { name: /^Fix \d+ lines?$/ }).textContent;
+    const all = fix();
+    await user.click(screen.getAllByRole("checkbox", { name: "Select every line in this file" })[0]);
+    const fewer = fix();
+    expect(fewer).not.toBe(all);
+    await load(user, rulesFile(groupRules));
+    await screen.findAllByText(/is not in the group list/);
+    expect(fix()).toBe(fewer);
+  });
+
   it("lists nothing of the kind until rules are loaded", async () => {
     const user = userEvent.setup();
     renderTool();

@@ -274,7 +274,17 @@ export function Presentations() {
    */
   const displayed = useRef(0);
 
-  const [scanned, setScanned] = useState<Examined[] | null>(null);
+  const [scanned, setScannedState] = useState<Examined[] | null>(null);
+  /**
+   * What `scanned` holds now, not as some earlier render saw it: a rescan
+   * started by rules that took a while to load matches unticked lines
+   * against the folder on screen when it ends, not the one when it began.
+   */
+  const scannedNow = useRef<Examined[] | null>(null);
+  const setScanned = (next: Examined[] | null) => {
+    scannedNow.current = next;
+    setScannedState(next);
+  };
   const [files, setFiles] = useState<FolderFile[]>([]);
   const [handle, setHandle] = useState<unknown>(null);
   const [folderName, setFolderName] = useState<string>("");
@@ -540,14 +550,15 @@ export function Presentations() {
     const examined = await examineAll(list, mine);
     if (!examined || mine !== displayed.current) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
+    const was = scannedNow.current;
     // A folder whose first read was overtaken has nothing to merge into: this read is its first.
-    setScanned((prev) => (prev === null ? examined : prev.map((one) => fresh.get(one.report.filename) ?? one)));
+    setScanned(was === null ? examined : was.map((one) => fresh.get(one.report.filename) ?? one));
     // A line left unticked stays unticked, or the next save would take it
     // without anyone choosing it: in a file not read again, by its address;
     // in one that was, by what it says, since the save may have moved it.
     // Every kind, not just those on screen: a line unticked and then hidden
     // by a filter is still unticked when the filter is lifted.
-    const before = new Map((scanned ?? []).map((one) => [one.report.filename, one]));
+    const before = new Map((was ?? []).map((one) => [one.report.filename, one]));
     setExcluded((prev) => {
       const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
       for (const [filename, one] of fresh) {
