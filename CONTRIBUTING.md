@@ -580,6 +580,15 @@ that exists, which is why 0.1.0 was published by hand.
   any shape. Anything named `__dev-*`, anywhere, is ignored too, as a
   backstop. Fixtures added anywhere else for a manual check are deleted
   before committing.
+- **Source files stay under 800 lines.** Over 800, a file is split. Between
+  500 and 800, it is split where it does two separate jobs; a cohesive
+  module, such as a parser or one state machine, stays whole and says why
+  in a `Kept whole:` comment in its first three lines, since cutting at a
+  line count alone gives shallow files that call back into each other.
+  Tests, fixtures, generated code, `dist/` and the two dictionaries are
+  exempt. `packages/mcp/src/__tests__/file-sizes.test.ts` holds every
+  tracked file to this. A split keeps every function AGENTS.md names, and
+  updates the names there and here in the same change.
 - **Commit messages are prose.** Explain the reasoning and what went wrong, not
   a changelog line.
 
@@ -653,11 +662,16 @@ of them at once (see *Releasing*).
 controls, the tool switcher, licence — and renders the active tool. Each tool
 under `apps/web/src/tools/` owns everything specific to it, including its
 own file state, and its strings live under its own key in the dictionaries.
+A tool too big for one file keeps its pieces in a folder of its own name:
+`tools/presentations/` holds the Presentations tool's rows, its team's
+rules, its cards, and `useFixRun.ts`, the web app's one write path.
 Shared analysis lives in `packages/core/src/lib/`, shared interface pieces in
 `apps/web/src/components/`.
 
 `packages/mcp/` is the MCP server. It calls `core` and nothing in `core` knows
-it exists. Its `vite.config.ts` bundles it into one self-contained file,
+it exists. `server.ts` describes and routes the tools; what each one answers
+is in `src/tools/`, one file per group of tools, and what writes is in
+`edits.ts`. Its `vite.config.ts` bundles it into one self-contained file,
 `dist/presenter-garage-mcp.mjs`, and that file is the whole npm package: `bin`
 points at it and there are no runtime dependencies, so `npx` starts it with
 nothing to install. npm packs only what is inside the package, so

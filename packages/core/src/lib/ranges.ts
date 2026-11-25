@@ -1,3 +1,7 @@
+// Kept whole: one rule, how a box's attribute ranges move when its lines
+// change, shared by every writer. Its refusals and its mapping are the same
+// case analysis, read side by side.
+
 import type { LineFix } from "./fixes";
 import { lineSplice } from "./rtf-edit";
 

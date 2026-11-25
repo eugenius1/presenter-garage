@@ -1,3 +1,7 @@
+// Kept whole: the write path for a `.pro` file that AGENTS.md names. Planning
+// a fix, applying it (`applyFixes`) and reading the result back against the
+// plan are one contract, kept together so guards 1 and 4 read in one place.
+
 import {
   checkPresentation,
   checkPresentationFidelity,

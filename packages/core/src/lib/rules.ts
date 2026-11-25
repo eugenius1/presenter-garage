@@ -1,3 +1,7 @@
+// Kept whole: one vocabulary. Each check's parameters are declared and
+// validated here (`PARAMS`, `parseRules`) and read by `checkRules` further
+// down; apart, adding a check would mean keeping two files in step.
+
 import type { ConfiguredGroup, ConfiguredMacro } from "./configuration";
 import {
   checkPresentation,

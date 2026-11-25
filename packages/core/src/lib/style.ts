@@ -1,3 +1,6 @@
+// Kept whole: one operation, giving slides another slide's look, from the plan
+// (`planStyle`) through applying it and checking the result against that plan.
+
 import {
   canonicalObject,
   checkTypeFidelity,

@@ -1,3 +1,7 @@
+// Kept whole: one job, a ProPresenter 22 workspace read as the folder of files
+// it replaced. Finding the store, giving each document its old path and
+// converting it back are steps of that one read, and nothing else uses them.
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

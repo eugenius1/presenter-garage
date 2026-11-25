@@ -1,3 +1,7 @@
+// Kept whole: the report a presentation is read into carries the text checks'
+// findings (`PresentationReport.issues`), and the checks walk the boxes the
+// reader addresses. Cut apart, each half would import the other's types.
+
 import { checkTypeFidelity, messageType, type FidelityReport, type RawDoc } from "./decode";
 import { applicationInfo, basename } from "./model";
 import { isAllCaps, type Range } from "./ranges";
