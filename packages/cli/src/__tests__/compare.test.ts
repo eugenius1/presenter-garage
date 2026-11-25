@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { openPresentation } from "@presenter-garage/core/lib/presentation";
 import { compareSongs, contentOf, laterOf, looseLine, summarise, summaryText, type Pair } from "../compare";
 import { alignGroups, BREAK, sideBySide } from "../diff";
+import type { RuleSet } from "@presenter-garage/core/lib/rules";
 import { nameKey, songOf, songText, type Edited, type Group, type Song } from "../song";
 import { legacyMatcher } from "../source";
 import { proFile, type SongSpec } from "./fixtures";
@@ -176,7 +177,25 @@ describe("comparing two libraries", () => {
       expect(pair.later).toBe("b");
       expect(pair.proposed).toEqual({ pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" });
       expect(pair.differences).toEqual([
-        { row: 0, group: "Couplet 1", breaks: { a: [0, 0], b: [1, 0] }, pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" },
+        { row: 0, group: "Couplet 1", breaks: { a: [0, 0, 0], b: [1, 0, 0] }, pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" },
+      ]);
+    });
+
+    it("counts tier 3 last, before the dates", () => {
+      const praise: RuleSet = {
+        version: 1,
+        rules: [{ id: "praise", check: "slide-macros", tier: 3, where: "rest", required: ["Louange"] }],
+        exceptions: [],
+      };
+      const ruled = (macros: string[], edited: Edited) => {
+        const opened = openPresentation(proFile({ name: "S", groups: [{ name: "Couplet 1", slides: [{ lines: ["Que ton nom"], macros }] }] }));
+        if (opened.problem) throw new Error(opened.problem);
+        return songOf("Chants/S.pro", opened.raw, opened.doc, edited, { set: praise });
+      };
+      // haut was edited later, but bas carries the macro tier 3 asks for.
+      const pair = only(run([ruled(["Louange"], at("2020-01-01T00:00:00Z"))], [ruled([], at("2026-01-01T00:00:00Z"))]));
+      expect(pair.differences?.map((d) => [d.pick, d.reason, d.breaks])).toEqual([
+        ["a", "fewer tier 3 rule breaks: bas has 0, haut 1", { a: [0, 0, 0], b: [0, 0, 1] }],
       ]);
     });
 

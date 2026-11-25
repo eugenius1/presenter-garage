@@ -183,11 +183,11 @@ sorts each pair by how far apart the two versions are: identical, spacing or
 end punctuation only, group names only, real differences, renamed, or only
 on one side. For each pair it gives both edit dates, which side was edited
 later, and, for each place the two differ, the version it would take there,
-with the reason: fewer breaks of your rules (tier 1, then tier 2), then the
-later edit, then the library you call the main one (`--prefer`), which is the
-base everything else is merged into. A group only one version has is never
-proposed for dropping: it is kept, and the song is left for you to decide. It
-never writes to a library.
+with the reason: fewer breaks of your rules (tier 1, then tier 2, then
+tier 3), then the later edit, then the library you call the main one
+(`--prefer`), which is the base everything else is merged into. A group only
+one version has is never proposed for dropping: it is kept, and the song is
+left for you to decide. It never writes to a library.
 
 ```bash
 npm ci && npm run protos

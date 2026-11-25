@@ -35,13 +35,14 @@ export interface Proposal {
 /**
  * One place the two versions differ: a pair of groups as the side-by-side
  * view lines them up, `row` being its place there. The rule breaks counted
- * are those in that group on each side, tier 1 then tier 2; tier 3 is the
- * last cleanup and is left out, or it would decide everything.
+ * are those in that group on each side, by tier. Tier 1 is compared first,
+ * then 2, then 3, so tier 3 (the last cleanup, often broken on nearly every
+ * slide) decides only where the others tie.
  */
 export interface Difference extends Proposal {
   row: number;
   group: string;
-  breaks: { a: [number, number]; b: [number, number] };
+  breaks: { a: [number, number, number]; b: [number, number, number] };
 }
 
 export interface Pair {
@@ -176,18 +177,18 @@ function baseOf({ labels, prefer }: CompareOptions): "a" | "b" {
 
 /**
  * Each place the versions differ, and which to take there, in the order the
- * plan settles a conflict: fewer rule breaks in that group, tier 1 first,
- * then the later edit where both dates are known, then the base. A group
- * only one side has is kept and flagged for a person. Spelling is not
+ * plan settles a conflict: fewer rule breaks in that group, tier 1, then 2,
+ * then 3, then the later edit where both dates are known, then the base. A
+ * group only one side has is kept and flagged for a person. Spelling is not
  * judged here: that is for a person reading the two.
  */
 function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions): Difference[] {
   const { labels } = options;
   const base = baseOf(options);
-  const breaksIn = (song: Song, group: Group | undefined): [number, number] => {
+  const breaksIn = (song: Song, group: Group | undefined): [number, number, number] => {
     const index = group ? song.groups.indexOf(group) : -1;
-    const counts: [number, number] = [0, 0];
-    for (const f of song.findings) if (f.group === index && f.excepted === undefined && f.tier < 3) counts[f.tier - 1]++;
+    const counts: [number, number, number] = [0, 0, 0];
+    for (const f of song.findings) if (f.group === index && f.excepted === undefined) counts[f.tier - 1]++;
     return counts;
   };
   const differences: Difference[] = [];
@@ -203,7 +204,7 @@ function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions):
       differences.push({ row, group, breaks, pick: keep, reason: `only ${labels[keep]} has this group: kept, for you to decide`, decide: true });
       return;
     }
-    for (const tier of [0, 1] as const) {
+    for (const tier of [0, 1, 2] as const) {
       if (breaks.a[tier] !== breaks.b[tier]) {
         const pick = breaks.a[tier] < breaks.b[tier] ? "a" : "b";
         const other = pick === "a" ? "b" : "a";
