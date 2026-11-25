@@ -203,6 +203,22 @@ describe("comparing two libraries", () => {
       expect(pair.proposed).toEqual({ pick: "b", reason: "haut is the base; take bas's version at 1 of 2 differences" });
     });
 
+    it("never proposes dropping a group one side has for the breaks in it", () => {
+      const extra = { name: "Pont", slides: [["Avec une virgule,"]] };
+      const pair = only(run([song({ name: "S", groups: [VERSE] })], [song({ name: "S", groups: [VERSE, extra] })]));
+      expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
+        ["Pont", "b", "no edit dates to tell them apart; haut is the base"],
+      ]);
+    });
+
+    it("settles a group only the first side has by the base too, not by its breaks", () => {
+      const extra = { name: "Pont", slides: [["Avec une virgule,"]] };
+      const pair = only(run([song({ name: "S", groups: [VERSE, extra] })], [song({ name: "S", groups: [VERSE] })]));
+      expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
+        ["Pont", "b", "no edit dates to tell them apart; haut is the base"],
+      ]);
+    });
+
     it("then the base: the main library, or the first named when neither is", () => {
       const other = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }] });
       expect(only(run([other], [clean({ source: "none" })])).proposed).toEqual({
