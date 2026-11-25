@@ -958,6 +958,21 @@ describe("the desktop app", () => {
       expect(await screen.findAllByText(/Missing/)).toHaveLength(3);
     });
 
+    it("falls back to the names slides recorded when the folder's lists cannot be read", async () => {
+      store.clear();
+      store.set("Chants/Macro Song.pro", syntheticMacroSong());
+      const rules = { version: 1, rules: [{ id: "praise", check: "slide-macros", tier: 3, where: "rest", required: ["Praise"] }], exceptions: [] };
+      teamRules = async () => ({ set: parseRules(rules), stale: false, defaulted: false, json: RULES_PATH });
+      vi.stubGlobal(BRIDGE_GLOBAL, { ...fakeBridge(), readConfiguration: async () => Promise.reject(new Error("no lists")) });
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      // Nothing maps "Praise" to the slides' "Louange", so every slide lacks it.
+      expect((await screen.findAllByText(/Missing/)).length).toBeGreaterThan(3);
+    });
+
     it("says when RULES.md has changed since rules.json was compiled", async () => {
       teamRules = async () => ({ set: parseRules(groupRules), stale: true, defaulted: false, json: RULES_PATH });
       vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
