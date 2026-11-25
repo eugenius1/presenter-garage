@@ -60,4 +60,5 @@ is better: the main library, which `compare --prefer` names.
 
 **Difference**
 One place two versions of a song differ: a pair of groups lined up side by
-side. A version is proposed for each difference on its own.
+side. A version is proposed for each difference on its own, except that a
+group only one version has is kept from it and left to a person to decide.

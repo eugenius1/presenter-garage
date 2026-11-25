@@ -51,7 +51,8 @@ Tier 2, for the libraries Songs and Hymns only.
   verse.
 - No Blank group straight after an Intro group: its slide belongs in the
   Intro.
-- A group used more than once (a Chorus, say) has the same words each time.
+- A group used more than once (a Chorus, say) has the same words each time,
+  with its lines broken in the same places.
 
 ## Macros
 

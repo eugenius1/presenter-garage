@@ -335,8 +335,9 @@ const CLIENT = String.raw`
   });
 
   $("accept-shown").addEventListener("click", function () {
-    var open = shown.filter(function (p) { return p.proposed && p.bucket !== "identical" && !decisions[p.id]; });
-    if (!open.length || !confirm("Accept the proposed pick for " + open.length + " undecided songs shown?")) return;
+    // A song with a group only one side has is a person's to decide, one song at a time.
+    var open = shown.filter(function (p) { return p.proposed && !p.proposed.decide && p.bucket !== "identical" && !decisions[p.id]; });
+    if (!open.length || !confirm("Accept the proposed pick for " + open.length + " undecided songs shown? Songs with a group only one side has are left for you.")) return;
     open.forEach(function (p) { decisions[p.id] = p.proposed.pick; });
     save();
     applyFilters(shown[at] && shown[at].id);

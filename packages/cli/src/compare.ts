@@ -28,6 +28,8 @@ export type Later = "a" | "b" | "same" | "unknown";
 export interface Proposal {
   pick: "a" | "b";
   reason: string;
+  /** A group only one side has is kept, and a person decides whether it goes: no pick here is to be taken without them. */
+  decide?: true;
 }
 
 /**
@@ -40,8 +42,6 @@ export interface Difference extends Proposal {
   row: number;
   group: string;
   breaks: { a: [number, number]; b: [number, number] };
-  /** Only one side has this group: it is kept, and a person decides whether it goes. */
-  decide?: true;
 }
 
 export interface Pair {
@@ -230,20 +230,28 @@ function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions):
 
 /**
  * The song as a whole: the base, unless every difference is better taken
- * from the other side, in which case that side's version is the song.
+ * from the other side, in which case that side's version is the song. A song
+ * with a group only one side has is left to a person, however it is proposed.
  */
 function propose(differences: readonly Difference[], options: CompareOptions): Proposal {
   const { labels } = options;
   const base = baseOf(options);
   const other = base === "a" ? "b" : "a";
   const taken = differences.filter((d) => d.pick === other);
+  const kept = differences.filter((d) => d.decide).length;
+  const decide = kept > 0 ? ({ decide: true } as const) : {};
+  if (differences.length === 1) return { pick: differences[0].pick, reason: differences[0].reason, ...decide };
+  // A kept group is not better on the side that has it, only there: say so rather than call it better.
+  const keptNote = kept === 0 ? "" : `; ${kept === 1 ? "1 group" : `${kept} groups`} only one side has, kept for you to decide`;
   if (differences.length > 0 && taken.length === differences.length) {
-    return { pick: other, reason: differences.length === 1 ? differences[0].reason : `${labels[other]} is better at all ${differences.length} differences` };
+    const why = kept === 0 ? `${labels[other]} is better at all ${differences.length} differences` : `take ${labels[other]}'s version at all ${differences.length} differences`;
+    return { pick: other, reason: why + keptNote, ...decide };
   }
   if (taken.length === 0) {
-    return { pick: base, reason: differences.length === 1 ? differences[0].reason : `${labels[base]} is better or as good at all ${differences.length} differences` };
+    const why = kept === 0 ? `${labels[base]} is better or as good at all ${differences.length} differences` : `keep ${labels[base]}'s version at all ${differences.length} differences`;
+    return { pick: base, reason: why + keptNote, ...decide };
   }
-  return { pick: base, reason: `${labels[base]} is the base; take ${labels[other]}'s version at ${taken.length} of ${differences.length} differences` };
+  return { pick: base, reason: `${labels[base]} is the base; take ${labels[other]}'s version at ${taken.length} of ${differences.length} differences${keptNote}`, ...decide };
 }
 
 export interface Summary {

@@ -622,7 +622,8 @@ six:
   `openDatabase()`. `check` (`check.ts`) prints each rule break with two
   slides either side. `compare` matches songs
   (`compare.ts`), proposes a version for each place two versions differ by
-  the rules, tier by tier, then the edit dates, then the base library, lays
+  the rules, tier by tier, then the edit dates, then the base library (a
+  group only one side has is kept and left to a person, never dropped), lays
   them side by side with every differing word
   marked (`diff.ts`), and writes `report.html` (`report.ts`), one file with
   its data and script inline so it opens from the disk and can be passed on.

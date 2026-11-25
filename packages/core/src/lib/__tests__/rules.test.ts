@@ -106,6 +106,13 @@ describe("rules.json", () => {
     expect(() => parseRules({ version: 1, rules: [], exceptions: [{ song: "Psalm 2" }] })).toThrow("exceptions[0]: needs the rule it is an exception to");
   });
 
+  it("takes ignoreLineBreaks only as true or false, and only on repeated-group-text", () => {
+    const one = (rule: object) => () => parseRules({ version: 1, rules: [{ id: "r", tier: 2, ...rule }] });
+    expect(one({ check: "repeated-group-text", ignoreLineBreaks: true })).not.toThrow();
+    expect(one({ check: "repeated-group-text", ignoreLineBreaks: "yes" })).toThrow("rules[0] (r): ignoreLineBreaks must be true or false");
+    expect(one({ check: "repeated-space", ignoreLineBreaks: true })).toThrow("rules[0] (r): unknown key ignoreLineBreaks for repeated-space");
+  });
+
   it("says when the file is not shaped like rules at all", () => {
     const problems = (value: unknown) => {
       try {

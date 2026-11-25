@@ -218,6 +218,23 @@ describe("comparing two libraries", () => {
       expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
         ["Pont", "a", "only bas has this group: kept, for you to decide"],
       ]);
+      expect(pair.proposed).toEqual({ pick: "a", reason: "only bas has this group: kept, for you to decide", decide: true });
+    });
+
+    it("leaves the whole song to a person when it keeps a group, never calling the kept group better", () => {
+      const extra = { name: "Pont", slides: [["Rien d'autre"]] };
+      const better = { name: "Refrain", slides: [["Gloire à toi"]] };
+      const worse = { name: "Refrain", slides: [["Gloire à toi,"]] };
+      const all = only(run([song({ name: "S", groups: [VERSE, better, extra] })], [song({ name: "S", groups: [VERSE, worse] })]));
+      expect(all.proposed).toEqual({ pick: "a", reason: "take bas's version at all 2 differences; 1 group only one side has, kept for you to decide", decide: true });
+      const none = only(run([song({ name: "S", groups: [VERSE, worse] })], [song({ name: "S", groups: [VERSE, better, extra] })]));
+      expect(none.proposed).toEqual({ pick: "b", reason: "keep haut's version at all 2 differences; 1 group only one side has, kept for you to decide", decide: true });
+      const mixed = only(run([song({ name: "S", groups: [VERSE, better] })], [song({ name: "S", groups: [VERSE, worse, extra] })]));
+      expect(mixed.proposed).toEqual({
+        pick: "b",
+        reason: "haut is the base; take bas's version at 1 of 2 differences; 1 group only one side has, kept for you to decide",
+        decide: true,
+      });
     });
 
     it("then the base: the main library, or the first named when neither is", () => {
