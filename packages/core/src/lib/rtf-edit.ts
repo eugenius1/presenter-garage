@@ -8,8 +8,8 @@ import { CONTROL_WORD, type RtfLine } from "./rtf";
  * line -- characters cut, the line rewritten, a line added beside it -- into
  * edits of exactly those ranges, and applies them, so everything outside them
  * reaches the file byte for byte. Kept apart from the reader because only the
- * writers need it: `fixes.ts` and `style.ts`, and through `lineSplice` the
- * attribute ranges in `ranges.ts`. Reading a library never loads it.
+ * writers call it: `fixes.ts` and `style.ts`, and through `lineSplice` the
+ * attribute ranges in `ranges.ts`. The reader never imports it.
  */
 
 /** A stretch of a line's visible text to remove, in the line's own coordinates. */
