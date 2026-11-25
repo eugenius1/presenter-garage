@@ -246,7 +246,7 @@ const CLIENT = String.raw`
     if (!song) return el("div", null, [el("div", { "class": "side", text: label }), el("div", { "class": "none", text: "not in " + label })]);
     var e = song.edited;
     var date = e.at ? e.at.slice(0, 16).replace("T", " ") : (e.notAfter ? "not since " + e.notAfter.slice(0, 10) : "unknown");
-    var byRule = {};
+    var byRule = Object.create(null);
     song.findings.forEach(function (f) { if (f.excepted === undefined) byRule[f.rule] = (byRule[f.rule] || 0) + 1; });
     var rules = Object.keys(byRule).map(function (k) { return k + " " + byRule[k]; }).join(", ");
     return el("div", null, [

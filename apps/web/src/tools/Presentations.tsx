@@ -38,6 +38,7 @@ import { groupBy, toggled } from "@presenter-garage/core/lib/collections";
 import {
   checkRules,
   parseRules,
+  libraryOfSong,
   RulesError,
   type CheckName,
   type Finding,
@@ -92,18 +93,6 @@ const optionalFrom = (set: RuleSet) =>
   new Set<TextIssueKind>(
     OPTIONAL_KINDS.filter((kind) => set.rules.some((r) => r.check === RULE_OF[kind] && r.tier !== "off"))
   );
-
-/**
- * The library a song is in, from its path in the folder: the folder under
- * `Libraries` that holds it, or the first folder when there is no `Libraries`.
- * As `libraryOf` in `packages/node` works it out for the same rules, from a
- * path that is already relative.
- */
-function libraryOfPath(filename: string): string | undefined {
-  const parts = filename.split("/");
-  if (parts[0] === "Libraries") parts.shift();
-  return parts.length > 1 ? parts[0] : undefined;
-}
 
 /** The rules a person loaded, and where they came from. */
 interface LoadedRules {
@@ -451,7 +440,8 @@ export function Presentations() {
         continue;
       }
       const set = rulesInUse.current;
-      const library = libraryOfPath(file.path);
+      // The chosen folder's name too: a library chosen on its own keeps its name, so rules kept to it still run.
+      const library = libraryOfSong(folderName, file.path.split("/"));
       out.push(
         examine(
           file.path,
@@ -484,7 +474,8 @@ export function Presentations() {
     if (files.length === 0) return;
     const mine = ++opening.current;
     displayed.current = mine;
-    void scan(files, mine);
+    // Read again as after a save, so a line the person unticked stays unticked.
+    void rescan(files, mine);
   }
 
   /** A rules.json the person chose: parsed as `parseRules` has it, and every problem shown if it will not. */

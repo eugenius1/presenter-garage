@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_RULES } from "@presenter-garage/core/lib/rules";
 import { findRules, libraryOf, loadRules, rulesSearchDirs, saveRules } from "../rules";
+import { sha256 } from "../write";
 
 const RULES = { version: 1, rules: [{ id: "ends", check: "last-group", tier: 2, group: "Pause" }], exceptions: [] };
 
@@ -57,6 +58,16 @@ describe("loading and saving", () => {
     expect(fs.readdirSync(dir).sort()).toEqual(["RULES.md", "rules.json"]);
   });
 
+  it("refuses to stamp rules compiled from a RULES.md that has changed since", async () => {
+    const markdown = path.join(dir, "RULES.md");
+    fs.writeFileSync(markdown, "# Our rules\n");
+    const read = sha256(new Uint8Array(fs.readFileSync(markdown)));
+    fs.appendFileSync(markdown, "A rule added while the old ones were being compiled.\n");
+    await expect(saveRules(markdown, RULES, read)).rejects.toThrow("has changed since it was read");
+    expect(fs.existsSync(path.join(dir, "rules.json"))).toBe(false);
+    await expect(saveRules(markdown, RULES, sha256(new Uint8Array(fs.readFileSync(markdown))))).resolves.toMatchObject({ path: path.join(dir, "rules.json") });
+  });
+
   it("writes nothing that does not parse, and only beside a RULES.md", async () => {
     const markdown = path.join(dir, "RULES.md");
     fs.writeFileSync(markdown, "# Our rules\n");
@@ -72,10 +83,12 @@ describe("loading and saving", () => {
 });
 
 describe("a song's library", () => {
-  it("is the folder under Libraries, or under the root when there is none", () => {
+  it("is the folder under Libraries, or under the root when there is none, or the root itself", () => {
     expect(libraryOf("/pp", path.join("/pp", "Libraries", "Songs", "Holy.pro"))).toBe("Songs");
     expect(libraryOf("/copy", path.join("/copy", "Songs", "Holy.pro"))).toBe("Songs");
-    expect(libraryOf("/copy", path.join("/copy", "Holy.pro"))).toBeUndefined();
+    // A library read on its own keeps its name, so rules kept to it still run.
+    expect(libraryOf("/pp/Libraries/Songs", path.join("/pp/Libraries/Songs", "Holy.pro"))).toBe("Songs");
+    expect(libraryOf("/pp/Libraries", path.join("/pp/Libraries", "Holy.pro"))).toBeUndefined();
   });
 });
 

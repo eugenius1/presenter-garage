@@ -52,12 +52,13 @@ describe("the team's rules", () => {
 
     // A macro ProPresenter does not have is refused, and nothing is written.
     const wrong = { version: 1, rules: [{ id: "x", check: "macro-alone", tier: 2, macro: "Louanges" }], exceptions: [] };
-    const refused = await call("save_rules", { rules: wrong });
+    const compiledFrom = read.markdown.sha256;
+    const refused = await call("save_rules", { rules: wrong, compiledFrom });
     expect(refused.isError).toBe(true);
     expect(refused.text).toContain("Louanges");
     expect(fs.existsSync(path.join(team, "rules.json"))).toBe(false);
 
-    const saved = (await call("save_rules", { rules: RULES })).json();
+    const saved = (await call("save_rules", { rules: RULES, compiledFrom })).json();
     expect(saved).toEqual({ path: path.join(team, "rules.json"), rules: 3, exceptions: 1 });
     expect((await call("read_rules")).json()).toMatchObject({ stale: false, json: { path: path.join(team, "rules.json") } });
 

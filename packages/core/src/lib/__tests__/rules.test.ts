@@ -9,6 +9,7 @@ import {
   checkRules,
   countByTier,
   DEFAULT_RULES,
+  libraryOfSong,
   markerPattern,
   parseRules,
   RulesError,
@@ -131,6 +132,9 @@ describe("rules.json", () => {
     );
     expect(unknownMacros(set, { macros: [{ name: "Praise", collections: [] }] })).toEqual(["Welcome"]);
     expect(unknownMacros(set, {})).toEqual([]);
+    // A rule that is off stops nothing for a macro since removed.
+    const off = rules({ id: "a", check: "macro-alone", tier: "off", macro: "Gone" });
+    expect(unknownMacros(off, { macros: [{ name: "Praise", collections: [] }] })).toEqual([]);
   });
 });
 
@@ -157,8 +161,8 @@ describe("the checks", () => {
 
   it("reads the count from a marker that holds {n} twice, rather than failing to build", () => {
     const set = rules({ id: "repeat", check: "line-marker", tier: 2, markers: ["{n}x{n}"], means: "repeat" });
-    expect(run(song([{ group: "Chorus", lines: ["Holy 3x3"] }]), set).map((f) => f.detail)).toEqual([
-      { kind: "marker", marker: "3x3", count: 3, means: "repeat" },
+    expect(run(song([{ group: "Chorus", lines: ["Holy 3x4"] }]), set).map((f) => f.detail)).toEqual([
+      { kind: "marker", marker: "3x4", count: 3, means: "repeat" },
     ]);
   });
 
@@ -206,6 +210,8 @@ describe("the checks", () => {
     const chorus = (lines: string[]) => ({ group: "Chorus", lines });
     const doc = song([chorus(["Holy holy,"]), { group: "Verse", lines: ["Words"] }, chorus(["Holy  holy."]), { group: "Verse", lines: ["Other words"] }]);
     expect(run(doc, set).map((f) => f.detail)).toEqual([{ kind: "repeatedGroup", group: "Verse", firstSlide: 1 }]);
+    // The same words broken over two lines are the same words.
+    expect(run(song([chorus(["Holy holy"]), chorus(["Holy", "holy"])]), set)).toEqual([]);
   });
 
   it("holds each slide's macros to the set, the first slide apart from the rest", () => {
@@ -236,6 +242,25 @@ describe("the checks", () => {
     expect(run(song([{ macros: ["Welcome"] }, { macros: ["Praise"] }]), set)).toEqual([]);
   });
 
+  it("leaves the first slide to the rest where the first-slide rule is kept to other libraries", () => {
+    const set = rules(
+      { id: "first", check: "slide-macros", tier: 2, where: "first", allowed: ["Welcome"], libraries: ["Songs"] },
+      { id: "rest", check: "slide-macros", tier: 3, where: "rest", required: ["Praise"] }
+    );
+    const doc = song([{ macros: ["Welcome"] }, { macros: ["Praise"] }]);
+    expect(run(doc, set, "Songs")).toEqual([]);
+    expect(run(doc, set, "Readings").map((f) => [f.rule, f.slideIndex])).toEqual([["rest", 0]]);
+  });
+
+  it("does not count a deleted macro as the new one of the same name", () => {
+    const config = { macros: [{ name: "Praise", uuid: "BB-2", collections: [] }] };
+    const set = rules({ id: "rest", check: "slide-macros", tier: 3, where: "rest", required: ["Praise"] });
+    const deleted = song([{ macros: [{ name: "Praise", uuid: "aa-1", enabled: true }] }]);
+    expect(checkRules(deleted, set, { song: "Song" }, config).map((f) => f.detail)).toMatchObject([{ missing: ["Praise"], extra: ["Praise"] }]);
+    const unrecorded = song([{ macros: [{ name: "Praise", enabled: true }] }]);
+    expect(checkRules(unrecorded, set, { song: "Song" }, config)).toEqual([]);
+  });
+
   it("finds a macro that should stand alone carrying another", () => {
     const set = rules({ id: "alone", check: "macro-alone", tier: 2, macro: "Praise" });
     const doc = song([{ macros: ["Welcome", "Praise"] }, { macros: ["Praise"] }, { macros: ["Welcome", { name: "Lights", enabled: true }] }]);
@@ -247,6 +272,12 @@ describe("the checks", () => {
     const set = rules({ id: "rest", check: "slide-macros", tier: 3, where: "rest", required: ["Praise"], max: 1 });
     const doc = song([{ macros: [{ name: "Old name", uuid: "ab-12", enabled: true }] }]);
     expect(checkRules(doc, set, { song: "Song" }, config)).toEqual([]);
+  });
+
+  it("gives a library read on its own its name", () => {
+    expect(libraryOfSong("Songs", ["Holy.pro"])).toBe("Songs");
+    expect(libraryOfSong("ProPresenter", ["Libraries", "Songs", "Holy.pro"])).toBe("Songs");
+    expect(libraryOfSong("Libraries", ["Holy.pro"])).toBeUndefined();
   });
 
   it("runs a rule only on its libraries", () => {
@@ -326,6 +357,9 @@ describe("every finding in words", () => {
       expect(french, detail.kind).not.toBe(english);
     }
     expect(describeFinding(en, finding(details[10]))).toBe('Not expected here: "Lights"; Takes at most 2 macros');
+    // Adding the missing one would still leave the slide short.
+    const short = finding({ kind: "slideMacros", where: "first", missing: ["Song"], extra: [], count: 1, min: 3, disabled: [] });
+    expect(describeFinding(en, short)).toBe('Missing "Song"; Needs at least 3 macros');
     expect(findingTags(en, { ...finding(details[0]), excepted: "kept" })).toBe("tier 2, excepted: kept");
   });
 });

@@ -260,7 +260,8 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
         "rules.json was compiled. To compile: one rule per rule the prose states, each { id (ASCII, the team's own " +
         "name), check, tier (1: fixes safe in bulk, 2: reviewed case by case, 3: last, or \"off\"), libraries? " +
         "(names of the libraries it applies to), and the check's parameters }; every exception the prose grants as " +
-        "{ rule, song?, library?, value?, reason }. Show the person the compiled rules before saving them.",
+        "{ rule, song?, library?, value?, reason }. Show the person the compiled rules before saving them, and hand " +
+          "save_rules the `markdown.sha256` given here as `compiledFrom`.",
       inputSchema: {},
       annotations: READ_ONLY,
     },
@@ -378,10 +379,13 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
           "so a later change to it shows as stale. Writes no ProPresenter file. Show the person the rules first.",
         inputSchema: {
           rules: z.record(z.string(), z.unknown()).describe("The whole rules.json: { version: 1, rules: [...], exceptions: [...] }."),
+          compiledFrom: z
+            .string()
+            .describe("The sha256 read_rules gave with RULES.md: the rules are refused if the file has changed since."),
         },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
-      ({ rules }) => answer(() => saveRulesFile(options.rulesDirs ?? [], rules, roots))
+      ({ rules, compiledFrom }) => answer(() => saveRulesFile(options.rulesDirs ?? [], rules, roots, compiledFrom))
     );
   }
 

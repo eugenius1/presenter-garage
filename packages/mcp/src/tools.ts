@@ -72,6 +72,7 @@ import {
 } from "@presenter-garage/node/library";
 import { explain, open, presentationName } from "@presenter-garage/node/presentations";
 import { isInWorkspace } from "@presenter-garage/node/workspace";
+import { sha256 } from "@presenter-garage/node/write";
 import { findRules, libraryOf, loadRules, RULES_JSON, RULES_MD, rulesConfiguration, saveRules, type LoadedRules } from "@presenter-garage/node/rules";
 
 /**
@@ -467,9 +468,14 @@ export async function checkPresentations(
     throw new LibraryError(`Not a presentation (.pro) file: ${target}`);
   }
   const loaded = await rulesFor(inline, rulesDirs);
-  const { problems, ...config } = await rulesConfiguration(roots);
-  const unknown = unknownMacros(loaded.set, config);
-  if (unknown.length) throw new LibraryError(`The rules name macros ProPresenter's list does not have: ${unknown.join(", ")}`);
+  // Each root has its own configured lists: a song's macros are looked up in
+  // the list of the library they came from, never another's.
+  const configs = new Map(await Promise.all(roots.map(async (root) => [root, await rulesConfiguration([root])] as const)));
+  const problems = [...configs.values()].flatMap((c) => c.problems);
+  for (const [root, config] of configs) {
+    const unknown = unknownMacros(loaded.set, config);
+    if (unknown.length) throw new LibraryError(`The rules name macros ProPresenter's list in ${root} does not have: ${unknown.join(", ")}`);
+  }
   const i18n = createI18n(lang);
   const { files, truncated } = single
     ? { files: [resolved], truncated: false }
@@ -488,7 +494,8 @@ export async function checkPresentations(
       rules: loaded.set.rules.length,
     },
     notes: [...rulesNotes(loaded), ...(usesLists(loaded.set) ? problems : [])],
-    totals: {},
+    // No inherited keys: a rule may be called `constructor`.
+    totals: Object.create(null) as Record<string, number>,
     excepted: 0,
     truncated,
     files: [],
@@ -517,7 +524,7 @@ export async function checkPresentations(
     }
     const root = rootOf(roots, file);
     const name = presentationName(file);
-    const findings = checkRules(opened.doc, loaded.set, { song: name, library: root ? libraryOf(root, file) : undefined }, config);
+    const findings = checkRules(opened.doc, loaded.set, { song: name, library: root ? libraryOf(root, file) : undefined }, (root && configs.get(root)) || {});
     if (findings.length === 0) continue;
     for (const finding of findings) {
       if (finding.excepted !== undefined) result.excepted++;
@@ -570,7 +577,7 @@ export async function readRules(rulesDirs: readonly string[]): Promise<RulesAnsw
   }
   const markdown = loaded?.markdown ?? found?.markdown;
   return {
-    ...(markdown ? { markdown: { path: markdown, text: await fs.readFile(markdown, "utf8") } } : {}),
+    ...(markdown ? { markdown: await prose(markdown) } : {}),
     ...(loaded?.json ? { json: { path: loaded.json, rules: loaded.set } } : {}),
     ...(problems ? { problems } : {}),
     stale: loaded?.stale ?? true,
@@ -579,8 +586,19 @@ export async function readRules(rulesDirs: readonly string[]): Promise<RulesAnsw
   };
 }
 
-/** Compile the team's rules: check them, and write `rules.json` beside the `RULES.md` found. */
-export async function saveRulesFile(rulesDirs: readonly string[], rules: unknown, roots: readonly string[]) {
+/** `RULES.md` as read, with the hash `save_rules` is handed back to say this is what was compiled. */
+async function prose(file: string) {
+  const bytes = await fs.readFile(file);
+  return { path: file, text: bytes.toString("utf8"), sha256: sha256(new Uint8Array(bytes)) };
+}
+
+/**
+ * Compile the team's rules: check them, and write `rules.json` beside the
+ * `RULES.md` found. `compiledFrom` is the hash `read_rules` gave with the
+ * prose, so rules compiled from a file that has changed since are refused
+ * rather than stamped as current.
+ */
+export async function saveRulesFile(rulesDirs: readonly string[], rules: unknown, roots: readonly string[], compiledFrom: string) {
   const found = await findRules(undefined, rulesDirs);
   if (!found?.markdown) throw new LibraryError(`No ${RULES_MD} found in ${rulesDirs.join(" or ")}: rules are compiled from one.`);
   let set: RuleSet;
@@ -590,10 +608,12 @@ export async function saveRulesFile(rulesDirs: readonly string[], rules: unknown
     if (e instanceof RulesError) throw new LibraryError(e.message);
     throw e;
   }
-  // Refused before writing: a name the list lacks would make its rule find nothing, or everything.
-  const unknown = unknownMacros(set, await rulesConfiguration(roots));
-  if (unknown.length) throw new LibraryError(`These macros are not in ProPresenter's list: ${unknown.join(", ")}. Nothing was written.`);
-  const saved = await saveRules(found.markdown, set);
+  // Refused before writing: a name a library's list lacks would make its rule find nothing there, or everything.
+  for (const root of roots) {
+    const unknown = unknownMacros(set, await rulesConfiguration([root]));
+    if (unknown.length) throw new LibraryError(`These macros are not in ProPresenter's list in ${root}: ${unknown.join(", ")}. Nothing was written.`);
+  }
+  const saved = await saveRules(found.markdown, set, compiledFrom);
   return { path: saved.path, rules: saved.set.rules.length, exceptions: saved.set.exceptions.length };
 }
 

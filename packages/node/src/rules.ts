@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { decodeGroupsDocument, decodeMacrosDocument, readGroups, readMacros } from "@presenter-garage/core/lib/configuration";
-import { DEFAULT_RULES, parseRules, RulesError, type RuleConfiguration, type RuleSet } from "@presenter-garage/core/lib/rules";
+import { DEFAULT_RULES, libraryOfSong, parseRules, RulesError, type RuleConfiguration, type RuleSet } from "@presenter-garage/core/lib/rules";
 import { findGroups, findMacros, LibraryError, readLibraryFile } from "./library";
 import { isInWorkspace } from "./workspace";
 import { sha256 } from "./write";
@@ -38,7 +38,20 @@ export interface FoundRules {
   json?: string;
 }
 
-const exists = (p: string) => fs.stat(p).then((s) => s.isFile(), () => false);
+/**
+ * Whether a file is there. Only "not there" counts as no: a folder that
+ * cannot be read is said, rather than quietly passed over for the next
+ * place or the default checks, which would run rules nobody chose.
+ */
+async function exists(p: string): Promise<boolean> {
+  try {
+    return (await fs.stat(p)).isFile();
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw new LibraryError(`Could not look for rules at ${p}: ${(e as Error).message}`);
+  }
+}
 
 async function inFolder(dir: string): Promise<FoundRules | undefined> {
   const markdown = path.join(dir, RULES_MD);
@@ -116,7 +129,7 @@ async function markdownHash(file: string): Promise<string> {
  * now, once it parses. Written to a hidden file first and renamed over, so a
  * crash leaves the old rules or the new ones, never half of either.
  */
-export async function saveRules(markdown: string, value: unknown): Promise<{ path: string; set: RuleSet }> {
+export async function saveRules(markdown: string, value: unknown, compiledFrom?: string): Promise<{ path: string; set: RuleSet }> {
   if (path.basename(markdown) !== RULES_MD || !(await exists(markdown))) {
     throw new LibraryError(`Rules are saved beside a ${RULES_MD}, and ${markdown} is not one.`);
   }
@@ -128,7 +141,14 @@ export async function saveRules(markdown: string, value: unknown): Promise<{ pat
     if (e instanceof RulesError) throw new LibraryError(e.message);
     throw e;
   }
-  set = { ...set, source: { file: RULES_MD, sha256: await markdownHash(markdown) } };
+  // The hash is of the prose the rules were compiled from. When the caller
+  // says which that was and it has changed since, the rules describe an older
+  // file, and stamping today's hash on them would call them current.
+  const sha256 = await markdownHash(markdown);
+  if (compiledFrom !== undefined && compiledFrom !== sha256) {
+    throw new LibraryError(`${markdown} has changed since it was read: read it again and compile the rules from what it says now. Nothing was written.`);
+  }
+  set = { ...set, source: { file: RULES_MD, sha256 } };
   const target = path.join(path.dirname(markdown), RULES_JSON);
   const temp = path.join(path.dirname(markdown), `.${RULES_JSON}.${randomBytes(6).toString("hex")}`);
   await fs.writeFile(temp, `${JSON.stringify(set, null, 2)}\n`, { flag: "wx" });
@@ -166,16 +186,15 @@ export async function rulesConfiguration(roots: readonly string[]): Promise<Rule
     read(findGroups, (bytes) => readGroups(decodeGroupsDocument(bytes)), "groups"),
     read(findMacros, (bytes) => readMacros(decodeMacrosDocument(bytes)), "macros"),
   ]);
+  // An empty list is no list to check names against, and the check then says nothing: said here, so that is not mistaken for a clean library.
+  if (groups?.length === 0) problems.push("The configured group list is empty, so group names were not checked against it.");
   return { ...(groups ? { groups } : {}), ...(macros ? { macros } : {}), problems };
 }
 
 /**
- * The library a song is in: the folder under `Libraries` that holds it, or
- * the first folder under the root when there is no `Libraries`. Nothing for
- * a song at the top.
+ * The library a song is in, as `libraryOfSong` has it: a song straight
+ * inside the folder read is in that folder's library.
  */
 export function libraryOf(root: string, file: string): string | undefined {
-  const parts = path.relative(root, file).split(path.sep);
-  if (parts[0] === "Libraries") parts.shift();
-  return parts.length > 1 ? parts[0] : undefined;
+  return libraryOfSong(path.basename(root), path.relative(root, file).split(path.sep));
 }

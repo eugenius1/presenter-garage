@@ -302,6 +302,8 @@ export function unknownMacros(set: RuleSet, config: RuleConfiguration): string[]
   const known = new Set(config.macros.map((m) => m.name));
   const missing = new Set<string>();
   for (const rule of set.rules) {
+    // A rule that is off runs nothing, so a macro it names that has since gone stops no check.
+    if (rule.tier === "off") continue;
     for (const name of macroNames(rule)) if (!known.has(name)) missing.add(name);
   }
   return [...missing];
@@ -369,8 +371,9 @@ const TEXT_ISSUES: Partial<Record<CheckName, TextIssueKind[]>> = {
 
 /** A name as a person would say it: case, accents' composition and outer spaces aside. */
 const looseName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("fr");
+const SPACES = new RegExp(`${SPACE_CLASS}+`, "g");
 /** A group name with every kind of space made the plain one: what tells a space-only difference. */
-const spacedName = (name: string) => name.replace(new RegExp(`${SPACE_CLASS}+`, "g"), " ").trim();
+const spacedName = (name: string) => name.replace(SPACES, " ").trim();
 
 /**
  * Run the rules on one presentation.
@@ -385,12 +388,15 @@ export function checkRules(doc: PresentationDoc, set: RuleSet, target: RuleTarge
   const macroKey = macroIdentity(config);
   const slideGroups = doc.slides.map((s) => s.groupName ?? "");
   const runs = groupRuns(slideGroups);
-  const selectedFirst = set.rules.some((r) => r.check === "slide-macros" && r.where === "first");
+  const inScope = (rule: Rule) =>
+    !rule.libraries || (target.library !== undefined && rule.libraries.some((l) => looseName(l) === looseName(target.library!)));
+  // A first-slide rule keeps the first slide from "rest" only where it applies, but even when it is off.
+  const selectedFirst = set.rules.some((r) => r.check === "slide-macros" && r.where === "first" && inScope(r));
 
   let textIssues: ReturnType<typeof checkPresentation>["issues"] | undefined;
   for (const rule of set.rules) {
     if (rule.tier === "off") continue;
-    if (rule.libraries && !(target.library && rule.libraries.some((l) => looseName(l) === looseName(target.library!)))) continue;
+    if (!inScope(rule)) continue;
     const tier = rule.tier;
     const add = (slideIndex: number, detail: FindingDetail, extra: Partial<Finding> = {}) =>
       findings.push({ rule: rule.id, check: rule.check, tier, slideIndex, groupName: doc.slides[slideIndex]?.groupName, detail, ...extra });
@@ -534,6 +540,20 @@ function covers(e: RuleException, finding: Finding, target: RuleTarget): boolean
   return true;
 }
 
+/**
+ * The library a song is in, from the folder read and the song's path inside
+ * it: the folder under `Libraries` that holds it, or the first folder under
+ * the one read. A song straight inside the folder read is in that folder's
+ * library, so a library gets its own name whether it or a folder above it is
+ * the one read, and rules kept to it run either way.
+ */
+export function libraryOfSong(folder: string, relative: readonly string[]): string | undefined {
+  const parts = [...relative];
+  if (parts[0] === "Libraries") parts.shift();
+  if (parts.length > 1) return parts[0];
+  return folder && folder !== "Libraries" ? folder : undefined;
+}
+
 /** How many of each tier, leaving out what a person has excepted. */
 export function countByTier(findings: readonly Finding[]): [number, number, number] {
   const counts: [number, number, number] = [0, 0, 0];
@@ -559,22 +579,23 @@ export function groupRuns(groupNames: readonly string[]): GroupRun[] {
   return runs;
 }
 
-/** Each slide's shown lines, compared loosely: spacing and end punctuation are the text checks' business. */
-function slideWords(doc: PresentationDoc): string[][] {
+/**
+ * Each slide's shown words, compared loosely: spacing and end punctuation are
+ * the text checks' business, and where a line breaks is layout, so the same
+ * words broken over two lines on one slide are still the same words.
+ */
+function slideWords(doc: PresentationDoc): string[] {
   const words: string[][] = doc.slides.map(() => []);
   for (const box of doc.textBoxes) {
     if (!hasText(box)) continue;
     const texts = box.lines.map((l) => l.text);
     const [first, last] = shownBounds(texts);
     for (const text of texts.slice(first, last + 1)) {
-      const loose = text
-        .replace(new RegExp(`${SPACE_CLASS}+`, "g"), " ")
-        .trim()
-        .replace(/[\s.,;:]+$/, "");
+      const loose = text.replace(SPACES, " ").trim().replace(/[\s.,;:]+$/, "");
       if (loose) words[box.slideIndex]?.push(loose);
     }
   }
-  return words;
+  return words.map((slide) => slide.join(" "));
 }
 
 /**
@@ -584,12 +605,8 @@ function slideWords(doc: PresentationDoc): string[][] {
  */
 function macroIdentity(config: RuleConfiguration) {
   const uuidByName = new Map<string, string>();
-  const nameByUuid = new Map<string, string>();
   for (const m of config.macros ?? []) {
-    if (!m.uuid) continue;
-    const uuid = m.uuid.toLowerCase();
-    if (!uuidByName.has(m.name)) uuidByName.set(m.name, uuid);
-    nameByUuid.set(uuid, m.name);
+    if (m.uuid && !uuidByName.has(m.name)) uuidByName.set(m.name, m.uuid.toLowerCase());
   }
   return {
     byName: (name: string) => {
@@ -598,8 +615,10 @@ function macroIdentity(config: RuleConfiguration) {
     },
     of: (macro: SlideMacro) => {
       const uuid = macro.uuid?.toLowerCase();
-      if (uuid && nameByUuid.has(uuid)) return `uuid:${uuid}`;
-      // No uuid, or one the list does not hold: its name is all there is to go by.
+      // A uuid the list does not hold is a macro since deleted, whatever its
+      // name: a new macro of the same name is another macro.
+      if (uuid && uuidByName.size > 0) return `uuid:${uuid}`;
+      // No uuid, or no list to look it up in: its name is all there is to go by.
       const known = uuidByName.get(macro.name);
       return known ? `uuid:${known}` : `name:${macro.name}`;
     },

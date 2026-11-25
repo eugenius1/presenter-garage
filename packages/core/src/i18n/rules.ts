@@ -37,7 +37,8 @@ export function describeFinding(i18n: I18n, finding: Finding): string {
       if (d.count === 0) parts.push(r.macrosNone);
       if (d.missing.length) parts.push(f(r.macrosMissing, { macros: names(d.missing) }));
       if (d.extra.length) parts.push(f(r.macrosExtra, { macros: names(d.extra) }));
-      if (d.min !== undefined && d.count < d.min && !d.missing.length) parts.push(plural(r.macrosTooFew, d.min));
+      // Adding what is missing may still leave the slide short of its minimum.
+      if (d.min !== undefined && d.count + d.missing.length < d.min) parts.push(plural(r.macrosTooFew, d.min));
       if (d.max !== undefined && d.count > d.max) parts.push(plural(r.macrosTooMany, d.max));
       if (d.disabled.length) parts.push(f(r.macrosDisabled, { macros: names(d.disabled) }));
       return parts.join(r.separator);
