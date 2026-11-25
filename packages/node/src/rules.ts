@@ -188,6 +188,7 @@ export async function rulesConfiguration(roots: readonly string[]): Promise<Rule
   ]);
   // An empty list is no list to check names against, and the check then says nothing: said here, so that is not mistaken for a clean library.
   if (groups?.length === 0) problems.push("The configured group list is empty, so group names were not checked against it.");
+  if (macros?.length === 0) problems.push("The configured macro list is empty, so macro names were matched as slides recorded them and not checked against it.");
   return { ...(groups ? { groups } : {}), ...(macros ? { macros } : {}), problems };
 }
 

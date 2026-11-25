@@ -60,6 +60,9 @@ export interface Source {
   ruleNotes: string[];
 }
 
+/** Rules naming a macro ProPresenter's list lacks: the whole read's problem, not one song's. */
+class MacrosUnknown extends LibraryError {}
+
 /** The root of the workspace ProPresenter 22 has open, or an error saying there is none. */
 export async function activeWorkspace(registry?: string): Promise<string> {
   const active = (await registeredWorkspaces(registry)).find((w) => w.active);
@@ -82,17 +85,19 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
   const workspace = await workspaceAt(root);
   const { files, truncated } = await findPresentations([root]);
   const { problems: ruleNotes, ...config } = options.rules ? await rulesConfiguration([root]) : { problems: [] };
-  if (options.rules) {
-    // A macro name the list does not hold would make its rule find nothing,
-    // or everything; asked of each library here, since a rule kept to one
-    // library needs its macros only where it runs.
-    for (const library of new Set(files.map((file) => libraryOf(root, file)))) {
-      const unknown = unknownMacros(options.rules, config, { library });
-      if (unknown.length) {
-        throw new LibraryError(`${spec.label}: the rules name macros ProPresenter's list does not have: ${unknown.join(", ")}`);
-      }
+  // A macro name the list does not hold would make its rule find nothing, or
+  // everything; asked of each song's library once a song there opens, since a
+  // rule kept to one library needs its macros only where it runs, and a file
+  // that will not open is reported like any other rather than stopping the rest.
+  const askedLibraries = new Set<string | undefined>();
+  const askMacros = (library: string | undefined) => {
+    if (!options.rules || askedLibraries.has(library)) return;
+    askedLibraries.add(library);
+    const unknown = unknownMacros(options.rules, config, { library });
+    if (unknown.length) {
+      throw new MacrosUnknown(`${spec.label}: the rules name macros ProPresenter's list does not have: ${unknown.join(", ")}`);
     }
-  }
+  };
   const songs: Song[] = [];
   const failures: SongFailure[] = [];
   let upgradedAt: string | undefined;
@@ -126,12 +131,15 @@ export async function readSource(spec: SourceSpec, options: ReadOptions = {}): P
       } else {
         edited = fileEdited(opened.raw, found.modified);
       }
-      const rules: SongRules | undefined = options.rules && { set: options.rules, config, library: libraryOf(root, file) };
+      const library = libraryOf(root, file);
+      askMacros(library);
+      const rules: SongRules | undefined = options.rules && { set: options.rules, config, library };
       const song = songOf(relative, opened.raw, opened.doc, edited, rules);
       songs.push(song);
       if (edited.source === "none") undated.push(song);
     } catch (e) {
-      if (!(e instanceof LibraryError)) throw e;
+      // Rules that name a macro the list lacks are wrong for every song, not one: the whole read stops.
+      if (!(e instanceof LibraryError) || e instanceof MacrosUnknown) throw e;
       failures.push({ file: relative, reason: e.message });
     }
   }

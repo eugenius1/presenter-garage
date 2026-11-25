@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_RULES } from "@presenter-garage/core/lib/rules";
-import { findRules, libraryOf, loadRules, rulesSearchDirs, saveRules } from "../rules";
+import { findRules, libraryOf, loadRules, rulesConfiguration, rulesSearchDirs, saveRules } from "../rules";
+import { openRoots } from "../library";
 import { sha256 } from "../write";
 
 const RULES = { version: 1, rules: [{ id: "ends", check: "last-group", tier: 2, group: "Pause" }], exceptions: [] };
@@ -79,6 +80,18 @@ describe("loading and saving", () => {
   it("says where a broken rules.json is broken", async () => {
     fs.writeFileSync(path.join(dir, "rules.json"), JSON.stringify({ version: 1, rules: [{ id: "a", check: "last-group", tier: 2 }] }));
     await expect(loadRules(await findRules(dir))).rejects.toThrow("last-group needs group");
+  });
+});
+
+describe("ProPresenter's lists", () => {
+  it("says when a list is there but empty, since nothing could be checked against it", async () => {
+    fs.mkdirSync(path.join(dir, "Libraries"));
+    fs.mkdirSync(path.join(dir, "Configuration"));
+    fs.writeFileSync(path.join(dir, "Configuration", "Groups"), new Uint8Array());
+    fs.writeFileSync(path.join(dir, "Configuration", "Macros"), new Uint8Array());
+    const config = await rulesConfiguration(await openRoots([dir]));
+    expect(config.groups).toEqual([]);
+    expect(config.problems).toEqual([expect.stringContaining("group list is empty"), expect.stringContaining("macro list is empty")]);
   });
 });
 

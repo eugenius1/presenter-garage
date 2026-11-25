@@ -345,6 +345,7 @@ export const en = {
         none: "No RULES.md or rules.json was found in the folder the app was started from, or in Documents/ProPresenter.",
         error: "The team's rules could not be loaded: {message}",
         findings: ["{n} finding by the rules", "{n} findings by the rules"],
+        lists: "ProPresenter's own lists of groups and macros were not all there, so some rules had less to check against:",
         nothingFound: "The rules found nothing to report.",
       },
       // The desktop app, which reads and writes the folder itself.

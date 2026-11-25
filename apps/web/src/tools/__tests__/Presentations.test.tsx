@@ -973,6 +973,19 @@ describe("the desktop app", () => {
       expect((await screen.findAllByText(/Missing/)).length).toBeGreaterThan(3);
     });
 
+    it("says when ProPresenter's lists were not there to check against", async () => {
+      configuration = { problems: ["No configured groups found."] };
+      teamRules = async () => ({ set: parseRules(groupRules), stale: false, defaulted: false, json: RULES_PATH });
+      vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
+      const user = userEvent.setup();
+      renderTool();
+      await openFolder(user);
+
+      await user.click(screen.getByRole("button", { name: "Use the team's rules" }));
+      expect(await screen.findByText("No configured groups found.")).toBeInTheDocument();
+      expect(screen.getByText(/were not all there/)).toBeInTheDocument();
+    });
+
     it("says when RULES.md has changed since rules.json was compiled", async () => {
       teamRules = async () => ({ set: parseRules(groupRules), stale: true, defaulted: false, json: RULES_PATH });
       vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge());
@@ -1063,6 +1076,18 @@ describe("the team's rules", () => {
     await load(user, rulesFile(groupRules));
     await screen.findAllByText(/is not in the group list/);
     expect(fix()).toBe(fewer);
+  });
+
+  it("names a song by its file, as the command line does, so an exception for it matches", async () => {
+    store.clear();
+    // A file renamed outside ProPresenter: the name stored inside it is still "Macro Song".
+    store.set("Chants/Renamed.pro", syntheticMacroSong());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    await load(user, rulesFile({ ...groupRules, exceptions: [{ rule: "groups", song: "Renamed", reason: "ours" }] }));
+    const rows = (await screen.findAllByText(/is not in the group list/)).map((found) => found.closest("li")!);
+    for (const row of rows) expect(row.textContent).toContain("excepted: ours");
   });
 
   it("lists nothing of the kind until rules are loaded", async () => {

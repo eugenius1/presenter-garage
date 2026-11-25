@@ -307,6 +307,8 @@ export function Presentations() {
   /** Why a rules file was refused, a line each; or what the desktop app said of the team's rules. */
   const [rulesProblems, setRulesProblems] = useState<string[]>([]);
   const [rulesNote, setRulesNote] = useState<NativeRules | "none" | null>(null);
+  /** Why ProPresenter's own lists were not all there for the last scan, so a quiet result is not taken for a clean one. */
+  const [listProblems, setListProblems] = useState<string[]>([]);
   /**
    * The rules a scan checks with, read at the moment each file is checked: a
    * scan under way when the rules change is overtaken by a new one, but a
@@ -450,13 +452,16 @@ export function Presentations() {
     // macro renamed since it was put on a slide is still matched by its uuid.
     // A browser cannot reach them, and matches by the names slides recorded.
     let config: RuleConfiguration = {};
+    let problems: string[] = [];
     if (rulesInUse.current && bridge && list.some((file) => file.native)) {
       try {
-        config = await bridge.readConfiguration();
-      } catch {
-        // No lists is what a browser has too; the findings say no less for it.
+        ({ problems, ...config } = await bridge.readConfiguration());
+      } catch (e) {
+        // No lists is what a browser has too, and is said so.
+        problems = [(e as Error).message];
       }
     }
+    setListProblems(problems);
     for (const file of list) {
       if (mine !== displayed.current) return null;
       setBusy(file.name);
@@ -471,12 +476,15 @@ export function Presentations() {
       }
       const set = rulesInUse.current;
       // The chosen folder's name too: a library chosen on its own keeps its name, so rules kept to it still run.
-      const library = libraryOfSong(reading.current, file.path.split("/"));
+      const parts = file.path.split("/");
+      const library = libraryOfSong(reading.current, parts);
+      // The file's name, as the command line and the server name a song, so an exception for a song matches it everywhere.
+      const song = parts.at(-1)!.replace(/\.pro$/i, "");
       out.push(
         examine(
           file.path,
           bytes,
-          set ? (doc) => checkRules(doc, set, { song: doc.name, ...(library ? { library } : {}) }, config) : undefined
+          set ? (doc) => checkRules(doc, set, { song, ...(library ? { library } : {}) }, config) : undefined
         )
       );
     }
@@ -1156,6 +1164,16 @@ export function Presentations() {
         {rulesNote && rulesNote !== "none" && rulesNote.stale && <p className="why warn-inline">{p.teamRules.stale}</p>}
         {rulesNote && rulesNote !== "none" && rulesNote.defaulted && (
           <p className="why warn-inline">{p.teamRules.defaulted}</p>
+        )}
+        {rules && listProblems.length > 0 && (
+          <div className="why warn-inline">
+            {p.teamRules.lists}
+            <ul className="rows">
+              {listProblems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </div>
         )}
         {rulesProblems.length > 0 && (
           <div className="why warn-inline">

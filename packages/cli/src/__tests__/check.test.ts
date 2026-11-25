@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { run, type Io } from "../cli";
+import { syntheticMacrosFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { writeLibrary } from "./fixtures";
 
 /**
@@ -108,6 +109,27 @@ describe("check", () => {
     const io = capture();
     expect(await run(["check", `lib=${library}`, "--rules", broken], io)).toBe(1);
     expect(io.stderr).toContain("last-group needs group");
+  });
+});
+
+describe("check, with ProPresenter's macro list", () => {
+  it("reports a file that will not open and checks the rest, though a rule kept to its library names a macro the list lacks", async () => {
+    const church = path.join(tmp, "church");
+    writeLibrary(church, { "Songs/Holy.pro": { name: "Holy", groups: [{ name: "Verse", slides: [["Words"]] }] } });
+    fs.mkdirSync(path.join(church, "Readings"));
+    fs.writeFileSync(path.join(church, "Readings", "Chords.pro"), "{title: Not a presentation}\n");
+    fs.mkdirSync(path.join(church, "Configuration"));
+    fs.writeFileSync(path.join(church, "Configuration", "Macros"), syntheticMacrosFile());
+    const rules = path.join(tmp, "kept");
+    fs.mkdirSync(rules);
+    fs.writeFileSync(
+      path.join(rules, "rules.json"),
+      JSON.stringify({ version: 1, rules: [{ id: "absent", check: "macro-alone", tier: 2, macro: "Absent", libraries: ["Readings"] }], exceptions: [] })
+    );
+    const io = capture();
+    expect(await run(["check", `church=${church}`, "--rules", rules, "--lang", "en"], io)).toBe(0);
+    expect(io.stdout).toContain("Readings/Chords.pro");
+    expect(io.stdout).toContain("church: 0 rule breaks in 0 of 1 songs");
   });
 });
 

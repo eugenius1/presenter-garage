@@ -489,7 +489,8 @@ export async function checkPresentations(
   const asked = new Set<string>();
   for (const file of files) {
     const { root, library, config } = placeOf(file);
-    const key = `${root}\u0000${library}`;
+    // Keyed by the values themselves: a song in no library and a folder called "undefined" are two places.
+    const key = JSON.stringify([root ?? null, library ?? null]);
     if (asked.has(key)) continue;
     asked.add(key);
     const unknown = unknownMacros(loaded.set, config, { library });

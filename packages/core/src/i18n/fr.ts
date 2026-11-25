@@ -353,6 +353,7 @@ export const fr: Dictionary = {
         none: "Aucun RULES.md ni rules.json n’a été trouvé dans le dossier d’où l’application a été lancée, ni dans Documents/ProPresenter.",
         error: "Les règles de l’équipe n’ont pas pu être chargées\u202f: {message}",
         findings: ["{n} constat selon les règles", "{n} constats selon les règles"],
+        lists: "Les listes de groupes et de macros de ProPresenter n’étaient pas toutes là, donc certaines règles avaient moins à vérifier\u202f:",
         nothingFound: "Les règles n’ont rien trouvé à signaler.",
       },
       native: {
