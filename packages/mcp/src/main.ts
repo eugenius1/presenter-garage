@@ -10,6 +10,7 @@ import {
   staleNotes,
 } from "@presenter-garage/node/workspace";
 import { defaultBackupDir, openBackupDir } from "@presenter-garage/node/write";
+import { findRules, rulesSearchDirs } from "@presenter-garage/node/rules";
 import { parseArgs } from "./args";
 import { createServer } from "./server";
 
@@ -60,7 +61,10 @@ async function main() {
     }
   }
   const editing = backups !== undefined;
-  await createServer(roots, { readOnly: !editing, backupDir: backups, notes }).connect(new StdioServerTransport());
+  // The folder the server is started in is the one the agent works in, which is where a team keeps its rules.
+  const rulesDirs = rulesSearchDirs();
+  const rules = await findRules(undefined, rulesDirs);
+  await createServer(roots, { readOnly: !editing, backupDir: backups, notes, rulesDirs, rules }).connect(new StdioServerTransport());
   console.error(
     `presenter-garage MCP ${editing ? `reading and editing ${roots.join(", ")}, backing up to ${backups}` : `reading ${roots.join(", ")}`}`
   );

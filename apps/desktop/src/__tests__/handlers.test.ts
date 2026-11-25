@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChosenFile, DesktopBridge } from "@presenter-garage/core/lib/desktop";
 import { examine, planFixes } from "@presenter-garage/core/lib/fixes";
 import type { TextIssueKind } from "@presenter-garage/core/lib/presentation";
-import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { syntheticMacrosFile, syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
 import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
 import { CHANNELS } from "../channels";
@@ -92,6 +92,7 @@ const make = (dir = backups) =>
     stateFile: path.join(tmp, "state.json"),
     backupDir: dir,
     workspacesDir: path.join(tmp, "Workspaces"),
+    rulesDirs: [path.join(tmp, "Rules")],
   });
 
 beforeEach(() => {
@@ -569,5 +570,51 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
 
     expect(run.refused?.code).toBe("cloudWorkspace");
     expect(store()).toEqual(before);
+  });
+});
+
+describe("the team's rules", () => {
+  const rulesDir = () => path.join(tmp, "Rules");
+  const compiled = { version: 1, rules: [{ id: "commas", check: "trailing-comma", tier: 2 }], exceptions: [] };
+
+  it("reads rules.json and says nothing is stale without a RULES.md", async () => {
+    fs.mkdirSync(rulesDir());
+    fs.writeFileSync(path.join(rulesDir(), "rules.json"), JSON.stringify(compiled));
+    const found = await bridge.loadTeamRules();
+    expect(found.set.rules.map((r) => r.id)).toEqual(["commas"]);
+    expect(found).toMatchObject({ stale: false, defaulted: false, json: path.join(rulesDir(), "rules.json") });
+  });
+
+  it("says when RULES.md has changed since rules.json was compiled, and writes nothing", async () => {
+    fs.mkdirSync(rulesDir());
+    fs.writeFileSync(path.join(rulesDir(), "RULES.md"), "Pas de virgule.");
+    fs.writeFileSync(path.join(rulesDir(), "rules.json"), JSON.stringify(compiled));
+    const before = fs.readdirSync(rulesDir()).sort();
+    expect(await bridge.loadTeamRules()).toMatchObject({ stale: true, defaulted: false });
+    expect(fs.readdirSync(rulesDir()).sort()).toEqual(before);
+  });
+
+  it("falls back to the defaults, with no file named, when none is found", async () => {
+    const found = await bridge.loadTeamRules();
+    expect(found).toMatchObject({ defaulted: true, stale: false });
+    expect(found.markdown ?? found.json).toBeUndefined();
+  });
+
+  it("reads ProPresenter's configured lists from the folder open, and nothing before one is", async () => {
+    expect(await bridge.readConfiguration()).toEqual({ problems: [] });
+    song("Checked Song");
+    fs.mkdirSync(path.join(library, "Configuration"));
+    fs.writeFileSync(path.join(library, "Configuration", "Macros"), syntheticMacrosFile());
+    shown.push(library);
+    await bridge.pickFolder();
+    const config = await bridge.readConfiguration();
+    expect(config.macros?.map((m) => m.name)).toEqual(["Bienvenue", "Louange", "Lumières"]);
+    expect(config.problems).toEqual(["No configured groups found."]);
+  });
+
+  it("refuses a rules.json that does not parse", async () => {
+    fs.mkdirSync(rulesDir());
+    fs.writeFileSync(path.join(rulesDir(), "rules.json"), "{ not json");
+    await expect(bridge.loadTeamRules()).rejects.toThrow(/not JSON/);
   });
 });

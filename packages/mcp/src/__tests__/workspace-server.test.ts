@@ -142,7 +142,7 @@ suite("a ProPresenter 22 workspace through the server", () => {
 
     const check = (await call("check_presentations")).json();
     expect(check.filesChecked).toBe(2);
-    expect(check.totals.trailingComma).toBeGreaterThan(0);
+    expect(check.totals["trailing-comma"]).toBeGreaterThan(0);
   });
 
   it("reads the media bin", async () => {

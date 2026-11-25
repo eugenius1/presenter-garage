@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { openPresentation } from "@presenter-garage/core/lib/presentation";
 import { compareSongs, contentOf, laterOf, looseLine, summarise, summaryText, type Pair } from "../compare";
 import { alignGroups, BREAK, sideBySide } from "../diff";
+import type { RuleSet } from "@presenter-garage/core/lib/rules";
 import { nameKey, songOf, songText, type Edited, type Group, type Song } from "../song";
 import { legacyMatcher } from "../source";
 import { proFile, type SongSpec } from "./fixtures";
@@ -31,8 +32,11 @@ describe("a song", () => {
       // The blank lines around the words are padding, not part of them.
       { name: "Refrain", slides: [{ lines: ["Gloire à toi, "], macros: ["Louange"] }] },
     ]);
-    expect(s.issues).toEqual({ trailingSpace: 1, trailingComma: 1 });
-    expect(s.ruleBreaks).toBe(2);
+    expect(s.findings.map((f) => [f.rule, f.group, f.lineIndex])).toEqual([
+      ["leading-trailing-space", 1, 1],
+      ["trailing-comma", 1, 1],
+    ]);
+    expect(s.breaks).toEqual([2, 0, 0]);
   });
 
   it("reads as [Group] headers, then each slide's lines", () => {
@@ -171,7 +175,28 @@ describe("comparing two libraries", () => {
     it("fewer rule breaks first, whatever the dates", () => {
       const pair = only(run([clean(at("2020-01-01T00:00:00Z"))], [messy(at("2026-01-01T00:00:00Z"))]));
       expect(pair.later).toBe("b");
-      expect(pair.proposed).toEqual({ pick: "a", reason: "fewer rule breaks: bas has 0, haut 1" });
+      expect(pair.proposed).toEqual({ pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" });
+      expect(pair.differences).toEqual([
+        { row: 0, group: "Couplet 1", breaks: { a: [0, 0, 0], b: [1, 0, 0] }, pick: "a", reason: "fewer tier 1 rule breaks: bas has 0, haut 1" },
+      ]);
+    });
+
+    it("counts tier 3 last, before the dates", () => {
+      const praise: RuleSet = {
+        version: 1,
+        rules: [{ id: "praise", check: "slide-macros", tier: 3, where: "rest", required: ["Louange"] }],
+        exceptions: [],
+      };
+      const ruled = (macros: string[], edited: Edited) => {
+        const opened = openPresentation(proFile({ name: "S", groups: [{ name: "Couplet 1", slides: [{ lines: ["Que ton nom"], macros }] }] }));
+        if (opened.problem) throw new Error(opened.problem);
+        return songOf("Chants/S.pro", opened.raw, opened.doc, edited, { set: praise });
+      };
+      // haut was edited later, but bas carries the macro tier 3 asks for.
+      const pair = only(run([ruled(["Louange"], at("2020-01-01T00:00:00Z"))], [ruled([], at("2026-01-01T00:00:00Z"))]));
+      expect(pair.differences?.map((d) => [d.pick, d.reason, d.breaks])).toEqual([
+        ["a", "fewer tier 3 rule breaks: bas has 0, haut 1", { a: [0, 0, 0], b: [0, 0, 1] }],
+      ]);
     });
 
     it("then the later edit", () => {
@@ -184,15 +209,62 @@ describe("comparing two libraries", () => {
       expect(only(run([since], [untouched])).proposed).toEqual({ pick: "a", reason: "bas edited later (2026-11-10 against not after 2026-11-07)" });
     });
 
-    it("then the main library, or the first named when neither is", () => {
+    it("each difference on its own, keeping the base and taking the other's better groups", () => {
+      const better = { name: "Refrain", slides: [["Gloire à toi"]] };
+      const worse = { name: "Refrain", slides: [["Gloire à toi,"]] };
+      const bas = song({ name: "S", groups: [VERSE, better] });
+      const haut = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }, worse] });
+      const pair = only(run([bas], [haut]));
+      expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
+        ["Couplet 1", "b", "no edit dates to tell them apart; haut is the base"],
+        ["Refrain", "a", "fewer tier 1 rule breaks: bas has 0, haut 1"],
+      ]);
+      expect(pair.proposed).toEqual({ pick: "b", reason: "haut is the base; take bas's version at 1 of 2 differences" });
+    });
+
+    it("keeps a group only one side has, whatever its breaks, and leaves it to a person", () => {
+      const extra = { name: "Pont", slides: [["Avec une virgule,"]] };
+      const pair = only(run([song({ name: "S", groups: [VERSE] })], [song({ name: "S", groups: [VERSE, extra] })]));
+      expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
+        ["Pont", "b", "only haut has this group: kept, for you to decide"],
+      ]);
+      expect(pair.differences?.[0].decide).toBe(true);
+    });
+
+    it("keeps a group only the side that is not the base has, too", () => {
+      const extra = { name: "Pont", slides: [["Avec une virgule,"]] };
+      const pair = only(run([song({ name: "S", groups: [VERSE, extra] })], [song({ name: "S", groups: [VERSE] })]));
+      expect(pair.differences?.map((d) => [d.group, d.pick, d.reason])).toEqual([
+        ["Pont", "a", "only bas has this group: kept, for you to decide"],
+      ]);
+      expect(pair.proposed).toEqual({ pick: "a", reason: "only bas has this group: kept, for you to decide", decide: true });
+    });
+
+    it("leaves the whole song to a person when it keeps a group, never calling the kept group better", () => {
+      const extra = { name: "Pont", slides: [["Rien d'autre"]] };
+      const better = { name: "Refrain", slides: [["Gloire à toi"]] };
+      const worse = { name: "Refrain", slides: [["Gloire à toi,"]] };
+      const all = only(run([song({ name: "S", groups: [VERSE, better, extra] })], [song({ name: "S", groups: [VERSE, worse] })]));
+      expect(all.proposed).toEqual({ pick: "a", reason: "take bas's version at all 2 differences; 1 group only one side has, kept for you to decide", decide: true });
+      const none = only(run([song({ name: "S", groups: [VERSE, worse] })], [song({ name: "S", groups: [VERSE, better, extra] })]));
+      expect(none.proposed).toEqual({ pick: "b", reason: "keep haut's version at all 2 differences; 1 group only one side has, kept for you to decide", decide: true });
+      const mixed = only(run([song({ name: "S", groups: [VERSE, better] })], [song({ name: "S", groups: [VERSE, worse, extra] })]));
+      expect(mixed.proposed).toEqual({
+        pick: "b",
+        reason: "haut is the base; take bas's version at 1 of 2 differences; 1 group only one side has, kept for you to decide",
+        decide: true,
+      });
+    });
+
+    it("then the base: the main library, or the first named when neither is", () => {
       const other = song({ name: "S", groups: [{ name: "Couplet 1", slides: [["Que ton nom", "soit béni"]] }] });
       expect(only(run([other], [clean({ source: "none" })])).proposed).toEqual({
         pick: "b",
-        reason: "no edit dates to tell them apart; haut is the main library",
+        reason: "no edit dates to tell them apart; haut is the base",
       });
       expect(only(run([other], [clean({ source: "none" })], "elsewhere")).proposed).toEqual({
         pick: "a",
-        reason: "no edit dates to tell them apart; bas named first",
+        reason: "no edit dates to tell them apart; bas is the base",
       });
     });
   });

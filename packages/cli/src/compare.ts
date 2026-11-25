@@ -1,3 +1,4 @@
+import { alignGroups } from "./diff";
 import { nameKey, type Edited, type Group, type Song } from "./song";
 
 /**
@@ -27,6 +28,21 @@ export type Later = "a" | "b" | "same" | "unknown";
 export interface Proposal {
   pick: "a" | "b";
   reason: string;
+  /** A group only one side has is kept, and a person decides whether it goes: no pick here is to be taken without them. */
+  decide?: true;
+}
+
+/**
+ * One place the two versions differ: a pair of groups as the side-by-side
+ * view lines them up, `row` being its place there. The rule breaks counted
+ * are those in that group on each side, by tier. Tier 1 is compared first,
+ * then 2, then 3, so tier 3 (the last cleanup, often broken on nearly every
+ * slide) decides only where the others tie.
+ */
+export interface Difference extends Proposal {
+  row: number;
+  group: string;
+  breaks: { a: [number, number, number]; b: [number, number, number] };
 }
 
 export interface Pair {
@@ -40,6 +56,8 @@ export interface Pair {
   later?: Later;
   /** Absent for an identical pair, where there is nothing to choose. */
   proposed?: Proposal;
+  /** For a pair whose words differ: each place they differ, with the version proposed there. */
+  differences?: Difference[];
 }
 
 export interface CompareOptions {
@@ -107,6 +125,7 @@ function pairOf(a: Song, b: Song, matchedBy: "id" | "name", options: CompareOpti
   const content = contentOf(a.groups, b.groups);
   const renamed = nameKey(a.name) !== nameKey(b.name);
   const later = laterOf(a.edited, b.edited);
+  const differences = content === "identical" ? undefined : differencesOf(a, b, later, options);
   return {
     id: `a:${a.file}|b:${b.file}`,
     bucket: renamed ? "renamed" : content,
@@ -115,7 +134,8 @@ function pairOf(a: Song, b: Song, matchedBy: "id" | "name", options: CompareOpti
     a,
     b,
     later,
-    proposed: content === "identical" ? undefined : propose(a, b, later, options),
+    proposed: differences && propose(differences, options),
+    differences,
   };
 }
 
@@ -150,33 +170,89 @@ export function laterOf(a: Edited, b: Edited): Later {
   return "unknown";
 }
 
+/** Which side is the base, the library the merge is made into: the main one, or the first named. */
+function baseOf({ labels, prefer }: CompareOptions): "a" | "b" {
+  return prefer === labels.b ? "b" : "a";
+}
+
 /**
- * The version to keep, in the order the plan settles a conflict: fewer rule
- * breaks (the text checks), then the later edit where both dates are known,
- * then the main library. Spelling is not judged here: that is for a person
- * reading the two.
+ * Each place the versions differ, and which to take there, in the order the
+ * plan settles a conflict: fewer rule breaks in that group, tier 1, then 2,
+ * then 3, then the later edit where both dates are known, then the base. A
+ * group only one side has is kept and flagged for a person. Spelling is not
+ * judged here: that is for a person reading the two.
  */
-function propose(a: Song, b: Song, later: Later, { labels, prefer }: CompareOptions): Proposal {
-  if (a.ruleBreaks !== b.ruleBreaks) {
-    const pick = a.ruleBreaks < b.ruleBreaks ? "a" : "b";
-    return {
-      pick,
-      reason: `fewer rule breaks: ${labels[pick]} has ${pick === "a" ? a.ruleBreaks : b.ruleBreaks}, ${labels[pick === "a" ? "b" : "a"]} ${pick === "a" ? b.ruleBreaks : a.ruleBreaks}`,
-    };
+function differencesOf(a: Song, b: Song, later: Later, options: CompareOptions): Difference[] {
+  const { labels } = options;
+  const base = baseOf(options);
+  const breaksIn = (song: Song, group: Group | undefined): [number, number, number] => {
+    const index = group ? song.groups.indexOf(group) : -1;
+    const counts: [number, number, number] = [0, 0, 0];
+    for (const f of song.findings) if (f.group === index && f.excepted === undefined) counts[f.tier - 1]++;
+    return counts;
+  };
+  const differences: Difference[] = [];
+  alignGroups(a.groups, b.groups).forEach(([ga, gb], row) => {
+    if (JSON.stringify(ga) === JSON.stringify(gb)) return;
+    const breaks = { a: breaksIn(a, ga), b: breaksIn(b, gb) };
+    const group = (ga ?? gb)!.name;
+    // A group only one side has is never proposed for dropping, by its breaks,
+    // its dates or the base: losing a verse is not a tidy-up. It is kept and
+    // left for a person to decide.
+    if (!ga || !gb) {
+      const keep = ga ? "a" : "b";
+      differences.push({ row, group, breaks, pick: keep, reason: `only ${labels[keep]} has this group: kept, for you to decide`, decide: true });
+      return;
+    }
+    for (const tier of [0, 1, 2] as const) {
+      if (breaks.a[tier] !== breaks.b[tier]) {
+        const pick = breaks.a[tier] < breaks.b[tier] ? "a" : "b";
+        const other = pick === "a" ? "b" : "a";
+        differences.push({ row, group, breaks, pick, reason: `fewer tier ${tier + 1} rule breaks: ${labels[pick]} has ${breaks[pick][tier]}, ${labels[other]} ${breaks[other][tier]}` });
+        return;
+      }
+    }
+    if (later === "a" || later === "b") {
+      const date = (e: Edited) => (e.at ? e.at.slice(0, 10) : `not after ${e.notAfter?.slice(0, 10)}`);
+      differences.push({
+        row,
+        group,
+        breaks,
+        pick: later,
+        reason: `${labels[later]} edited later (${date(later === "a" ? a.edited : b.edited)} against ${date(later === "a" ? b.edited : a.edited)})`,
+      });
+      return;
+    }
+    const why = later === "same" ? "edited at the same time" : "no edit dates to tell them apart";
+    differences.push({ row, group, breaks, pick: base, reason: `${why}; ${labels[base]} is the base` });
+  });
+  return differences;
+}
+
+/**
+ * The song as a whole: the base, unless every difference is better taken
+ * from the other side, in which case that side's version is the song. A song
+ * with a group only one side has is left to a person, however it is proposed.
+ */
+function propose(differences: readonly Difference[], options: CompareOptions): Proposal {
+  const { labels } = options;
+  const base = baseOf(options);
+  const other = base === "a" ? "b" : "a";
+  const taken = differences.filter((d) => d.pick === other);
+  const kept = differences.filter((d) => d.decide).length;
+  const decide = kept > 0 ? ({ decide: true } as const) : {};
+  if (differences.length === 1) return { pick: differences[0].pick, reason: differences[0].reason, ...decide };
+  // A kept group is not better on the side that has it, only there: say so rather than call it better.
+  const keptNote = kept === 0 ? "" : `; ${kept === 1 ? "1 group" : `${kept} groups`} only one side has, kept for you to decide`;
+  if (differences.length > 0 && taken.length === differences.length) {
+    const why = kept === 0 ? `${labels[other]} is better at all ${differences.length} differences` : `take ${labels[other]}'s version at all ${differences.length} differences`;
+    return { pick: other, reason: why + keptNote, ...decide };
   }
-  if (later === "a" || later === "b") {
-    const date = (e: Edited) => (e.at ? e.at.slice(0, 10) : `not after ${e.notAfter?.slice(0, 10)}`);
-    return {
-      pick: later,
-      reason: `${labels[later]} edited later (${date(later === "a" ? a.edited : b.edited)} against ${date(later === "a" ? b.edited : a.edited)})`,
-    };
+  if (taken.length === 0) {
+    const why = kept === 0 ? `${labels[base]} is better or as good at all ${differences.length} differences` : `keep ${labels[base]}'s version at all ${differences.length} differences`;
+    return { pick: base, reason: why + keptNote, ...decide };
   }
-  const why = later === "same" ? "edited at the same time" : "no edit dates to tell them apart";
-  if (prefer && (prefer === labels.a || prefer === labels.b)) {
-    const pick = prefer === labels.a ? "a" : "b";
-    return { pick, reason: `${why}; ${prefer} is the main library` };
-  }
-  return { pick: "a", reason: `${why}; ${labels.a} named first` };
+  return { pick: base, reason: `${labels[base]} is the base; take ${labels[other]}'s version at ${taken.length} of ${differences.length} differences${keptNote}`, ...decide };
 }
 
 export interface Summary {

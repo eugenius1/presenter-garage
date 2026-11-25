@@ -57,7 +57,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that lets an
 assistant such as Claude read your library from disk: list and search
 presentations, read their slides line by line with each slide's group and
 macros, read ProPresenter's configured groups and macros, run the
-Presentations checks, read or audit the media bin, read the presentation
+Presentations checks or your team's own rules, read or audit the media bin, read the presentation
 playlists, and preview giving a presentation a theme's look. Names come back
 exactly as stored, with a non-breaking space shown as `\u00a0`, so a group
 named `Couplet 1` with one can be told from the one without. It can also **edit slide text**: ask
@@ -182,9 +182,12 @@ claude mcp add presenter-garage -- node "$PWD/packages/mcp/dist/presenter-garage
 sorts each pair by how far apart the two versions are: identical, spacing or
 end punctuation only, group names only, real differences, renamed, or only
 on one side. For each pair it gives both edit dates, which side was edited
-later, and the version it would keep, with the reason: fewer text-check
-findings, then the later edit, then the library you call the main one. It
-never writes to a library.
+later, and, for each place the two differ, the version it would take there,
+with the reason: fewer breaks of your rules (tier 1, then tier 2, then
+tier 3), then the later edit, then the library you call the main one
+(`--prefer`), which is the base everything else is merged into. A group only
+one version has is never proposed for dropping: it is kept, and the song is
+left for you to decide. It never writes to a library.
 
 ```bash
 npm ci && npm run protos
@@ -212,6 +215,30 @@ found through ProPresenter's registry or given with
 from the workspace's own change history. Every command takes `--json`, and
 lyrics reach the terminal only with `dump --lyrics`. It needs Node 22.13 or
 later.
+
+### Your own rules
+
+Write your team's rules for slides in a `RULES.md`, in your own words and
+your own language: no repeat markers, which macros go on the first slide, a
+blank group at the end, whatever your team keeps to. An assistant reads it and
+compiles it into `rules.json` beside it, which the checks run; it shows you
+the rules it compiled before saving them, and the tools say when `RULES.md`
+has changed since. [docs/rules/](docs/rules/) has a sample to start from.
+
+Keep the two files in the folder you run the assistant or the command from,
+or in `Documents/ProPresenter`, never inside a ProPresenter workspace folder.
+Through the MCP server, the assistant finds them there (`read_rules`,
+`save_rules`, `check_presentations`). On the command line:
+
+```bash
+npm run cli -- check haut=active --rules path/to/rules.json
+npm run cli -- rules check path/to/rules.json
+```
+
+`check` lists every rule break with two slides either side, in English or
+French (`--lang fr`); `compare` takes `--rules` too. In the app, load a
+`rules.json` in the Presentations tool to see its findings beside the text
+checks. Rules a person has made an exception for are listed but not counted.
 
 ## Why
 

@@ -36,10 +36,22 @@ import {
 } from "@presenter-garage/core/lib/presentation";
 import { groupBy, toggled } from "@presenter-garage/core/lib/collections";
 import {
+  checkRules,
+  parseRules,
+  libraryOfSong,
+  RulesError,
+  type CheckName,
+  type Finding,
+  type RuleConfiguration,
+  type RuleSet,
+} from "@presenter-garage/core/lib/rules";
+import { describeFinding, findingTags } from "@presenter-garage/core/i18n/rules";
+import {
   desktopBridge,
   type DesktopBridge,
   type NativeFileOutcome,
   type NativeFolder,
+  type NativeRules,
   type NativeWorkspace,
   type RunRefusal,
 } from "@presenter-garage/core/lib/desktop";
@@ -69,6 +81,27 @@ const ALL_KINDS: TextIssueKind[] = [
 ];
 /** The same set, for asking whether a kind is one of them. */
 const OPTIONAL = new Set<TextIssueKind>(OPTIONAL_KINDS);
+
+/** The rule that stands for each optional check, for starting the switches from a team's rules. */
+const RULE_OF: Record<TrailingPunctuation, CheckName> = {
+  trailingComma: "trailing-comma",
+  trailingSemicolon: "trailing-semicolon",
+  trailingFullStop: "trailing-full-stop",
+};
+
+/** The switches a set of rules asks for: a check is on when a rule runs it, and off when none does or it is `off`. */
+const optionalFrom = (set: RuleSet) =>
+  new Set<TextIssueKind>(
+    OPTIONAL_KINDS.filter((kind) => set.rules.some((r) => r.check === RULE_OF[kind] && r.tier !== "off"))
+  );
+
+/** The rules a person loaded, and where they came from. */
+interface LoadedRules {
+  set: RuleSet;
+  /** The file's name, or the path the desktop app found them at. */
+  source: string;
+  team: boolean;
+}
 
 /**
  * Let the browser paint, at most once a frame.
@@ -211,7 +244,8 @@ const EVERY_KIND: ReadonlySet<TextIssueKind> = new Set(ALL_KINDS);
  * written faithfully is left exactly as it was.
  */
 export function Presentations() {
-  const { t, f, num, plural } = useI18n();
+  const i18n = useI18n();
+  const { t, f, num, plural } = i18n;
   const p = t.tools.presentations;
 
   // What this browser can do with a folder does not change while it is open.
@@ -226,6 +260,14 @@ export function Presentations() {
    */
   const opening = useRef(0);
   /**
+   * The name of the folder being read, for the library its songs are in. A
+   * ref rather than the state beside it, because a scan starts in the same
+   * call that sets the state, and would otherwise read the last folder's name.
+   */
+  const reading = useRef("");
+  /** The files of the folder on screen, for the same reason: rules may arrive after another folder was opened. */
+  const readingFiles = useRef<FolderFile[]>([]);
+  /**
    * The open whose folder is on screen. A read or a save that finds it moved
    * on was for a folder no longer shown, and leaves the screen to this one:
    * otherwise a slow first folder finishing last shows its findings beside
@@ -233,7 +275,17 @@ export function Presentations() {
    */
   const displayed = useRef(0);
 
-  const [scanned, setScanned] = useState<Examined[] | null>(null);
+  const [scanned, setScannedState] = useState<Examined[] | null>(null);
+  /**
+   * What `scanned` holds now, not as some earlier render saw it: a rescan
+   * started by rules that took a while to load matches unticked lines
+   * against the folder on screen when it ends, not the one when it began.
+   */
+  const scannedNow = useRef<Examined[] | null>(null);
+  const setScanned = (next: Examined[] | null) => {
+    scannedNow.current = next;
+    setScannedState(next);
+  };
   const [files, setFiles] = useState<FolderFile[]>([]);
   const [handle, setHandle] = useState<unknown>(null);
   const [folderName, setFolderName] = useState<string>("");
@@ -245,6 +297,25 @@ export function Presentations() {
   const [active, setActive] = useState<Set<TextIssueKind>>(new Set(ALL_KINDS));
   /** Opt-in checks, remembered so the choices survive a refresh. */
   const [optional, setOptional] = useState<Set<TextIssueKind>>(new Set());
+
+  /**
+   * The team's rules, when a person has loaded some. Read-only: they decide
+   * what is listed beside the text fixes and which optional checks start on,
+   * and nothing in the fix run reads them.
+   */
+  const [rules, setRules] = useState<LoadedRules | null>(null);
+  /** Why a rules file was refused, a line each; or what the desktop app said of the team's rules. */
+  const [rulesProblems, setRulesProblems] = useState<string[]>([]);
+  const [rulesNote, setRulesNote] = useState<NativeRules | "none" | null>(null);
+  /** Why ProPresenter's own lists were not all there for the last scan, so a quiet result is not taken for a clean one. */
+  const [listProblems, setListProblems] = useState<string[]>([]);
+  /**
+   * The rules a scan checks with, read at the moment each file is checked: a
+   * scan under way when the rules change is overtaken by a new one, but a
+   * save's partial rescan must use the rules on screen, not those of its start.
+   */
+  const rulesInUse = useRef<RuleSet | null>(null);
+  const rulesInput = useRef<HTMLInputElement>(null);
 
   /**
    * The lines the reader has taken *out* of the run, rather than the ones left
@@ -317,6 +388,23 @@ export function Presentations() {
   const reports = useMemo(() => examined.map((one) => one.report), [examined]);
 
   /**
+   * What the rules found, file by file. Text problems are left out: the list
+   * of fixes shows each of them with the line it would become, and listing
+   * them again here would say everything twice.
+   */
+  const ruleFindings = useMemo(
+    () =>
+      examined
+        .map((one) => ({
+          report: one.report,
+          findings: (one.findings ?? []).filter((finding) => finding.detail.kind !== "text"),
+        }))
+        .filter((one) => one.findings.length > 0),
+    [examined]
+  );
+  const ruleFindingCount = ruleFindings.reduce((n, one) => n + one.findings.length, 0);
+
+  /**
    * The folder each file sits in, shown only when they do not all share one.
    *
    * A library kept in subfolders can hold two songs of the same name, and the
@@ -360,6 +448,22 @@ export function Presentations() {
   /** Read and check each file, saying which one is being read, until a later folder overtakes it. */
   async function examineAll(list: FolderFile[], mine: number): Promise<Examined[] | null> {
     const out: Examined[] = [];
+    // In the desktop app, ProPresenter's own lists for the folder open, so a
+    // macro renamed since it was put on a slide is still matched by its uuid.
+    // A browser cannot reach them, and matches by the names slides recorded.
+    let config: RuleConfiguration = {};
+    let problems: string[] = [];
+    if (rulesInUse.current && bridge && list.some((file) => file.native)) {
+      try {
+        ({ problems, ...config } = await bridge.readConfiguration());
+      } catch (e) {
+        // No lists is what a browser has too, and is said so.
+        problems = [(e as Error).message];
+      }
+    }
+    // Only the scan on screen says why: one overtaken while the lists were read must not leave its answer behind.
+    if (mine !== displayed.current) return null;
+    setListProblems(problems);
     for (const file of list) {
       if (mine !== displayed.current) return null;
       setBusy(file.name);
@@ -372,7 +476,19 @@ export function Presentations() {
         out.push(unreadable(file.path, "unreadable", (e as Error).message));
         continue;
       }
-      out.push(examine(file.path, bytes));
+      const set = rulesInUse.current;
+      // The chosen folder's name too: a library chosen on its own keeps its name, so rules kept to it still run.
+      const parts = file.path.split("/");
+      const library = libraryOfSong(reading.current, parts);
+      // The file's name, as the command line and the server name a song, so an exception for a song matches it everywhere.
+      const song = parts.at(-1)!.replace(/\.pro$/i, "");
+      out.push(
+        examine(
+          file.path,
+          bytes,
+          set ? (doc) => checkRules(doc, set, { song, ...(library ? { library } : {}) }, config) : undefined
+        )
+      );
     }
     if (mine !== displayed.current) return null;
     setBusy(null);
@@ -387,6 +503,67 @@ export function Presentations() {
   }
 
   /**
+   * Use these rules from now on, or none. The rules look at every slide, group
+   * and macro, which a scan does not keep, so a folder already read is read
+   * again; a scan under way is overtaken, as a new folder overtakes one.
+   */
+  function adoptRules(next: LoadedRules | null) {
+    rulesInUse.current = next?.set ?? null;
+    setRules(next);
+    if (next) setOptional(optionalFrom(next.set));
+    const current = readingFiles.current;
+    if (current.length === 0) return;
+    const mine = ++opening.current;
+    displayed.current = mine;
+    // Read again as after a save, so a line the person unticked stays unticked.
+    void rescan(current, mine);
+  }
+
+  /** A rules.json the person chose: parsed as `parseRules` has it, and every problem shown if it will not. */
+  async function loadRulesFile(file: File) {
+    setRulesNote(null);
+    let value: unknown;
+    try {
+      value = JSON.parse(await file.text());
+    } catch (e) {
+      setRulesProblems([f(p.teamRules.notJson, { reason: (e as Error).message })]);
+      return;
+    }
+    try {
+      adoptRules({ set: parseRules(value), source: file.name, team: false });
+      setRulesProblems([]);
+    } catch (e) {
+      if (!(e instanceof RulesError)) throw e;
+      setRulesProblems(e.problems);
+    }
+  }
+
+  /** The team's own rules, through the desktop shell, which reads them and writes nothing. */
+  async function loadTeamRules() {
+    setRulesProblems([]);
+    setRulesNote(null);
+    try {
+      const found = await bridge!.loadTeamRules();
+      // Nothing written down is not a reason to start checking by the
+      // defaults: the page stays as it was and says so.
+      if (!found.markdown && !found.json) {
+        setRulesNote("none");
+        return;
+      }
+      setRulesNote(found);
+      adoptRules({ set: found.set, source: found.json ?? found.markdown!, team: true });
+    } catch (e) {
+      setRulesProblems([f(p.teamRules.error, { message: (e as Error).message })]);
+    }
+  }
+
+  function clearRules() {
+    setRulesProblems([]);
+    setRulesNote(null);
+    adoptRules(null);
+  }
+
+  /**
    * Read again only the files a save in the desktop app touched, keeping
    * what is in hand for the rest: nothing else can have changed, and reading
    * a whole library through the shell again is seconds of copying for nothing.
@@ -395,13 +572,15 @@ export function Presentations() {
     const examined = await examineAll(list, mine);
     if (!examined || mine !== displayed.current) return;
     const fresh = new Map(examined.map((one) => [one.report.filename, one]));
-    setScanned((prev) => (prev ?? []).map((one) => fresh.get(one.report.filename) ?? one));
+    const was = scannedNow.current;
+    // A folder whose first read was overtaken has nothing to merge into: this read is its first.
+    setScanned(was === null ? examined : was.map((one) => fresh.get(one.report.filename) ?? one));
     // A line left unticked stays unticked, or the next save would take it
     // without anyone choosing it: in a file not read again, by its address;
     // in one that was, by what it says, since the save may have moved it.
     // Every kind, not just those on screen: a line unticked and then hidden
     // by a filter is still unticked when the filter is lifted.
-    const before = new Map((scanned ?? []).map((one) => [one.report.filename, one]));
+    const before = new Map((was ?? []).map((one) => [one.report.filename, one]));
     setExcluded((prev) => {
       const next = new Set([...prev].filter((key) => !fresh.has(fileOfKey(key))));
       for (const [filename, one] of fresh) {
@@ -436,6 +615,8 @@ export function Presentations() {
     // a line of one could be saved against a file of the same name in the other.
     setScanned(null);
     setExcluded(new Set());
+    reading.current = folder.name;
+    readingFiles.current = folder.files;
     setFolderName(folder.name);
     setFiles(folder.files);
     setHandle(folderHandle);
@@ -553,6 +734,9 @@ export function Presentations() {
     setFiles([]);
     setHandle(null);
     setNative(null);
+    reading.current = "";
+    readingFiles.current = [];
+    setListProblems([]);
     setFolderName("");
     clearRun();
     if (bridge) void bridge.forgetLast();
@@ -940,6 +1124,71 @@ export function Presentations() {
           </>
         )}
 
+        {/* The team's rules. Loading them only adds a list of findings and sets
+            where the optional checks start: the fix run does not read them. */}
+        <h4>{p.teamRules.title}</h4>
+        <p className="sub">{p.teamRules.hint}</p>
+        <div className="editor-bar">
+          <button className="btn" onClick={() => rulesInput.current?.click()} disabled={busy !== null || running}>
+            {p.teamRules.load}
+          </button>
+          {bridge && (
+            <button className="btn" onClick={() => void loadTeamRules()} disabled={busy !== null || running}>
+              {p.teamRules.useTeam}
+            </button>
+          )}
+          {rules && (
+            <button className="btn" onClick={clearRules} disabled={busy !== null || running}>
+              {p.teamRules.clear}
+            </button>
+          )}
+          <input
+            ref={rulesInput}
+            type="file"
+            hidden
+            accept=".json,application/json"
+            aria-label={p.teamRules.load}
+            onChange={(e) => {
+              const picked = e.target.files?.[0];
+              // Cleared, or choosing the same file again after an edit fires nothing.
+              e.target.value = "";
+              if (picked) void loadRulesFile(picked);
+            }}
+          />
+        </div>
+        {rules && (
+          <p className="why">
+            {rules.team
+              ? f(p.teamRules.loadedTeam, { file: rules.source })
+              : f(p.teamRules.loaded, { name: rules.source })}
+          </p>
+        )}
+        {rulesNote === "none" && <p className="why warn-inline">{p.teamRules.none}</p>}
+        {rulesNote && rulesNote !== "none" && rulesNote.stale && <p className="why warn-inline">{p.teamRules.stale}</p>}
+        {rulesNote && rulesNote !== "none" && rulesNote.defaulted && (
+          <p className="why warn-inline">{p.teamRules.defaulted}</p>
+        )}
+        {rules && listProblems.length > 0 && (
+          <div className="why warn-inline">
+            {p.teamRules.lists}
+            <ul className="rows">
+              {listProblems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {rulesProblems.length > 0 && (
+          <div className="why warn-inline">
+            {p.teamRules.problems}
+            <ul className="rows">
+              {rulesProblems.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* The opt-in checks, offered where the folder is chosen rather than
             among the findings: they change what counts as a problem, which is
             a decision made before reading rather than while sifting. */}
@@ -1253,7 +1502,50 @@ export function Presentations() {
           })}
         </div>
       )}
+
+      {rules && scanned && (
+        <div className="card">
+          <h2>{p.teamRules.title}</h2>
+          <p className="sub">
+            {ruleFindingCount === 0 ? p.teamRules.nothingFound : plural(p.teamRules.findings, ruleFindingCount)}
+          </p>
+          {ruleFindings.map(({ report, findings }) => (
+            <div className="finding" key={report.filename}>
+              <h3>
+                {showFolders && <span className="finding-folder">{folderLabel(report.filename)}</span>}
+                {report.name || report.filename}
+                <span className="count-badge">{num(findings.length)}</span>
+              </h3>
+              <ul className="rows">
+                {findings.map((finding, i) => (
+                  <RuleFindingRow key={i} finding={finding} />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
     </>
+  );
+}
+
+/** One finding of the rules: read-only, with nothing to tick, and dimmed when a person has said it is fine. */
+function RuleFindingRow({ finding }: { finding: Finding }) {
+  const i18n = useI18n();
+  const { f, num } = i18n;
+  const p = i18n.t.tools.presentations;
+  return (
+    <li style={finding.excepted === undefined ? undefined : { opacity: 0.55 }}>
+      <span className="node-count">
+        {f(p.slide, { n: num(finding.slideIndex + 1) })}
+        {finding.groupName ? ` · ${finding.groupName}` : ""}
+      </span>{" "}
+      <span>{describeFinding(i18n, finding)}</span>{" "}
+      <span className="node-count">({findingTags(i18n, finding)})</span>
+      {finding.text !== undefined && (
+        <div className="path whitespace">{finding.text === "" ? "—" : visibleWhitespace(finding.text)}</div>
+      )}
+    </li>
   );
 }
 

@@ -39,6 +39,7 @@ export function reportHtml({ created, a, b, pairs, summary }: ReportInput): stri
       content: pair.content,
       later: pair.later,
       proposed: pair.proposed,
+      differences: pair.differences,
       a: pair.a && songMeta(pair.a),
       b: pair.b && songMeta(pair.b),
       rows: pair.a && pair.b ? sideBySide(pair.a.groups, pair.b.groups) : onItsOwn((pair.a ?? pair.b)!.groups, pair.a ? "a" : "b"),
@@ -116,6 +117,7 @@ nav { margin-bottom: 12px; } #jump { max-width: min(60vw, 520px); }
 .meta > div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
 .meta .side { font-weight: 600; font-size: 14px; }
 .later { color: var(--ok); font-weight: 600; }
+.sbs tr.difference td { padding: 4px 10px; border-left: 3px solid var(--accent); background: var(--panel); }
 .proposal { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--panel); }
 .decide { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; }
 table.sbs { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -244,12 +246,14 @@ const CLIENT = String.raw`
     if (!song) return el("div", null, [el("div", { "class": "side", text: label }), el("div", { "class": "none", text: "not in " + label })]);
     var e = song.edited;
     var date = e.at ? e.at.slice(0, 16).replace("T", " ") : (e.notAfter ? "not since " + e.notAfter.slice(0, 10) : "unknown");
-    var issues = Object.keys(song.issues).map(function (k) { return k + " " + song.issues[k]; }).join(", ");
+    var byRule = Object.create(null);
+    song.findings.forEach(function (f) { if (f.excepted === undefined) byRule[f.rule] = (byRule[f.rule] || 0) + 1; });
+    var rules = Object.keys(byRule).map(function (k) { return k + " " + byRule[k]; }).join(", ");
     return el("div", null, [
       el("div", { "class": "side" }, [label, p.later === side ? el("span", { "class": "later", text: " · edited later" }) : null]),
       el("div", { text: song.file }),
       el("div", { "class": "muted", text: "Edited " + date + " (" + SOURCES[e.source] + (e.peer ? ", computer " + e.peer : "") + ")" }),
-      el("div", { "class": "muted", text: "Rule breaks: " + song.ruleBreaks + (issues ? " (" + issues + ")" : "") }),
+      el("div", { "class": "muted", text: "Rule breaks by tier: " + song.breaks.join(" · ") + (rules ? " (" + rules + ")" : "") }),
       song.id ? el("div", { "class": "muted", text: "ID " + song.id }) : null
     ]);
   }
@@ -300,7 +304,15 @@ const CLIENT = String.raw`
     }
     var table = el("table", { "class": "sbs" }, [el("thead", null, [el("tr", null, [el("th", { text: L.a }), el("th", { text: L.b })])])]);
     var body = el("tbody");
-    p.rows.forEach(function (r) {
+    var differences = {};
+    (p.differences || []).forEach(function (d) { differences[d.row] = d; });
+    p.rows.forEach(function (r, row) {
+      var d = differences[row];
+      if (d) {
+        body.appendChild(el("tr", { "class": "difference" }, [el("td", { colspan: "2" }, [
+          el("strong", { text: (d.decide ? "Kept from " : "Take ") + L[d.pick] + " here. " }), d.reason
+        ])]));
+      }
       body.appendChild(el("tr", null, [
         el("td", null, [p.a ? groupView(r.a) : el("div", { "class": "none", text: "—" })]),
         el("td", null, [p.b ? groupView(r.b) : el("div", { "class": "none", text: "—" })])
@@ -323,8 +335,9 @@ const CLIENT = String.raw`
   });
 
   $("accept-shown").addEventListener("click", function () {
-    var open = shown.filter(function (p) { return p.proposed && p.bucket !== "identical" && !decisions[p.id]; });
-    if (!open.length || !confirm("Accept the proposed pick for " + open.length + " undecided songs shown?")) return;
+    // A song with a group only one side has is a person's to decide, one song at a time.
+    var open = shown.filter(function (p) { return p.proposed && !p.proposed.decide && p.bucket !== "identical" && !decisions[p.id]; });
+    if (!open.length || !confirm("Accept the proposed pick for " + open.length + " undecided songs shown? Songs with a group only one side has are left for you.")) return;
     open.forEach(function (p) { decisions[p.id] = p.proposed.pick; });
     save();
     applyFilters(shown[at] && shown[at].id);

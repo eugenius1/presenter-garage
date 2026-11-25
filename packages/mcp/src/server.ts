@@ -14,6 +14,8 @@ import {
   readPlaylists,
   readConfiguration,
   readPresentationFile,
+  readRules,
+  saveRulesFile,
   searchText,
 } from "./tools";
 
@@ -44,6 +46,10 @@ export interface ServerOptions {
    * updates, say.
    */
   notes?: readonly string[];
+  /** Where the team's `RULES.md` and `rules.json` are looked for. Defaults to nowhere: a test names its own. */
+  rulesDirs?: readonly string[];
+  /** The team's rules as found at start-up, for the instructions to point a model at. */
+  rules?: { markdown?: string; json?: string };
 }
 
 /**
@@ -97,6 +103,19 @@ async function answer(run: () => Promise<unknown>) {
   }
 }
 
+/**
+ * What a model is told about the team's rules before it does anything: where
+ * they are, and that they are to be read before checking or proposing edits.
+ * A team writes them for a person or a model to read, not for the tools, so
+ * the model is the one that compiles them for the tools to run.
+ */
+function rulesInstruction({ rules, readOnly }: ServerOptions): string {
+  if (!rules?.markdown && !rules?.json) return "";
+  if (!rules.markdown) return ` The team's compiled rules are in ${rules.json}; check_presentations runs them.`;
+  const compile = readOnly ? "" : rules.json ? " If it has changed since rules.json was compiled, compile it again with save_rules." : " It has not been compiled yet: compile it with save_rules so the checks can run it.";
+  return ` The team's rules are in ${rules.markdown}: read them with read_rules before checking songs or proposing edits.${compile}`;
+}
+
 export function createServer(roots: readonly string[], options: ServerOptions = {}): McpServer {
   const server = new McpServer(
     { name: "presenter-garage", version },
@@ -108,6 +127,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
           ? "Nothing is written."
           : "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
             "confirm every line before anything is written, and each file is backed up first.") +
+        rulesInstruction(options) +
         (options.notes?.length ? ` Important: ${options.notes.join(" ")}` : ""),
     }
   );
@@ -212,16 +232,40 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
     {
       title: "Check presentation text",
       description:
-        "Run the text checks from Presenter Garage's Presentations tool: leading/trailing/repeated " +
-        "spaces, blank lines inside a slide, and lines ending in a comma, semicolon or full stop. " +
-        "Takes one .pro file or a folder; with neither, checks every library. Lists only files with findings.",
+        "Run the team's rules (their rules.json, compiled from RULES.md) on one .pro file or a folder; with neither, " +
+        "on every library. With no rules.json, runs the default text checks: leading/trailing/repeated spaces, blank " +
+        "lines inside a slide, and lines ending in a comma, semicolon or full stop. Each finding gives its rule, tier, " +
+        "slide, group and line, and a message. Lists only files with findings; `notes` says what to know before trusting them.",
       inputSchema: {
         path: z.string().optional().describe("A .pro file or a folder."),
         limit: z.number().int().min(1).max(1000).optional().describe("Maximum files listed (default 100)."),
+        rules: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("Rules to run instead of the team's rules.json, in the same shape: to try a rule before saving it."),
+        lang: z.enum(["en", "fr"]).optional().describe("The language of each finding's message (default en)."),
       },
       annotations: READ_ONLY,
     },
-    (args) => answer(() => checkPresentations(roots, args))
+    (args) => answer(() => checkPresentations(roots, args, options.rulesDirs))
+  );
+
+  server.registerTool(
+    "read_rules",
+    {
+      title: "Read the team's rules",
+      description:
+        "Read the team's RULES.md, written in their own words and language, and the rules.json compiled from it, " +
+        "with every check a compiled rule can use and what it takes. `stale` is true when RULES.md has changed since " +
+        "rules.json was compiled. To compile: one rule per rule the prose states, each { id (ASCII, the team's own " +
+        "name), check, tier (1: fixes safe in bulk, 2: reviewed case by case, 3: last, or \"off\"), libraries? " +
+        "(names of the libraries it applies to), and the check's parameters }; every exception the prose grants as " +
+        "{ rule, song?, library?, value?, reason }. Show the person the compiled rules before saving them, and hand " +
+          "save_rules the `markdown.sha256` given here as `compiledFrom`.",
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    () => answer(() => readRules(options.rulesDirs ?? []))
   );
 
   server.registerTool(
@@ -323,7 +367,27 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
     (args) => answer(() => previewStyle(roots, args))
   );
 
-  if (!options.readOnly) registerEditTools(server, roots, options.backupDir ?? defaultBackupDir());
+  if (!options.readOnly) {
+    registerEditTools(server, roots, options.backupDir ?? defaultBackupDir());
+    server.registerTool(
+      "save_rules",
+      {
+        title: "Save the team's compiled rules",
+        description:
+          "Write rules.json beside the team's RULES.md, compiled from it as read_rules describes, after checking " +
+          "it: every problem is listed and nothing is written until there are none. Stamps RULES.md's current hash, " +
+          "so a later change to it shows as stale. Writes no ProPresenter file. Show the person the rules first.",
+        inputSchema: {
+          rules: z.record(z.string(), z.unknown()).describe("The whole rules.json: { version: 1, rules: [...], exceptions: [...] }."),
+          compiledFrom: z
+            .string()
+            .describe("The sha256 read_rules gave with RULES.md: the rules are refused if the file has changed since."),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      ({ rules, compiledFrom }) => answer(() => saveRulesFile(options.rulesDirs ?? [], rules, roots, compiledFrom))
+    );
+  }
 
   return server;
 }

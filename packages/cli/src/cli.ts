@@ -1,6 +1,9 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { createI18n, detectLanguage, isLang, type I18n } from "@presenter-garage/core/i18n/core";
 import { LibraryError } from "@presenter-garage/node/library";
+import { findRules, loadRules, type LoadedRules } from "@presenter-garage/node/rules";
+import { checkJson, checkText, notes, rulesMeta, rulesText } from "./check";
 import { compareSongs, summarise, summaryText } from "./compare";
 import { discover, foundText } from "./discover";
 import { labelKey, writeCompare, writeDump } from "./output";
@@ -30,6 +33,9 @@ Commands:
   dump <source> --lyrics        Print every song's text (JSON with --json)
   compare <a> <b> --out <dir>   Match two libraries song by song; write compare.json,
                                 report.html and text views, and print a summary
+  check <source>                Every rule break, with two slides either side
+                                (with --json: where each is and what it says)
+  rules check [<file>]          Read the rules, and say whether they are older than RULES.md
 
 A source is a folder of .pro files, a ProPresenter 22 workspace folder, or
 "active" (the workspace ProPresenter has open), with a label in front:
@@ -41,6 +47,10 @@ Options:
   --prefer <label>        The main library, kept when nothing else decides (default: haut)
   --legacy <label>=<dir>  The .pro folder a workspace was made from, for edit dates before
                           the upgrade (default: what ProPresenter's registry says, if present)
+  --rules <file>          A rules.json or RULES.md, or a folder holding them (default: the
+                          current folder's, then Documents/ProPresenter's, then the text checks)
+  --lang <en|fr>          The language rule breaks are reported in (default: the system's)
+  --lyrics                With check --json, include each broken line
   --help                  This text
 
 Nothing is ever written to a library or workspace.`;
@@ -59,6 +69,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
         prefer: { type: "string", default: "haut" },
         legacy: { type: "string", multiple: true, default: [] },
         lyrics: { type: "boolean", default: false },
+        rules: { type: "string" },
+        lang: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -78,7 +90,10 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   }
 
   try {
+    if (values.lang !== undefined && !isLang(values.lang)) throw new UsageError(`--lang takes en or fr, not ${values.lang}`);
     const legacy = legacyFolders(values.legacy);
+    const rules = async () => loadRules(await findRules(values.rules));
+    const i18n = createI18n(isLang(values.lang) ? values.lang : systemLanguage());
     switch (command) {
       case "sources":
         return await sources(values.json, io);
@@ -88,7 +103,16 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
       case "compare":
         if (args.length !== 2) throw new UsageError("compare takes two sources.");
         if (!values.out) throw new UsageError("compare needs --out <dir>.");
-        return await compare(args.map(parseSource) as [SourceSpec, SourceSpec], { out: values.out, json: values.json, prefer: values.prefer, legacy }, io);
+        return await compare(args.map(parseSource) as [SourceSpec, SourceSpec], { out: values.out, json: values.json, prefer: values.prefer, legacy, rules: await rules() }, io);
+      case "check":
+        if (args.length !== 1) throw new UsageError("check takes one source.");
+        return await check(parseSource(args[0]), { json: values.json, lyrics: values.lyrics, legacy, rules: await rules(), i18n }, io);
+      case "rules": {
+        if (args[0] !== "check" || args.length > 2) throw new UsageError("rules takes check, and a file if it is not the one found.");
+        const loaded = await loadRules(await findRules(args[1] ?? values.rules));
+        io.out(values.json ? JSON.stringify(rulesMeta(loaded), null, 2) : rulesText(loaded));
+        return 0;
+      }
       default:
         throw new UsageError(`Unknown command: ${command}`);
     }
@@ -124,8 +148,16 @@ async function sources(json: boolean, io: Io): Promise<number> {
   return 0;
 }
 
-async function read(spec: SourceSpec, legacy: Map<string, string>, io: Io): Promise<Source> {
-  const options: ReadOptions = { legacy: legacy.get(spec.label) };
+/** The language of the person running the command, from the locale the shell gives. */
+function systemLanguage() {
+  const env = process.env;
+  const tags = [env.LC_ALL, env.LC_MESSAGES, env.LANG, Intl.DateTimeFormat().resolvedOptions().locale];
+  // `fr_FR.UTF-8` is how a shell writes what a browser writes `fr-FR`.
+  return detectLanguage(tags.filter((t): t is string => !!t && t !== "C" && t !== "POSIX").map((t) => t.replace("_", "-")));
+}
+
+async function read(spec: SourceSpec, legacy: Map<string, string>, io: Io, rules?: LoadedRules): Promise<Source> {
+  const options: ReadOptions = { legacy: legacy.get(spec.label), rules: rules?.set };
   if (io.interactive) {
     options.progress = (done, total) => {
       if (done === 0 || done === total || done % 25 === 0) io.err(`\rReading ${spec.label}: ${done} of ${total}`);
@@ -161,7 +193,7 @@ async function dump(
 
 async function compare(
   specs: [SourceSpec, SourceSpec],
-  options: { out: string; json: boolean; prefer: string; legacy: Map<string, string> },
+  options: { out: string; json: boolean; prefer: string; legacy: Map<string, string>; rules: LoadedRules },
   io: Io
 ): Promise<number> {
   if (labelKey(specs[0].label) === labelKey(specs[1].label)) {
@@ -169,25 +201,38 @@ async function compare(
       `The sources are labelled ${specs[0].label} and ${specs[1].label}, one name to the file system: give each its own label, as bas=… haut=…`
     );
   }
-  const a = await read(specs[0], options.legacy, io);
-  const b = await read(specs[1], options.legacy, io);
+  const a = await read(specs[0], options.legacy, io, options.rules);
+  const b = await read(specs[1], options.legacy, io, options.rules);
   const pairs = compareSongs(a.songs, b.songs, { labels: { a: a.label, b: b.label }, prefer: options.prefer });
   const count = (s: Source) => ({ label: s.label, songs: s.songs.length, failures: s.failures.length });
   const summary = summarise(pairs, count(a), count(b));
   const written = await writeCompare(path.resolve(options.out), a, b, pairs, summary);
   if (options.json) {
     // Counts and paths only: every pair, without its words, is in compare.json.
-    io.out(JSON.stringify({ summary, a: sourceMeta(a), b: sourceMeta(b), files: written }, null, 2));
+    io.out(JSON.stringify({ summary, rules: rulesMeta(options.rules), a: sourceMeta(a), b: sourceMeta(b), files: written }, null, 2));
   } else {
     io.out(
       [
         summaryText(summary) + failuresText(a) + failuresText(b),
+        ...notes(a, options.rules),
+        ...b.ruleNotes.map((note) => `${b.label}: ${note}`),
         `Report: ${written.report}`,
         `Data:   ${written.json}`,
         `Text:   git diff --no-index --word-diff ${shellQuote(written.text.a)} ${shellQuote(written.text.b)}`,
       ].join("\n")
     );
   }
+  return 0;
+}
+
+async function check(
+  spec: SourceSpec,
+  options: { json: boolean; lyrics: boolean; legacy: Map<string, string>; rules: LoadedRules; i18n: I18n },
+  io: Io
+): Promise<number> {
+  const source = await read(spec, options.legacy, io, options.rules);
+  if (options.json) io.out(JSON.stringify(checkJson(source, options.rules, options.i18n, options.lyrics), null, 2));
+  else io.out(checkText(source, options.rules, options.i18n) + failuresText(source));
   return 0;
 }
 

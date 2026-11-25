@@ -34,6 +34,7 @@ import {
 } from "./rtf";
 import { groupBy } from "./collections";
 import type { RawDoc } from "./decode";
+import type { Finding } from "./rules";
 import { AttributeRangeError, rangesAfter, type LineStyling } from "./ranges";
 
 /**
@@ -677,6 +678,12 @@ export interface Examined {
    * rather than waiting for the folder to be read again.
    */
   fixable: PresentationDoc;
+  /**
+   * What a team's rules found, when `examine` was given them. Worked out here
+   * rather than later because `fixable` keeps only the boxes with a text
+   * problem, and the rules look at every slide, group and macro.
+   */
+  findings?: Finding[];
 }
 
 /** A file that will not open: reported, with nothing to fix. */
@@ -688,14 +695,20 @@ export function unreadable(filename: string, problem: ReadProblem, detail?: stri
 }
 
 /** Read a file, report on it, and keep what a fix would need. */
-export function examine(filename: string, bytes: Uint8Array): Examined {
+export function examine(
+  filename: string,
+  bytes: Uint8Array,
+  rules?: (doc: PresentationDoc) => Finding[]
+): Examined {
   const opened = openPresentation(bytes);
   if (opened.problem) return unreadable(filename, opened.problem, opened.detail);
 
   const { doc } = opened;
   let report: PresentationReport;
+  let findings: Finding[] | undefined;
   try {
     report = checkPresentation(filename, doc);
+    findings = rules?.(doc);
   } catch (e) {
     // A check tripping over one file's text marks that file, not the scan.
     return unreadable(filename, "unreadable", (e as Error).message);
@@ -704,5 +717,6 @@ export function examine(filename: string, bytes: Uint8Array): Examined {
   return {
     report,
     fixable: { ...doc, textBoxes: doc.textBoxes.filter((box) => wanted.has(box.boxIndex)) },
+    ...(findings ? { findings } : {}),
   };
 }

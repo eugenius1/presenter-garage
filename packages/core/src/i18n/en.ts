@@ -328,6 +328,26 @@ export const en = {
       downloadedFixed: "Saved as {name}. Your library has not been touched.",
       permissionNeeded:
         "Saving needs permission to write to the folder. Choose the folder again and allow editing.",
+      // The team's rules: loaded from a rules.json, or in the desktop app from
+      // the team's own folder. Findings are listed, never fixed from here.
+      teamRules: {
+        title: "Team rules",
+        hint: "Load the rules.json your team compiled from its RULES.md. What the rules find is listed below the text fixes and nothing is changed from it.",
+        load: "Load rules.json…",
+        useTeam: "Use the team's rules",
+        clear: "Stop using rules",
+        loaded: "Rules in use: {name}",
+        loadedTeam: "The team's rules, from {file}",
+        notJson: "This file is not JSON: {reason}",
+        problems: "These rules cannot be used:",
+        stale: "RULES.md has changed since rules.json was compiled from it, so these rules may be out of date. Ask your agent to compile it again.",
+        defaulted: "RULES.md has not been compiled into a rules.json yet, so only the default text checks are used.",
+        none: "No RULES.md or rules.json was found in the folder the app was started from, or in Documents/ProPresenter.",
+        error: "The team's rules could not be loaded: {message}",
+        findings: ["{n} finding by the rules", "{n} findings by the rules"],
+        lists: "ProPresenter's own lists of groups and macros were not all there, so some rules had less to check against:",
+        nothingFound: "The rules found nothing to report.",
+      },
       // The desktop app, which reads and writes the folder itself.
       native: {
         chooseHint:
@@ -500,6 +520,30 @@ export const en = {
         emptyPlaylist: "empty",
       },
     },
+  },
+
+  rules: {
+    tier: "tier {n}",
+    excepted: "excepted",
+    exceptedBecause: "excepted: {reason}",
+    separator: "; ",
+    marker: "Line marker {marker}",
+    repeatMarker: ["Repeat marker {marker}: sung {n} time", "Repeat marker {marker}: sung {n} times"],
+    groupName: "Group {group} is not in the group list",
+    groupNameSpacing: "Group {group} differs from the listed {listed} only in its spaces",
+    groupAfter: "{group} straight after {after}",
+    firstGroup: "Starts on {actual}, not {expected}",
+    firstGroupUnnamed: "Starts on a slide in no group, not {expected}",
+    lastGroup: "Ends on {actual}, not {expected}",
+    lastGroupUnnamed: "Ends on a slide in no group, not {expected}",
+    repeatedGroup: "{group} reads differently from where it first appears, on slide {slide}",
+    macrosMissing: "Missing {macros}",
+    macrosExtra: "Not expected here: {macros}",
+    macrosNone: "No macro",
+    macrosTooFew: ["Needs at least {n} macro", "Needs at least {n} macros"],
+    macrosTooMany: ["Takes at most {n} macro", "Takes at most {n} macros"],
+    macrosDisabled: "switched off: {macros}",
+    macroAlone: "{macro} together with {others}",
   },
 
   units: {

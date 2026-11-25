@@ -1,12 +1,7 @@
 import type { RawDoc } from "@presenter-garage/core/lib/decode";
 import { presentationName } from "@presenter-garage/node/presentations";
-import {
-  checkPresentation,
-  hasText,
-  readDetails,
-  shownBounds,
-  type PresentationDoc,
-} from "@presenter-garage/core/lib/presentation";
+import { hasText, readDetails, shownBounds, type PresentationDoc } from "@presenter-garage/core/lib/presentation";
+import { checkRules, countByTier, DEFAULT_RULES, type Finding, type RuleConfiguration, type RuleSet } from "@presenter-garage/core/lib/rules";
 
 /**
  * A song as the comparison sees it: its groups in ProPresenter's order, each
@@ -57,13 +52,27 @@ export interface Song {
   id?: string;
   groups: Group[];
   edited: Edited;
-  /** How many of the text checks' findings the song has, by kind. */
-  issues: Record<string, number>;
-  ruleBreaks: number;
+  /** What the rules found, each with the group it is in. */
+  findings: SongFinding[];
+  /** Rule breaks by tier, 1 to 3, leaving out what a person excepted. */
+  breaks: [number, number, number];
+}
+
+export interface SongFinding extends Finding {
+  /** Which of the song's `groups` it is in. */
+  group: number;
+}
+
+/** The rules a song is checked against, and what they need to know. */
+export interface SongRules {
+  set: RuleSet;
+  config?: RuleConfiguration;
+  /** The library the song is in, for rules kept to some libraries. */
+  library?: string;
 }
 
 /** Turn a decoded presentation into a song. `edited` is the caller's: only it knows where the bytes came from. */
-export function songOf(file: string, raw: RawDoc, doc: PresentationDoc, edited: Edited): Song {
+export function songOf(file: string, raw: RawDoc, doc: PresentationDoc, edited: Edited, rules: SongRules = { set: DEFAULT_RULES }): Song {
   const name = presentationName(file);
   const linesBySlide = new Map<number, string[]>();
   for (const box of doc.textBoxes) {
@@ -74,18 +83,22 @@ export function songOf(file: string, raw: RawDoc, doc: PresentationDoc, edited: 
   }
 
   const groups: Group[] = [];
+  const groupOfSlide: number[] = [];
   for (const slide of doc.slides) {
     const groupName = slide.groupName ?? "";
     let group = groups.at(-1);
     if (!group || group.name !== groupName) groups.push((group = { name: groupName, slides: [] }));
+    groupOfSlide.push(groups.length - 1);
     group.slides.push({
       lines: linesBySlide.get(slide.slideIndex) ?? [],
       macros: slide.macros.map((m) => (m.enabled ? m.name : `${m.name} (off)`)),
     });
   }
 
-  const issues: Record<string, number> = {};
-  for (const issue of checkPresentation(name, doc).issues) issues[issue.kind] = (issues[issue.kind] ?? 0) + 1;
+  const findings = checkRules(doc, rules.set, { song: name, library: rules.library }, rules.config).map((f) => ({
+    ...f,
+    group: groupOfSlide[f.slideIndex] ?? 0,
+  }));
   const id = (raw as { uuid?: { string?: string } }).uuid?.string?.toLowerCase() || undefined;
   return {
     name,
@@ -93,8 +106,8 @@ export function songOf(file: string, raw: RawDoc, doc: PresentationDoc, edited: 
     id,
     groups,
     edited,
-    issues,
-    ruleBreaks: Object.values(issues).reduce((a, b) => a + b, 0),
+    findings,
+    breaks: countByTier(findings),
   };
 }
 
@@ -143,6 +156,7 @@ export function nameKey(name: string): string {
 
 /** What is said about a song without its words: for JSON an agent reads, and for the summary. */
 export function songMeta(song: Song) {
-  const { groups: _groups, ...meta } = song;
-  return meta;
+  const { groups: _groups, findings, ...meta } = song;
+  // A finding on a line carries the line; the summary carries where it is and what it says, not the words.
+  return { ...meta, findings: findings.map(({ text: _text, ...finding }) => finding) };
 }
