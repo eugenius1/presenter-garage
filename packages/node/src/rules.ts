@@ -5,15 +5,17 @@ import path from "node:path";
 import { decodeGroupsDocument, decodeMacrosDocument, readGroups, readMacros } from "@presenter-garage/core/lib/configuration";
 import { DEFAULT_RULES, parseRules, RulesError, type RuleConfiguration, type RuleSet } from "@presenter-garage/core/lib/rules";
 import { findGroups, findMacros, LibraryError, readLibraryFile } from "./library";
+import { isInWorkspace } from "./workspace";
 import { sha256 } from "./write";
 
 /**
  * A team's `RULES.md`, and the `rules.json` an agent compiled from it.
  *
  * Found in the folder the agent or the command runs in, then in
- * `Documents/ProPresenter`, and never looked for inside a ProPresenter 22
- * workspace: that folder is ProPresenter's, and what its Cloud sync makes of
- * a file it did not write is not known. A path given outright wins.
+ * `Documents/ProPresenter`. A path given outright wins. Read from anywhere,
+ * but never written inside a ProPresenter 22 workspace: that folder is
+ * ProPresenter's, and what its Cloud sync makes of a file it did not write
+ * is not known.
  *
  * The only file written here is `rules.json`, beside the `RULES.md` it was
  * compiled from. It is not a ProPresenter file, so AGENTS.md's write guards
@@ -118,6 +120,7 @@ export async function saveRules(markdown: string, value: unknown): Promise<{ pat
   if (path.basename(markdown) !== RULES_MD || !(await exists(markdown))) {
     throw new LibraryError(`Rules are saved beside a ${RULES_MD}, and ${markdown} is not one.`);
   }
+  if (await isInWorkspace(markdown)) throw new LibraryError(`${markdown} is inside a ProPresenter workspace, which rules.json is never written into.`);
   let set: RuleSet;
   try {
     set = parseRules(value);

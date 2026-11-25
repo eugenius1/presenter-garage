@@ -83,6 +83,19 @@ describe("the team's rules", () => {
     await client.close();
   });
 
+  it("are still read, with what is wrong, when rules.json is not valid", async () => {
+    const broken = path.join(tmp, "broken");
+    fs.mkdirSync(broken);
+    fs.writeFileSync(path.join(broken, "RULES.md"), "# Nos règles\n");
+    fs.writeFileSync(path.join(broken, "rules.json"), JSON.stringify({ version: 1, rules: [{ id: "a", check: "last-group", tier: 2 }] }));
+    const { client, call } = await connect([church], { rulesDirs: [broken] });
+    const read = (await call("read_rules")).json();
+    expect(read.markdown.text).toContain("Nos règles");
+    expect(read.json).toBeUndefined();
+    expect(read.problems[0]).toContain("last-group needs group");
+    await client.close();
+  });
+
   it("cannot be saved by a read-only server", async () => {
     const { client } = await connect([church], { readOnly: true, rulesDirs: [team] });
     const { tools } = await client.listTools();

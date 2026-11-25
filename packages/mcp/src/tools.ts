@@ -543,6 +543,8 @@ export interface RulesAnswer {
   markdown?: { path: string; text: string };
   /** Where `rules.json` is, and the rules compiled into it. */
   json?: { path: string; rules: RuleSet };
+  /** Why `rules.json` could not be used, when it is there and is not valid. */
+  problems?: string[];
   stale: boolean;
   /** Where the rules were looked for. */
   searched: readonly string[];
@@ -550,13 +552,28 @@ export interface RulesAnswer {
   checks: Record<string, string>;
 }
 
-/** The team's rules, as written and as compiled, with everything needed to compile them again. */
+/**
+ * The team's rules, as written and as compiled, with everything needed to
+ * compile them again. A `rules.json` that will not load is reported in
+ * `problems` rather than refused: the model reading this is the one that
+ * puts it right, and needs the prose to do it.
+ */
 export async function readRules(rulesDirs: readonly string[]): Promise<RulesAnswer> {
-  const loaded = await loadRules(await findRules(undefined, rulesDirs));
+  const found = await findRules(undefined, rulesDirs);
+  let loaded: LoadedRules | undefined;
+  let problems: string[] | undefined;
+  try {
+    loaded = await loadRules(found);
+  } catch (e) {
+    if (!(e instanceof LibraryError)) throw e;
+    problems = [e.message];
+  }
+  const markdown = loaded?.markdown ?? found?.markdown;
   return {
-    ...(loaded.markdown ? { markdown: { path: loaded.markdown, text: await fs.readFile(loaded.markdown, "utf8") } } : {}),
-    ...(loaded.json ? { json: { path: loaded.json, rules: loaded.set } } : {}),
-    stale: loaded.stale,
+    ...(markdown ? { markdown: { path: markdown, text: await fs.readFile(markdown, "utf8") } } : {}),
+    ...(loaded?.json ? { json: { path: loaded.json, rules: loaded.set } } : {}),
+    ...(problems ? { problems } : {}),
+    stale: loaded?.stale ?? true,
     searched: rulesDirs,
     checks: CHECK_GUIDE,
   };

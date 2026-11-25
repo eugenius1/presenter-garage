@@ -271,7 +271,8 @@ export function parseRules(value: unknown): RuleSet {
       if (!["rule", "song", "library", "value", "reason"].includes(key)) at(where, `unknown key ${key}`);
       else if (typeof e[key] !== "string") at(where, `${key} must be text`);
     }
-    if (typeof e.rule === "string" && !ids.has(e.rule)) at(where, `no rule has the id ${e.rule}`);
+    if (e.rule === undefined) at(where, "needs the rule it is an exception to");
+    else if (typeof e.rule === "string" && !ids.has(e.rule)) at(where, `no rule has the id ${e.rule}`);
     if (e.song === undefined && e.library === undefined && e.value === undefined) {
       at(where, "says nothing about what it covers: give a song, a library or a value");
     }
@@ -431,7 +432,9 @@ export function checkRules(doc: PresentationDoc, set: RuleSet, target: RuleTarge
       case "group-names": {
         // With no list to go by there is nothing to say about any name; the
         // caller says the list was missing, once, rather than once a song.
-        const listed = rule.names ?? config.groups?.map((g) => g.name);
+        // An empty configured list is a list that could not be read, not a
+        // team with no groups: every name would be flagged, and none truly.
+        const listed = rule.names ?? (config.groups?.length ? config.groups.map((g) => g.name) : undefined);
         if (!listed) break;
         const seen = new Set<string>();
         for (const run of runs) {
@@ -615,8 +618,13 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  */
 export function markerPattern(markers: readonly string[], at: MarkerPosition): RegExp {
   const alternatives = markers.map((marker, i) => {
-    const parts = marker.split("{n}").map(escape);
-    return parts.join(`(?<n${i}>\\d{1,3})`);
+    // A marker may hold `{n}` twice; a group name may be used only once, so
+    // only the first is captured and the count is read from that.
+    let seen = 0;
+    return marker
+      .split("{n}")
+      .map(escape)
+      .reduce((out, part) => `${out}${seen++ === 0 ? `(?<n${i}>\\d{1,3})` : "\\d{1,3}"}${part}`);
   });
   const body = `(?<marker>${alternatives.join("|")})`;
   const before = "(?<![\\p{L}\\p{N}])";

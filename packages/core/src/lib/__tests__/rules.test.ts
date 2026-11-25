@@ -101,6 +101,10 @@ describe("rules.json", () => {
     ]);
   });
 
+  it("refuses an exception that does not say which rule it is to", () => {
+    expect(() => parseRules({ version: 1, rules: [], exceptions: [{ song: "Psalm 2" }] })).toThrow("exceptions[0]: needs the rule it is an exception to");
+  });
+
   it("names every macro a rule gives that ProPresenter's list does not hold", () => {
     const set = rules(
       { id: "a", check: "slide-macros", tier: 2, where: "first", required: ["Welcome"], allowed: ["Praise"] },
@@ -132,6 +136,13 @@ describe("the checks", () => {
     ]);
   });
 
+  it("reads the count from a marker that holds {n} twice, rather than failing to build", () => {
+    const set = rules({ id: "repeat", check: "line-marker", tier: 2, markers: ["{n}x{n}"], means: "repeat" });
+    expect(run(song([{ group: "Chorus", lines: ["Holy 3x3"] }]), set).map((f) => f.detail)).toEqual([
+      { kind: "marker", marker: "3x3", count: 3, means: "repeat" },
+    ]);
+  });
+
   it("looks for a marker where the rule says", () => {
     const line = (at: "start" | "whole" | "anywhere", text: string) => markerPattern(["(chorus)"], at).test(text);
     expect(line("start", "(Chorus) Holy")).toBe(true);
@@ -151,6 +162,11 @@ describe("the checks", () => {
     ]);
     const own = rules({ id: "groups", check: "group-names", tier: 2, names: ["Verse\u00a01", "Bridge", "Chorus"] });
     expect(checkRules(doc, own, { song: "Song" }, config)).toEqual([]);
+  });
+
+  it("says nothing about group names when the configured list is empty", () => {
+    const set = rules({ id: "groups", check: "group-names", tier: 2 });
+    expect(checkRules(song([{ group: "Verse" }]), set, { song: "Song" }, { groups: [] })).toEqual([]);
   });
 
   it("finds a group straight after another, and a song that does not end on the right one", () => {
