@@ -7,7 +7,9 @@
  * `lineIndex`) are the same ones the presentation fixer writes back to, so a
  * later write tool can take exactly what these handed out.
  *
- * Nothing here writes; writing is `edits.ts`.
+ * Slide text is never written here; that is `edits.ts`. The one write is
+ * `save_rules`, which writes only `rules.json`, through `saveRules()` in
+ * `packages/node`.
  */
 
 export * from "./presentations";

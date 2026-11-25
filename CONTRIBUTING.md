@@ -351,7 +351,8 @@ delimiter. Matching spaces with a regular expression reports a leading space on
 nearly every line in every file. `packages/core/src/lib/rtf.ts` exists solely for this, and
 the text it returns is a *projection* — writing a fix means editing the
 original RTF, not the extracted string. Every visible character carries the
-source range it came from, so a fix is a splice rather than a rewrite.
+source range it came from, so a fix is a splice rather than a rewrite, made
+by `packages/core/src/lib/rtf-edit.ts`.
 
 **And deleting text changes how the rest is read.** The same trap running
 backwards, caught by the corpus test within a minute of it being written. A box
