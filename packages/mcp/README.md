@@ -29,10 +29,13 @@ tools that write to a folder you name (`dump_library`, `compare_libraries`,
 inside it, never over a file. It opens another library only
 once you approve the switch in your app (`use_library`), and in a client that
 declares roots, reads the first of them that is itself a ProPresenter folder
-or workspace. Editing needs a
-client that supports MCP elicitation; with one that does not, nothing is
-written. `--read-only` turns editing off entirely, and `--backup-dir=<folder>`
-chooses where backups go.
+or workspace. Editing slide text needs a
+client that supports MCP elicitation; with one that does not, no slide is
+changed, and `compare_libraries` reads no second library. The other tools that
+write to a folder need none: each call still makes a new folder in `out`,
+never inside a library and never over a file. `--read-only` turns off editing
+and every tool that writes, and `--backup-dir=<folder>` chooses where backups
+go.
 
 ## Use
 

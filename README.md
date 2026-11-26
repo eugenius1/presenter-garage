@@ -69,7 +69,9 @@ only* setting), it never changes a file and does not even offer the editing
 tools.
 
 Editing needs a client that can ask you a question mid-task (MCP
-*elicitation*); with one that cannot, nothing is written. Close a song in
+*elicitation*); with one that cannot, no slide is changed. The tools that
+write a whole library to a folder (below) still make their new folder there,
+never inside a library and never over a file. Close a song in
 ProPresenter before editing it: ProPresenter may save its own copy over the
 change. Backups go to `~/Library/Application Support/Presenter
 Garage/Backups` on macOS and `%APPDATA%\Presenter Garage\Backups` on
