@@ -407,6 +407,8 @@ export const fr: Dictionary = {
           "une zone de texte porte une mise en forme qui ne peut pas suivre son texte sans deviner : rien n’a donc été écrit",
         rolledBack:
           "une autre présentation du même espace de travail n’a pas pu être écrite : aucune n’y a donc été écrite",
+        newContainer:
+          "la modification devrait ajouter quelque chose de nouveau dans un document de ProPresenter 22, comme une couleur pour un groupe qui n’en a pas, ce qui n’est pas fait",
       },
       rangeRefusals: {
         malformed: "une plage de mise en forme y finit avant de commencer",
@@ -432,6 +434,22 @@ export const fr: Dictionary = {
           "impossible d’ajouter une ligne à côté d’une ligne que ce même plan supprime : elle en prendrait la mise en forme",
         unsupported:
           "la modification ne se relirait pas comme demandé une fois écrite : elle n’est donc pas proposée",
+      },
+      structureRefusals: {
+        noSuchGroup: "il n’y a pas de groupe à cette adresse",
+        noSuchSlide: "il n’y a pas de diapositive à cette adresse",
+        duplicate: "deux modifications visent le même groupe, ou la même macro sur une diapositive",
+        unchanged: "c’est déjà le cas",
+        badName: "un nom de groupe demande du texte, sur une seule ligne",
+        noSuchMacro: "la diapositive ne déclenche aucune macro de ce nom ou de cet uuid",
+        ambiguousMacro: "cela désigne plus d’une macro",
+        noMacroList: "les macros configurées dans ProPresenter n’ont pas pu être lues : aucune macro ne peut donc être mise sur une diapositive",
+        unknownMacro: "aucune macro configurée n’a ce nom ou cet uuid",
+        macroCollection: "la diapositive indique dans quelle collection se trouve sa macro, et la nouvelle macro n’est dans aucune collection",
+        noGroupList: "les groupes configurés dans ProPresenter n’ont pas pu être lus : on ne peut donc pas savoir si le nouveau nom apporte une couleur ou un lien à un groupe configuré",
+        ambiguousGroup: "deux groupes configurés portent ce nom",
+        groupTie: "le groupe est lié à un groupe configuré, et le groupe configuré de ce nom n’a pas d’uuid auquel le lier",
+        noIdentification: "la macro de la diapositive n’enregistre ni uuid ni nom à remplacer",
       },
     },
     mediaBin: {

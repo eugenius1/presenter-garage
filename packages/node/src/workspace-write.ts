@@ -5,8 +5,9 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { isContainer, LoroDoc, LoroList, LoroMap, LoroMovableList, type Container } from "loro-crdt/base64";
+import { isContainer, LoroDoc, LoroList, LoroMap, LoroMovableList, LoroTree, type Container, type TreeID } from "loro-crdt/base64";
 import { FixError, type FixRefusal, type LineFix } from "@presenter-garage/core/lib/fixes";
+import type { StructureChange } from "@presenter-garage/core/lib/structure";
 import { encodePresentation } from "@presenter-garage/core/lib/presentation";
 import { isObject, presentationFromWorkspace } from "@presenter-garage/core/lib/workspace";
 import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
@@ -16,7 +17,6 @@ import {
   onlyPeerAdded,
   planWorkspaceEdit,
   stableJson,
-  type BoxEdit,
   type LoroKey,
   type WorkspaceEdit,
 } from "@presenter-garage/core/lib/workspace-edit";
@@ -163,7 +163,7 @@ const SELECT_ROW = "SELECT * FROM workspace_streams WHERE document_id = ? AND sc
 export async function readForPlanning(
   workspace: Workspace,
   document: StoredDocument
-): Promise<{ bytes: Uint8Array; sha256: string; root: unknown }> {
+): Promise<{ bytes: Uint8Array; sha256: string; root: unknown; snapshot: Uint8Array }> {
   await checkWritableWorkspace(workspace);
   if (document.kind !== "Presentation") throw new LibraryError(`Not a presentation: ${document.path}`);
   if (!(await isOwnPath(workspace.store))) {
@@ -194,7 +194,7 @@ export async function readForPlanning(
     );
   }
   const { message } = presentationFromWorkspace(root);
-  return { bytes: encodePresentation(message), sha256: hex(row.sha256), root };
+  return { bytes: encodePresentation(message), sha256: hex(row.sha256), root, snapshot: row.snapshot };
 }
 
 /** Refuse a document store of a version this has not been checked against. */
@@ -249,7 +249,7 @@ async function lockStore(store: string): Promise<Database> {
   }
 }
 
-/** One presentation to change: the document, the row it was planned against, and the lines chosen. */
+/** One presentation to change: the document, the row it was planned against, and the changes chosen. */
 export interface WorkspaceReplacement {
   /** The document's old-layout path, as the plan named it. */
   path: string;
@@ -257,7 +257,12 @@ export interface WorkspaceReplacement {
   /** Of the row the plan was made from. */
   sha256: string;
   fixes: LineFix[];
+  /** The structural changes chosen: a group renamed, a macro swapped. */
+  changes?: StructureChange[];
 }
+
+/** How many changes a presentation has chosen, lines and structure together. */
+const chosen = (r: WorkspaceReplacement) => r.fixes.length + (r.changes?.length ?? 0);
 
 /**
  * Why a presentation in a workspace was not written, beyond the refusals the
@@ -354,11 +359,11 @@ export async function stageWorkspaceEdits(
   replacements: readonly WorkspaceReplacement[],
   { now = new Date() }: { now?: Date } = {}
 ): Promise<StagedWorkspaceWrite> {
-  // A presentation with no line left ticked has nothing to write, and must
+  // A presentation with no change left ticked has nothing to write, and must
   // not make the run take the lock: with ProPresenter open, that would refuse
   // a call that was never going to change anything.
   const outcomes: WorkspaceOutcome[] = replacements.map((r) =>
-    r.fixes.length === 0 ? { path: r.path, written: false, reason: "unchanged" } : { path: r.path, written: false }
+    chosen(r) === 0 ? { path: r.path, written: false, reason: "unchanged" } : { path: r.path, written: false }
   );
   const nothing = (backupFolder?: string, backupFailed?: string): StagedWorkspaceWrite => ({
     backupFolder,
@@ -368,7 +373,7 @@ export async function stageWorkspaceEdits(
     commit: async () => undefined,
     abandon: () => undefined,
   });
-  if (replacements.every((r) => r.fixes.length === 0)) return nothing();
+  if (replacements.every((r) => chosen(r) === 0)) return nothing();
 
   await checkWritableWorkspace(workspace);
   if (!(await isOwnPath(workspace.store))) {
@@ -405,7 +410,7 @@ export async function stageWorkspaceEdits(
       throw new LibraryError(`Could not open ${workspace.store}: it is reached through a symlink`);
     }
     for (const [index, replacement] of replacements.entries()) {
-      if (replacement.fixes.length === 0) continue;
+      if (chosen(replacement) === 0) continue;
       try {
         ready.push(prepare(db, index, replacement));
       } catch (e) {
@@ -515,7 +520,7 @@ function prepare(db: Database, index: number, replacement: WorkspaceReplacement)
   if (!row?.snapshot || row.kind !== "Presentation" || Number(row.availability) !== 0) throw new FixError("stale");
   if (hex(row.sha256) !== replacement.sha256) throw new FixError("stale");
   const { root, version } = gate(row);
-  const edit = planWorkspaceEdit(root, replacement.fixes);
+  const edit = planWorkspaceEdit(root, replacement.fixes, replacement.changes);
   return { index, replacement, row, root, version, edit };
 }
 
@@ -547,12 +552,18 @@ function newPeer(version: Map<string, number>): bigint {
   }
 }
 
-/** The container at a path of keys from the document's `root`, or nothing if any step is not a container. */
+/**
+ * The container at a path of keys from the document's `root`, or nothing if
+ * any step is not a container. A tree node is reached by its id, and is its
+ * own map, the one `toJSON()` calls `meta`.
+ */
 function containerAt(doc: LoroDoc, path: readonly LoroKey[]): Container | undefined {
   let at: Container = doc.getMap("root");
   for (const key of path) {
-    const next: unknown =
-      at instanceof LoroMap ? at.get(String(key)) : at instanceof LoroMovableList || at instanceof LoroList ? at.get(Number(key)) : undefined;
+    let next: unknown;
+    if (typeof key === "object") next = at instanceof LoroTree ? at.getNodeByID(key.node as TreeID)?.data : undefined;
+    else if (at instanceof LoroMap) next = at.get(String(key));
+    else if (at instanceof LoroMovableList || at instanceof LoroList) next = at.get(Number(key));
     if (!isContainer(next)) return undefined;
     at = next;
   }
@@ -565,8 +576,14 @@ function containerAt(doc: LoroDoc, path: readonly LoroKey[]): Container | undefi
  * ProPresenter 22.0.1's ProCore library forbids creating one under a key that
  * already holds one (a log message found with `strings`; see "Edit" in
  * docs/propresenter-22-writing.md). Under a new key it is untried, so not done.
+ * Nor is a value set over a container, which would take that container out.
  */
-function editDocument(doc: LoroDoc, boxes: readonly BoxEdit[]): void {
+function editDocument(doc: LoroDoc, { boxes, values }: WorkspaceEdit): void {
+  for (const { path, key, value } of values) {
+    const map = containerAt(doc, path);
+    if (!(map instanceof LoroMap) || isContainer(map.get(key))) throw new FixError("lossy");
+    map.set(key, value);
+  }
   for (const box of boxes) {
     const text = containerAt(doc, box.path);
     if (!(text instanceof LoroMap)) throw new FixError("lossy");
@@ -597,6 +614,34 @@ function checkSnapshot(item: Ready, snapshot: Uint8Array, peer: bigint): Uint8Ar
   }
 }
 
+/**
+ * Make an edit on a copy of a document in memory, as `writeOne` will, and
+ * check the result as it will: for planning, so a document not shaped as
+ * its JSON suggests -- a map that is not a container, a tree that is not a
+ * tree -- is refused before anybody is asked rather than after. Writes
+ * nothing. Throws `FixError` or `AttributeRangeError`.
+ */
+export function rehearseWorkspaceEdit(snapshot: Uint8Array, fixes: readonly LineFix[], changes: readonly StructureChange[]): void {
+  const doc = new LoroDoc();
+  const after = new LoroDoc();
+  try {
+    doc.import(snapshot);
+    const root = (doc.toJSON() as { root?: unknown }).root;
+    const edit = planWorkspaceEdit(root, fixes, changes);
+    const version = doc.version().toJSON();
+    const peer = newPeer(version);
+    doc.setPeerId(peer);
+    editDocument(doc, edit);
+    doc.commit();
+    after.import(doc.export({ mode: "snapshot" }));
+    if (!onlyPeerAdded(version, after.version().toJSON(), String(peer))) throw new FixError("verifyFailed");
+    checkWorkspaceEdit(root, (after.toJSON() as { root?: unknown }).root, edit, fixes);
+  } finally {
+    doc.free();
+    after.free();
+  }
+}
+
 /** Edit one document and replace its row, then read the row back. Returns the new snapshot. */
 function writeOne(db: Database, item: Ready, hooks: WriteHooks | undefined): Uint8Array {
   const doc = new LoroDoc();
@@ -607,8 +652,8 @@ function writeOne(db: Database, item: Ready, hooks: WriteHooks | undefined): Uin
     doc.setPeerId(peer);
     // As ProPresenter's own changes carry one.
     doc.setRecordTimestamp(true);
-    editDocument(doc, item.edit.boxes);
-    doc.commit({ message: "Presenter Garage: slide text" });
+    editDocument(doc, item.edit);
+    doc.commit({ message: "Presenter Garage: slide edits" });
     snapshot = doc.export({ mode: "snapshot" });
   } catch (e) {
     throw failure(e);

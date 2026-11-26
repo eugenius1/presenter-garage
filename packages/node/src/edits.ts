@@ -1,5 +1,6 @@
 /**
- * Editing slide text, in two steps with a person in between.
+ * Editing slides -- their text, and their structure -- in two steps with a
+ * person in between.
  *
  * Planning writes nothing: it works out every change and keeps the plan.
  * Applying takes the plan -- never the edits themselves, so what is applied
@@ -16,6 +17,16 @@
  */
 
 export { applyPlan, type AppliedFile } from "./apply";
-export { planChosenFixes, planSlideEdits, readWithHash, type PlannedLine, type PlanResult, type RequestedEdit } from "./planning";
+export {
+  planChosenFixes,
+  plannedChange,
+  planSlideEdits,
+  readWithHash,
+  type PlannedChange,
+  type PlannedLine,
+  type PlanResult,
+  type RequestedChange,
+  type RequestedEdit,
+} from "./planning";
 export { everyLine, MAX_PLAN_LINES, PlanStore, type Plan, type PlannedFile } from "./plans";
 export { describeStyling } from "./styling";

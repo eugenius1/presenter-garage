@@ -58,6 +58,33 @@ The slides around a change a person is asked to approve, two either side
 they read now. Changes close together share theirs. Context is only read:
 nothing in it can be ticked or written.
 
+## Writing
+
+**Structure** (of a song)
+Everything about it that is not slide text: its groups (name, colour, the
+configured group each is tied to, the slides each holds), the order of its
+slides, its arrangements, and the macros on each slide. Every write reads
+the whole structure back and compares it with what was promised.
+
+**Structural change**
+A change to a song's structure rather than its text, planned and approved
+one tick box to a change, as a line of text is: a group renamed, a macro on
+a slide swapped for a configured one.
+
+**Group rename**
+A group given a new name. A configured group's name brings that group's
+colour; a group tied to a configured group is tied to the new one, or its
+tie cut for a name the configured list does not have. Its uuid stays, so
+every arrangement keeps it where it was.
+
+**Macro swap**
+One macro on a slide replaced by a configured macro: the slide records the
+new macro's uuid and name in place of the old one's.
+
+**Tie** (to a configured group)
+A song's group naming the configured group it came from
+(`application_group_identifier` and `application_group_name`).
+
 ## Sync
 
 **Base**

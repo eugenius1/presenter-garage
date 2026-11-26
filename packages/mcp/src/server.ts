@@ -110,8 +110,9 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
         (options.readOnly
           ? ""
           : editing
-            ? "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
-              "confirm every line before anything is written, and each file is backed up first."
+            ? "Slide text can be edited, a group renamed or a macro on a slide swapped, with plan_slide_edits then " +
+              "apply_slide_edits; the person is asked to confirm every change before anything is written, and each " +
+              "file is backed up first."
             : "Slide text cannot be edited in this library, since it cannot be backed up; the notes say why.") +
         rulesInstruction({ ...options, readOnly: !editing }) +
         ("root" in start && start.notes.length ? ` Important: ${start.notes.join(" ")}` : ""),
@@ -176,7 +177,7 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
       description:
         "Read a presentation's slides: label, arrangement group, the macros each triggers (`name` as the " +
         "slide records it, `uuid`, and `disabled` for one switched off) and the text of every text box, line " +
-        "by line. Names and text are exact; an invisible character such as a non-breaking space is written " +
+        "by line, and every group in stored order with the `groupIndex` a rename names it by. Names and text are exact; an invisible character such as a non-breaking space is written " +
         "as its escape, e.g. `\\u00a0`. Also reports `fidelity` (whether the file would survive being " +
         "written back; always 'lossy' in a ProPresenter 22 workspace, which has no files, though its slide " +
         "text can still be edited with plan_slide_edits) and what the file records about itself: ProPresenter's `lastModified` and `lastUsed` (when it was last " +

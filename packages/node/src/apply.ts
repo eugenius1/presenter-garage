@@ -8,8 +8,8 @@ import { stageWorkspaceEdits, type StagedWorkspaceWrite } from "./workspace-writ
 import { backUpReplacements, backupFailed, openBackupDir, replaceBackedUp, sha256, type Replacement } from "./write";
 
 /**
- * Applying a plan: the only step that writes, and only the lines the person
- * left ticked. See AGENTS.md for the four guards and where each is kept.
+ * Applying a plan: the only step that writes, and only the changes the
+ * person left ticked: lines of text, and structural changes. See AGENTS.md for the four guards and where each is kept.
  */
 
 export interface AppliedFile extends NativeFileOutcome {
@@ -80,6 +80,7 @@ async function applyPlanNow(
   // client can give up while an earlier apply is still writing.
   stopIfCancelled(signal);
   const choose = (file: PlannedFile) => file.lines.filter(({ n }) => ticked.has(n)).map(({ fix }) => fix);
+  const chooseChanges = (file: PlannedFile) => file.changes.filter(({ n }) => ticked.has(n)).map(({ change }) => change);
   let opened: string | undefined;
   const openBackups = async () => (opened ??= await openBackupDir(backupDir, roots));
 
@@ -91,11 +92,12 @@ async function applyPlanNow(
       (file) => file.workspace!.root
     );
     for (const [root, group] of byWorkspace) {
-      const chosen = group.map(choose);
-      const files: AppliedFile[] = group.map((file, i) => ({ path: file.path, name: file.name, lines: chosen[i].length, written: false }));
+      const chosen = group.map((file) => ({ fixes: choose(file), changes: chooseChanges(file) }));
+      const count = ({ fixes, changes }: (typeof chosen)[number]) => fixes.length + changes.length;
+      const files: AppliedFile[] = group.map((file, i) => ({ path: file.path, name: file.name, lines: count(chosen[i]), written: false }));
       inWorkspaces.push(...files);
       // Nothing ticked here: nothing to back up, so no backup folder is needed to say so.
-      if (chosen.every((fixes) => fixes.length === 0)) {
+      if (chosen.every((c) => count(c) === 0)) {
         for (const file of files) file.reason = "unchanged";
         continue;
       }
@@ -106,7 +108,7 @@ async function applyPlanNow(
         workspace,
         roots,
         await openBackups(),
-        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, fixes: chosen[i] }))
+        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, ...chosen[i] }))
       );
       staged.push({ write, files });
     }
@@ -115,7 +117,7 @@ async function applyPlanNow(
     const planned = new Map(onDisk.map((file) => [file.path, file]));
     const originals = new Map<string, Uint8Array>();
     const fixed = await fixFiles(
-      onDisk.map((file) => ({ path: file.path, fixes: choose(file) })),
+      onDisk.map((file) => ({ path: file.path, fixes: choose(file), changes: chooseChanges(file) })),
       {
         read: async (p) => {
           const { bytes } = await readFoundFile(p);

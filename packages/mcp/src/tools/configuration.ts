@@ -8,7 +8,7 @@ import {
 } from "@presenter-garage/core/lib/configuration";
 import { findGroups, findMacros, LibraryError, readLibraryFile } from "@presenter-garage/node/library";
 
-/** ProPresenter's configured groups and macros: `read_configuration`. */
+/** ProPresenter's configured groups and macros: `read_groups_and_macros`. */
 
 export interface Configuration {
   /** The groups a slide can be put in, in ProPresenter's order. */
@@ -65,9 +65,10 @@ export async function readConfiguration(root: string): Promise<Configuration> {
   }
   const unreadable = groups.problem || macros.problem ? { groups: groups.problem, macros: macros.problem } : undefined;
   return {
-    groups: groups.items,
+    // What a writer copies from the lists, kept out of what the model is told.
+    groups: groups.items.map(({ rgba: _rgba, ...group }) => group),
     groupsPath: groups.path,
-    macros: macros.items,
+    macros: macros.items.map(({ collectionRefs: _refs, ...macro }) => macro),
     macrosPath: macros.path,
     ...(unreadable ? { unreadable } : {}),
   };

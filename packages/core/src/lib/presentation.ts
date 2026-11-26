@@ -303,6 +303,8 @@ export interface OrderedSlide {
   /** The raw cue, so a caller can edit it in place. */
   cue: any;
   groupName?: string;
+  /** Its group's position in the stored group order (`cue_groups`); unset for a cue no group names. */
+  groupIndex?: number;
   /** Every macro the slide triggers, in the order of its actions; empty for none. */
   macros: SlideMacro[];
 }
@@ -341,13 +343,13 @@ export function slidesInOrder(doc: RawDoc): OrderedSlide[] {
 
   const ordered: OrderedSlide[] = [];
   const placed = new Set<any>();
-  for (const entry of raw.cue_groups ?? []) {
+  for (const [groupIndex, entry] of (raw.cue_groups ?? []).entries()) {
     const groupName: string | undefined = entry.group?.name || undefined;
     for (const id of entry.cue_identifiers ?? []) {
       const cue = byUuid.get(id?.string);
       if (!cue || placed.has(cue)) continue;
       placed.add(cue);
-      ordered.push({ cue, groupName, macros: macrosOf(cue) });
+      ordered.push({ cue, groupName, groupIndex, macros: macrosOf(cue) });
     }
   }
   for (const cue of cues) if (!placed.has(cue)) ordered.push({ cue, macros: macrosOf(cue) });

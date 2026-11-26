@@ -60,9 +60,10 @@ macros, read ProPresenter's configured groups and macros, run the
 Presentations checks or your team's own rules, read or audit the media bin, read the presentation
 playlists, and preview giving a presentation a theme's look. Names come back
 exactly as stored, with a non-breaking space shown as `\u00a0`, so a group
-named `Couplet 1` with one can be told from the one without. It can also **edit slide text**: ask
-it to fix a typo, reword a line, or add one, and before anything is written your app
-shows you every line as it is and as it would read, with a tick box for each.
+named `Couplet 1` with one can be told from the one without. It can also **edit slides**: ask
+it to fix a typo, reword a line, or add one, rename a group (taking the configured group's colour)
+or swap a macro on a slide for another, and before anything is written your app
+shows you every change as it is and as it would be, with a tick box for each.
 Every file is backed up outside your library first, and the result is read
 back before it is kept. Started with `--read-only` (or the extension's *Read
 only* setting), it never writes a file and does not even offer the tools

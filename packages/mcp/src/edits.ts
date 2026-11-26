@@ -9,8 +9,10 @@ import {
   type AppliedFile,
   type Plan,
   type PlannedFile,
+  type RequestedChange,
 } from "@presenter-garage/node/edits";
 import { CONTEXT_SLIDES, macroNames, slideHeading, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
+import { canonical, colorName, type MacroRef, type StructureChange } from "@presenter-garage/core/lib/structure";
 import { LibraryError } from "@presenter-garage/node/library";
 import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
 import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
@@ -29,7 +31,50 @@ export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter
 const { t } = createI18n("en");
 const refusals = t.tools.presentations.refusals;
 
-/** A confirmation form: one tick box per line, all ticked, each saying what it changes and showing the slides around it. */
+/** Where a structural change is, for its tick box's title. */
+function changeWhere(change: StructureChange): string {
+  if (change.kind === "swapMacro") return [`slide ${change.slideIndex + 1}`, change.groupName].filter(Boolean).join(", ");
+  const slides = change.slides.map((i) => i + 1);
+  const held = slides.length === 0 ? "no slides" : slides.length === 1 ? `slide ${slides[0]}` : `slides ${slides.join(", ")}`;
+  return `group ${change.groupIndex + 1}, ${held}`;
+}
+
+/**
+ * A structural change as it is and as it would be, every part of it that
+ * changes said: a group's name, its colour and the configured group it is
+ * tied to; a macro, and the collection the slide records it in.
+ */
+export function describeChange(change: StructureChange): string {
+  if (change.kind === "swapMacro") {
+    const { before, after } = change;
+    // Names alone where they differ; with uuids where they do not, so nothing written goes unsaid.
+    const sameName = before.name === after.name;
+    const macro = (ref: MacroRef) => (sameName ? `“${ref.name}” (${ref.uuid ?? "no uuid"})` : `“${ref.name}”`);
+    const said = [`Macro swapped: ${macro(before)} → ${macro(after)}.`];
+    if (after.collection && canonical(after.collection) !== canonical(before.collection)) {
+      const sameCollection = before.collection?.name === after.collection.name;
+      const collection = (c: MacroRef["collection"]) => (c ? `“${c.name}”${sameCollection ? ` (${c.uuid ?? "no uuid"})` : ""}` : "none");
+      said.push(`The slide records it in collection ${collection(after.collection)} instead of ${collection(before.collection)}.`);
+    }
+    if (after.actionName !== before.actionName) said.push(`Its action is renamed to match: “${before.actionName}” → “${after.actionName}”.`);
+    return said.join(" ");
+  }
+  const { before, after } = change;
+  const said = [`Group renamed: “${before.name}” → “${after.name}”.`];
+  // Compared exactly, not as shown: a difference too small to show is still written, and still said.
+  if (canonical(before.color) !== canonical(after.color)) {
+    const shown = colorName(before.color) === colorName(after.color) ? " (the same to the eye, set exactly)" : "";
+    said.push(`Colour: ${colorName(before.color)} → ${colorName(after.color)}, as the configured group has it${shown}.`);
+  }
+  if (before.link && !after.link) said.push(`No longer tied to configured group “${before.link.name ?? before.link.uuid}”, which it would no longer be.`);
+  else if (after.link && canonical(after.link) !== canonical(before.link)) {
+    said.push(`Tied to configured group “${after.link.name}” (${after.link.uuid}) instead of “${before.link?.name ?? ""}” (${before.link?.uuid ?? "no uuid"}).`);
+  }
+  said.push("Arrangements name groups by uuid, which does not change, so each keeps the group where it was.");
+  return said.join(" ");
+}
+
+/** A confirmation form: one tick box per change, all ticked, each saying what it changes and showing the slides around it. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
   for (const file of plan.files) {
@@ -58,19 +103,31 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
         default: true,
       };
     }
+    for (const { change, n } of file.changes) {
+      properties[`change${n}`] = {
+        type: "boolean",
+        title: `${n}. ${file.name} (${changeWhere(change)})`,
+        description: describeChange(change) + (around.get(n) ?? ""),
+        default: true,
+      };
+    }
   }
   const count = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+  const lines = plan.files.reduce((sum, f) => sum + f.lines.length, 0);
+  const changes = plan.files.reduce((sum, f) => sum + f.changes.length, 0);
+  const what = [lines && count(lines, "line"), changes && count(changes, "other change")].filter(Boolean).join(" and ");
   const closed = plan.files.some((file) => file.workspace)
     ? "Quit ProPresenter first: while it has the workspace open, nothing is written."
     : "If ProPresenter has one of these open, close it first: ProPresenter may save its own copy over the change.";
   return {
     message:
-      `Change ${count(plan.files.reduce((sum, f) => sum + f.lines.length, 0), "line")} in ${count(plan.files.length, "presentation")}? ` +
-      `Untick any line to leave it as it is. Each presentation is backed up to ${backupDir} before it is changed. ` +
+      `Make ${what} in ${count(plan.files.length, "presentation")}? ` +
+      `Untick any change to leave that as it is. Each presentation is backed up to ${backupDir} before it is changed. ` +
       closed +
       ` Under each change are the ${CONTEXT_SLIDES} slides either side of it as they read now, to read it by: ` +
       "⏎ between lines, ‖ between text boxes, ∅ for a blank line or a slide with no text. " +
-      "Nothing there changes but the line marked ⟦n: …⟧, which change n changes, and ⟦n: added⟧, where change n adds a line. " +
+      "Nothing there changes but the line marked ⟦n: …⟧, which change n changes, and ⟦n: added⟧, where change n adds a line; " +
+      "a group name or macro marked ⟦n: …⟧ is the one change n renames or swaps. " +
       "A > marks a slide holding a change.",
     requestedSchema: { type: "object" as const, properties },
   };
@@ -85,14 +142,19 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
  */
 function contextOf(file: PlannedFile): Map<number, string> {
   const out = new Map<number, string>();
+  const slidesOf = (change: StructureChange) => (change.kind === "renameGroup" ? change.slides : [change.slideIndex]);
+  const everything = [
+    ...file.lines.map(({ n, fix }) => ({ n, slides: [fix.slideIndex] })),
+    ...file.changes.map(({ n, change }) => ({ n, slides: slidesOf(change) })),
+  ].sort((a, b) => a.n - b.n);
   for (const run of runs(file.context ?? [])) {
     const first = run[0].slideIndex;
     const last = run.at(-1)!.slideIndex;
-    const inRun = file.lines.filter(({ fix }) => fix.slideIndex >= first && fix.slideIndex <= last);
+    const inRun = everything.filter(({ slides }) => slides.some((i) => i >= first && i <= last));
     if (inRun.length === 0) continue;
     const span = first === last ? `Slide ${first + 1}` : `Slides ${first + 1}–${last + 1}`;
-    out.set(inRun[0].n, `\n\n${span}:\n${run.map((slide) => slideText(slide, inRun)).join("\n")}`);
-    for (const { n } of inRun.slice(1)) out.set(n, `\n\n${span}: shown under change ${inRun[0].n}.`);
+    out.set(inRun[0].n, `\n\n${span}:\n${run.map((slide) => slideText(slide, file)).join("\n")}`);
+    for (const { n } of inRun.slice(1)) if (!out.has(n)) out.set(n, `\n\n${span}: shown under change ${inRun[0].n}.`);
   }
   return out;
 }
@@ -114,8 +176,8 @@ function runs(slides: readonly ContextSlide[]): ContextSlide[][] {
  * lyrics do not use: French sets its quotes in « », and a line can hold a
  * slash, or read "(blank)".
  */
-function slideText(slide: ContextSlide, changes: PlannedFile["lines"]): string {
-  const here = changes.filter(({ fix }) => fix.slideIndex === slide.slideIndex);
+function slideText(slide: ContextSlide, file: PlannedFile): string {
+  const here = file.lines.filter(({ fix }) => fix.slideIndex === slide.slideIndex);
   const added = (side: "before" | "after", at: PlannedFile["lines"]) =>
     at.filter(({ fix }) => fix.insert === side).map(({ n }) => `⟦${n}: added⟧`);
   const boxes: string[][] = [];
@@ -128,7 +190,18 @@ function slideText(slide: ContextSlide, changes: PlannedFile["lines"]): string {
     const changed = at.find(({ fix }) => !fix.insert);
     boxes.at(-1)!.push(...added("before", at), changed ? `⟦${changed.n}: ${text}⟧` : text, ...added("after", at));
   }
-  const head = slideHeading(slide.slideIndex, slide.groupName ?? "", macroNames(slide.macros), here.length > 0);
+  // A group renamed, or a macro swapped, marked where the heading names it.
+  let group = slide.groupName ?? "";
+  const macros = macroNames(slide.macros);
+  let structural = false;
+  for (const { n, change } of file.changes) {
+    if (change.kind === "renameGroup" && change.slides.includes(slide.slideIndex)) group = `⟦${n}: ${group}⟧`;
+    else if (change.kind === "swapMacro" && change.slideIndex === slide.slideIndex && macros[change.macroIndex] !== undefined) {
+      macros[change.macroIndex] = `⟦${n}: ${macros[change.macroIndex]}⟧`;
+    } else continue;
+    structural = true;
+  }
+  const head = slideHeading(slide.slideIndex, group, macros, here.length > 0 || structural);
   return `${head}: ${boxes.length ? boxes.map((lines) => lines.join(" ⏎ ")).join(" ‖ ") : "∅"}`;
 }
 
@@ -180,18 +253,22 @@ export function registerEditTools(server: McpServer, library: Library): Register
   const plan = server.registerTool(
     "plan_slide_edits",
     {
-      title: "Plan slide text edits",
+      title: "Plan slide edits",
       description:
-        "Work out changes to the text of slides, writing nothing. Each edit names a line by the `path`, " +
+        "Work out changes to slides, writing nothing: their text (`edits`), and their structure -- a group renamed " +
+        "(`renameGroups`), a macro on a slide swapped for another (`swapMacros`). Each text edit names a line by the `path`, " +
         "`boxIndex` and `lineIndex` read_presentation or search_text gave it, and the whole text the line " +
         "should read afterwards, or null to remove the line. Only what differs is touched, so formatting " +
         "elsewhere on the line is kept. With `insert`, the edit adds `text` as a new line after (or before) " +
         "that line instead, leaving it as it is; the new line takes its All Caps, and several added on one " +
         "side of one line read in the order given. Line indexes always name lines as they read now, before " +
-        "any edit. Returns a `planId` and every line as it is and as it would read (an added line with " +
-        "`before` null); a line's `styling` says what the change does to formatting ranges on it " +
-        "(All Caps, say), which the person sees too. " +
-        "If any edit cannot be made, nothing is planned and the error says which. " +
+        "any edit. A group is named by its `groupIndex` in read_presentation's `groups`, and renamed to exactly " +
+        "the name given (a non-breaking space is a different name); a name in ProPresenter's configured groups " +
+        "(read_groups_and_macros) brings that group's colour with it. A macro is named on its slide by name or uuid, " +
+        "and swapped for a configured macro, named the same way. Returns a `planId`, every line as it is and as " +
+        "it would read (an added line with `before` null), and every structural change as it is and as it would " +
+        "be; a line's `styling` says what the change does to formatting ranges on it (All Caps, say), which the " +
+        "person sees too. If any edit cannot be made, nothing is planned and the error says which. " +
         "Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm.",
       inputSchema: {
         edits: z
@@ -210,15 +287,40 @@ export function registerEditTools(server: McpServer, library: Library): Register
                 .describe("Add `text` as a new line on this side of the line, instead of changing the line."),
             })
           )
-          .min(1)
-          .max(MAX_PLAN_LINES),
+          .max(MAX_PLAN_LINES)
+          .optional(),
+        renameGroups: z
+          .array(
+            z.object({
+              path: z.string().describe("The .pro file."),
+              groupIndex: z.number().int().min(0).describe("The group's `groupIndex` in read_presentation's `groups`."),
+              name: z.string().describe("The group's whole new name."),
+            })
+          )
+          .max(MAX_PLAN_LINES)
+          .optional(),
+        swapMacros: z
+          .array(
+            z.object({
+              path: z.string().describe("The .pro file."),
+              slideIndex: z.number().int().min(0),
+              from: z.string().describe("The macro on the slide to replace, by name or uuid."),
+              to: z.string().describe("The configured macro to put in its place, by name or uuid."),
+            })
+          )
+          .max(MAX_PLAN_LINES)
+          .optional(),
       },
       annotations: READ_ONLY,
     },
-    ({ edits }) =>
+    ({ edits = [], renameGroups = [], swapMacros = [] }) =>
       answer(async () => {
         const open = await editable();
-        const planned = await planSlideEdits([open.root], plans, edits);
+        const structural: RequestedChange[] = [
+          ...renameGroups.map((r) => ({ kind: "renameGroup" as const, ...r })),
+          ...swapMacros.map((r) => ({ kind: "swapMacro" as const, ...r })),
+        ];
+        const planned = await planSlideEdits([open.root], plans, edits, structural);
         madeIn.set(planned.planId, open);
         while (madeIn.size > MAX_REMEMBERED_PLANS) madeIn.delete(madeIn.keys().next().value!);
         return planned;
@@ -230,8 +332,8 @@ export function registerEditTools(server: McpServer, library: Library): Register
     {
       title: "Apply planned slide edits",
       description:
-        "Apply a plan from plan_slide_edits, once the person confirms it. Their app shows them every line " +
-        "as it is and as it would read, and they can untick any; only ticked lines are written. Each file is " +
+        "Apply a plan from plan_slide_edits, once the person confirms it. Their app shows them every change " +
+        "as it is and as it would be, and they can untick any; only ticked changes are written. Each file is " +
         "backed up outside the library first, checked, and read back once written; a file that changed " +
         "since the plan was made is left alone. A plan is used once, whatever the answer. Needs an MCP " +
         "client that can ask its user a question (elicitation); with one that cannot, nothing is written.",
@@ -275,7 +377,7 @@ export function registerEditTools(server: McpServer, library: Library): Register
         const ticked = new Set(
           Object.entries(reply.content ?? {})
             .filter(([, value]) => value === true)
-            .map(([key]) => Number(key.replace(/^line/, "")))
+            .map(([key]) => Number(key.replace(/^(line|change)/, "")))
         );
         // Asked again once this apply's turn comes -- another library can have been opened while the person
         // read the lines, or while this waited behind another apply -- and no switch lands while it writes.

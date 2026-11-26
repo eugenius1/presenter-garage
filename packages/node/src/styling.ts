@@ -2,6 +2,7 @@ import type { RawDoc } from "@presenter-garage/core/lib/decode";
 import { FixError, presentationRanges, type LineFix } from "@presenter-garage/core/lib/fixes";
 import type { PresentationDoc } from "@presenter-garage/core/lib/presentation";
 import { AttributeRangeError, type LineStyling } from "@presenter-garage/core/lib/ranges";
+import type { StructureChange } from "@presenter-garage/core/lib/structure";
 import { planWorkspaceEdit } from "@presenter-garage/core/lib/workspace-edit";
 
 /**
@@ -58,14 +59,18 @@ function stylingOf(fixes: readonly LineFix[], styling: readonly LineStyling[], c
  * without a guess, or a document the edit cannot be planned in. A workspace
  * document is planned as itself, a `.pro` file from its decoded message.
  * Each surface says the refusal its own way; both refuse for exactly these.
+ * A workspace document's structural `changes` are planned with its lines,
+ * so a change it cannot take -- one that would need a new container -- is
+ * refused here too, before anybody is asked.
  */
 export function planStyling(
   source: { root: unknown } | { raw: RawDoc; doc: PresentationDoc },
-  fixes: readonly LineFix[]
+  fixes: readonly LineFix[],
+  changes: readonly StructureChange[] = []
 ): { styling?: string[][]; refusal?: AttributeRangeError | FixError } {
   try {
     if ("root" in source) {
-      const edit = planWorkspaceEdit(source.root, fixes);
+      const edit = planWorkspaceEdit(source.root, fixes, changes);
       return { styling: stylingOf(fixes, edit.styling, new Set(edit.boxes.filter((b) => b.cutBack.length > 0).map((b) => b.boxIndex))) };
     }
     const planned = presentationRanges(source.raw, source.doc, fixes);
