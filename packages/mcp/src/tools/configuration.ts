@@ -23,16 +23,16 @@ export interface Configuration {
 
 /** One configured list, or why not. */
 async function readConfigured<T>(
-  roots: readonly string[],
+  root: string,
   find: (roots: readonly string[]) => Promise<string | undefined>,
   missing: string,
   read: (bytes: Uint8Array) => T[]
 ): Promise<{ path?: string; items: T[]; problem?: string }> {
-  const file = await find(roots);
+  const file = await find([root]);
   if (!file) return { items: [], problem: missing };
   try {
-    // Through the roots, as every other read: `Configuration` can be a symlink leading out of them.
-    const { path: real, bytes } = await readLibraryFile(roots, file);
+    // Through the library folder, as every other read: `Configuration` can be a symlink leading out of it.
+    const { path: real, bytes } = await readLibraryFile([root], file);
     return { path: real, items: read(bytes) };
   } catch (e) {
     // protobuf.js says why it could not decode; a LibraryError says why it could not read.
@@ -48,12 +48,12 @@ async function readConfigured<T>(
  * space visible on the wire, which is what tells `Couplet 1` from
  * `Couplet\u00a01`.
  */
-export async function readConfiguration(roots: readonly string[]): Promise<Configuration> {
+export async function readConfiguration(root: string): Promise<Configuration> {
   const [groups, macros] = await Promise.all([
-    readConfigured(roots, findGroups, "No `Configuration/Groups` beside `Libraries`, and no workspace `Groups` document.", (bytes) =>
+    readConfigured(root, findGroups, "No `Configuration/Groups` beside `Libraries`, and no workspace `Groups` document.", (bytes) =>
       readGroups(decodeGroupsDocument(bytes))
     ),
-    readConfigured(roots, findMacros, "No `Configuration/Macros` beside `Libraries`, and no workspace `Macros` document.", (bytes) =>
+    readConfigured(root, findMacros, "No `Configuration/Macros` beside `Libraries`, and no workspace `Macros` document.", (bytes) =>
       readMacros(decodeMacrosDocument(bytes))
     ),
   ]);

@@ -22,8 +22,11 @@ read a ProPresenter 7 library from disk, and edit its slide text. Part of
   in your app before anything is written, and each file is backed up outside
   your library first
 
-It reads nothing outside the folders you give it, and writes outside them only
-the backups it makes before changing a file. Editing needs a
+It reads one library at a time and nothing outside it, and writes outside it
+only the backups it makes before changing a file. It opens another library only
+once you approve the switch in your app (`use_library`), and in a client that
+declares roots, reads the first of them that is itself a ProPresenter folder
+or workspace. Editing needs a
 client that supports MCP elicitation; with one that does not, nothing is
 written. `--read-only` turns editing off entirely, and `--backup-dir=<folder>`
 chooses where backups go.
@@ -35,7 +38,7 @@ claude mcp add presenter-garage -- npx -y presenter-garage-mcp ~/Documents/ProPr
 ```
 
 Any MCP client that starts a local server over stdio takes the same command:
-`npx`, then `-y presenter-garage-mcp` and one or more library folders. With
+`npx`, then `-y presenter-garage-mcp` and one library folder. With
 no folder it reads the workspace ProPresenter 22 has open, or
 `~/Documents/ProPresenter` where there is none. Needs Node 20 or later, and
 Node 22.13 or later to read a ProPresenter 22 workspace. Slide text in a

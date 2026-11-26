@@ -48,10 +48,10 @@ function readThemeStyles(bytes: Uint8Array, source: string): SlideStyle[] {
  * A theme that cannot be read is named with why rather than left out, so an
  * absent theme is never mistaken for one that is not there.
  */
-export async function listThemes(roots: readonly string[]) {
+export async function listThemes(root: string) {
   const themes: { name: string; path: string; styles: { styleIndex: number; name: string; textBoxes: number }[] }[] = [];
   const unreadable: { path: string; reason: string }[] = [];
-  for (const { name, file } of await findThemes(roots)) {
+  for (const { name, file } of await findThemes([root])) {
     try {
       const styles = readThemeStyles((await readFoundFile(file)).bytes, name);
       themes.push({
@@ -75,12 +75,12 @@ export interface StyleSource {
   style?: string | number;
 }
 
-async function loadThemeStyle(roots: readonly string[], theme: string, style: string | number | undefined) {
+async function loadThemeStyle(root: string, theme: string, style: string | number | undefined) {
   const wanted = fold(theme);
-  const named = (await findThemes(roots)).find((t) => fold(t.name) === wanted);
+  const named = (await findThemes([root])).find((t) => fold(t.name) === wanted);
   let bytes: Uint8Array;
   try {
-    ({ bytes } = await readLibraryFile(roots, named?.file ?? theme));
+    ({ bytes } = await readLibraryFile([root], named?.file ?? theme));
   } catch (e) {
     if (named || !(e instanceof LibraryError)) throw e;
     throw new LibraryError(`No theme named "${theme}". \`list_themes\` lists the themes there are.`);
@@ -97,14 +97,14 @@ async function loadThemeStyle(roots: readonly string[], theme: string, style: st
   return found;
 }
 
-async function loadStyle(roots: readonly string[], { theme, fromPresentation, style }: StyleSource): Promise<SlideStyle> {
+async function loadStyle(root: string, { theme, fromPresentation, style }: StyleSource): Promise<SlideStyle> {
   if (!theme === !fromPresentation) throw new LibraryError("Give exactly one of `theme` and `fromPresentation`.");
-  if (theme) return loadThemeStyle(roots, theme, style);
+  if (theme) return loadThemeStyle(root, theme, style);
 
   if (typeof style !== "number") {
     throw new LibraryError("With `fromPresentation`, `style` is the slideIndex of the slide to copy, as read_presentation gives it.");
   }
-  const { bytes } = await readLibraryFile(roots, fromPresentation!);
+  const { bytes } = await readLibraryFile([root], fromPresentation!);
   open(fromPresentation!, bytes);
   try {
     return presentationStyle(bytes, style);
@@ -145,12 +145,12 @@ export interface StylePreview {
  * would be a fifth write path, and AGENTS.md says what one has to keep.
  */
 export async function previewStyle(
-  roots: readonly string[],
+  root: string,
   { path: file, theme, fromPresentation, style, ...options }: StyleSource & StyleOptions & { path: string }
 ): Promise<StylePreview> {
-  const { path: real, bytes, converted } = await readLibraryFile(roots, file);
+  const { path: real, bytes, converted } = await readLibraryFile([root], file);
   const { raw } = open(file, bytes);
-  const slideStyle = await loadStyle(roots, { theme, fromPresentation, style });
+  const slideStyle = await loadStyle(root, { theme, fromPresentation, style });
 
   let plan;
   try {

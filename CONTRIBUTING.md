@@ -672,7 +672,18 @@ Shared analysis lives in `packages/core/src/lib/`, shared interface pieces in
 `packages/mcp/` is the MCP server. It calls `core` and nothing in `core` knows
 it exists. `server.ts` describes and routes the tools; what each one answers
 is in `src/tools/`, one file per group of tools, and what writes is in
-`edits.ts`. Its `vite.config.ts` bundles it into one self-contained file,
+`edits.ts`. It serves one library at a time, held by `Library` in
+`library.ts`: the folder it was started on (or the default), the first of the
+client's roots that is itself a ProPresenter folder or workspace (never a
+folder above one, which no person chose), read again on
+`roots/list_changed`, or one the person approved through `use_library`
+(`library-tools.ts`), asked by elicitation and never on the model's word.
+Each change opens the library afresh -- the notes, and the backup folder
+checked against it -- and every tool waits for a change under way. A plan
+remembers the library it was made in, and `apply_slide_edits` refuses it in
+any other, asked again after the person answers. One library, because a
+song is checked against its own library's groups and macros, and a plan's
+paths and backups belong to one. Its `vite.config.ts` bundles it into one self-contained file,
 `dist/presenter-garage-mcp.mjs`, and that file is the whole npm package: `bin`
 points at it and there are no runtime dependencies, so `npx` starts it with
 nothing to install. npm packs only what is inside the package, so
@@ -694,8 +705,8 @@ extension; `scripts/pack-mcpb.mjs` stamps in the version from the package's
 `package.json` and packs it with the official `mcpb` CLI, which validates the
 manifest, and `npm run check` runs it too. The manifest's tool list is what
 Claude Desktop shows before the server starts, so a test holds it to the tools
-the server registers: add a tool to both or the suite fails. The folders
-arrive as arguments from a required `directory` setting; the `${HOME}` default
+the server registers: add a tool to both or the suite fails. The folder
+arrives as an argument from a required `directory` setting; the `${HOME}` default
 only prefills the form, because Claude Desktop does not expand variables
 inside a default when it builds the command line.
 

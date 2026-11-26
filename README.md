@@ -88,9 +88,16 @@ ProPresenter's own network API can show and trigger slides, and there are MCP
 servers for that, but it cannot read a presentation's file or edit its text.
 This works on the files instead, through the same code as the app.
 
-It reads nothing outside the folders you give it. The usual one is
+It reads one library at a time, and nothing outside it. The usual one is
 `Documents/ProPresenter`, which holds `Libraries` and `Playlists` on both macOS
-and Windows.
+and Windows. The assistant can ask to open another with `use_library`, but
+only you can say yes: your app shows you the library open now and the one
+asked for, and nothing changes unless you approve. A client that cannot ask
+you, such as one without MCP elicitation, cannot switch at all. In a client
+that tells its servers which folders you are working in (its *roots*), the
+first of them that is itself a ProPresenter library (a ProPresenter folder or
+a ProPresenter 22 workspace) is the one read; the others are ignored, and so is
+a folder that only holds one, such as `Documents`.
 
 The folder has moved twice since. **ProPresenter 20** introduced workspaces,
 and one made there is a folder of the same files somewhere else: under
@@ -128,13 +135,12 @@ one click and brings its own Node; there is nothing else to install.
    and open it with Claude Desktop: double-click it, drag it onto the window,
    or install it from **Settings → Extensions**.
 2. Click **Install**, then choose your ProPresenter folder when asked. It
-   suggests `Documents/ProPresenter`; add more than one folder if you keep
-   libraries elsewhere.
+   suggests `Documents/ProPresenter`.
 3. Start a new chat and ask, for example, *"Which songs in my library have
    lines ending in a full stop?"* or *"Find the presentation with the lyric
    'how great thou art'."*
 
-To change the folders, or to make it read-only, find Presenter Garage under
+To change the folder, or to make it read-only, find Presenter Garage under
 **Settings → Extensions**. The extension is unsigned, so Claude Desktop says so when
 installing it.
 
@@ -150,8 +156,8 @@ claude mcp add presenter-garage -- npx -y presenter-garage-mcp ~/Documents/ProPr
 ```
 
 Other clients take the same command and arguments in their MCP settings:
-command `npx`, arguments `-y presenter-garage-mcp` followed by your folders.
-Pass one or more folders; with none, it reads the workspace ProPresenter 22
+command `npx`, arguments `-y presenter-garage-mcp` followed by your folder.
+Pass one folder; with none, it reads the workspace ProPresenter 22
 has open, else `~/Documents/ProPresenter`, else the one workspace ProPresenter
 20 or 21 made elsewhere. Add
 `--read-only` to turn editing off. Reading a ProPresenter 22 workspace needs
@@ -165,8 +171,10 @@ which starts the same `npx` server and offers a **Read only** option:
 /plugin install presenter-garage@presenter-garage
 ```
 
-The plugin reads the folders it finds on its own (see above). To point it at
-others, use `claude mcp add` as shown instead.
+The plugin reads the library it finds on its own (see above), or the folder
+you start Claude Code in when that is a ProPresenter library. To point it at
+another, start Claude Code there, approve the switch when the assistant asks,
+or use `claude mcp add` as shown instead.
 
 To run it from a checkout instead, or to build the extension yourself
 (`npm run mcp:pack` writes it to `packages/mcp/dist/presenter-garage.mcpb`):
