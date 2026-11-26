@@ -7,6 +7,7 @@ import {
   encodeRtfText,
   insertLineEdit,
   lineEdit,
+  lineSplice,
   replaceLineText,
   unicodeSkipAt,
   type InsertSide,
@@ -55,6 +56,8 @@ const TRICKY = [
   rtf("\\cb3 a {\\b bold} word\\par\\pard\\li0\\qc\\fs200\\par\\pard\\cb3 Below"),
   rtf("\\cb3 \\{brace\\} and \\\\ slash\\tab end"),
   rtf("\\cb3 joy \\u-10179 ?\\u-8704 ? here"),
+  // A lone high half straight before a pair, and a lone low half after one.
+  rtf("\\cb3 \\u-10240 ?\\u-10179 ?\\u-8704 ?\\u-10179 ?\\u-8704 ?\\u-9216 ?x"),
   rtf("\\cb3"),
   rtf("\\cb3 one\\line two\\line\\line four"),
 ];
@@ -109,6 +112,54 @@ describe("the \\uc in force", () => {
   });
 });
 
+/** Whether index `i` of `s` falls between the two halves of a surrogate pair. */
+const insidePair = (s: string, i: number) => /[\uD800-\uDBFF]$/.test(s.slice(0, i)) && /^[\uDC00-\uDFFF]/.test(s.slice(i));
+
+describe("the splice a line's change is", () => {
+  it("keeps a pair whole after a lone high half, rather than stepping into it", () => {
+    // The shared tail is the whole pair; stepping back over the lone half
+    // before it put the end between the pair's halves.
+    expect(lineSplice("\uD800😀", "A😀")).toEqual({ start: 0, end: 1, inserted: "A" });
+  });
+
+  it("starts after a lone high half, which is a character of its own", () => {
+    expect(lineSplice("\uD83DA", "\uD83DB")).toEqual({ start: 1, end: 2, inserted: "B" });
+  });
+
+  it("takes a pair whole when only one of its halves changes", () => {
+    expect(lineSplice("😀x", "😁x")).toEqual({ start: 0, end: 2, inserted: "😁" });
+    expect(lineSplice("😀", "🈀")).toEqual({ start: 0, end: 2, inserted: "🈀" });
+  });
+
+  it("takes a pair whole when it is a pair only in the new text", () => {
+    expect(lineSplice("\uD83DA", "😀")).toEqual({ start: 0, end: 2, inserted: "😀" });
+    expect(lineSplice("X\uDE00", "😀")).toEqual({ start: 0, end: 2, inserted: "😀" });
+  });
+
+  it("makes the change and never stops inside a pair, for every short mix of halves", () => {
+    const units = ["a", "\uD83D", "\uDE00", "\uD800", "\uDC00"];
+    const texts = [""];
+    for (let size = 1; size <= 3; size++) {
+      for (const text of texts.filter((t) => t.length === size - 1)) texts.push(...units.map((u) => text + u));
+    }
+    const failures: string[] = [];
+    for (const before of texts) {
+      for (const after of texts) {
+        const { start, end, inserted } = lineSplice(before, after);
+        const afterEnd = start + inserted.length;
+        if (
+          before.slice(0, start) + inserted + before.slice(end) !== after ||
+          insidePair(before, start) || insidePair(after, start) ||
+          insidePair(before, end) || insidePair(after, afterEnd)
+        ) {
+          failures.push(`${JSON.stringify(before)} → ${JSON.stringify(after)}: ${JSON.stringify({ start, end, inserted })}`);
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+});
+
 describe("replacing a line's text", () => {
   it("touches only what differs, so formatting elsewhere on the line stays", () => {
     const source = rtf("\\cb3 a {\\b bold} word");
@@ -149,6 +200,23 @@ describe("replacing a line's text", () => {
   it("refuses text that would not sit on one line", () => {
     const source = rtf("\\cb3 one");
     expect(replaceLineText(source, extractLines(source)[0], "one\ntwo")).toBeNull();
+  });
+
+  it("leaves a pair's escapes alone when only the lone half before it changes", () => {
+    // Under any \uc, and with the pair's halves in different groups, the
+    // edit is the lone half's escape alone: no new escape for half a pair.
+    const cases = [
+      ["{\\rtf1\\ansi\\uc1 \\u-10240 ?\\u-10179 ?\\u-8704 ?}", "{\\rtf1\\ansi\\uc1 A\\u-10179 ?\\u-8704 ?}"],
+      ["{\\rtf1\\ansi\\uc0 \\u-10240 \\u-10179 \\u-8704 }", "{\\rtf1\\ansi\\uc0 A\\u-10179 \\u-8704 }"],
+      ["{\\rtf1\\ansi\\uc2 \\u-10240 ??\\u-10179 ??\\u-8704 ??}", "{\\rtf1\\ansi\\uc2 A\\u-10179 ??\\u-8704 ??}"],
+      ["{\\rtf1\\ansi\\uc2 \\u-10240 ??\\u-10179 ??{\\uc0\\u-8704 }}", "{\\rtf1\\ansi\\uc2 A\\u-10179 ??{\\uc0\\u-8704 }}"],
+    ];
+    for (const [source, written] of cases) {
+      expect(extractLines(source)[0].text).toBe("\uD800😀");
+      const fixed = applyEdits(source, replaceLineText(source, extractLines(source)[0], "A😀")!);
+      expect(fixed).toBe(written);
+      expect(extractLines(fixed)[0].text).toBe("A😀");
+    }
   });
 
   it("keeps an insertion at the edge of a removed line apart from that removal", () => {

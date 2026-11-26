@@ -316,9 +316,15 @@ export function lineSplice(before: string, after: string): { start: number; end:
   }
   // Never stop between the halves of a surrogate pair: an escape stands for
   // one half, and a splice between them would read back as two characters.
-  const high = (s: string, i: number) => (s.charCodeAt(i) & 0xfc00) === 0xd800;
-  if (start > 0 && high(before, start - 1)) start--;
-  if (tail > 0 && high(before, before.length - tail - 1)) tail--;
+  // Each boundary sits in both strings, so it moves when it falls inside a
+  // pair in either -- and only then: a lone half next to it is a character
+  // of its own, and stepping over one can carry the boundary into the pair
+  // beside it. Neither step can land inside another pair, since the unit it
+  // steps over is a high half at the start and a low half at the end.
+  const pairAt = (s: string, i: number) =>
+    i > 0 && (s.charCodeAt(i - 1) & 0xfc00) === 0xd800 && (s.charCodeAt(i) & 0xfc00) === 0xdc00;
+  if (pairAt(before, start) || pairAt(after, start)) start--;
+  if (tail > 0 && (pairAt(before, before.length - tail) || pairAt(after, after.length - tail))) tail--;
   return { start, end: before.length - tail, inserted: after.slice(start, after.length - tail) };
 }
 
