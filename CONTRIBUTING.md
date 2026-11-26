@@ -642,11 +642,13 @@ six:
   marked (`diff.ts`), and writes `report.html` (`report.ts`), one file with
   its data and script inline so it opens from the disk and can be passed on.
   The page builds its elements with `textContent`, never `innerHTML`: its
-  data is lyrics. Every file a command writes goes through `openOut()` in
+  data is lyrics. Every file a command writes goes through `writeOut()` in
   `out-folder.ts`, into the `--out` folder: one that is empty, or one the
-  same command wrote before, which a `.presenter-garage.json` marks; never
-  one inside a library the run reads, nor one holding it; and never over a
-  file it did not write. The writers are in `output.ts`, and each returns
+  same command wrote before, which a `.presenter-garage.json` marks and
+  lists every file of; never one inside a library the run reads, nor one
+  holding it; and never over a file it did not write. Writing again removes
+  only what the marker lists, and stops if anything else is among it. Runs
+  into one folder take turns, since the MCP server runs calls at once. The writers are in `output.ts`, and each returns
   the counts and paths the command prints and the server answers with. When
   it comes to write a library, it is bound by AGENTS.md
   like every other surface: guard 2 from `packages/node`, guard 3 from a

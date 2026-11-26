@@ -202,14 +202,29 @@ describe("the out folder", () => {
     expect(listing(foreign)).toEqual(["notes.txt"]);
   });
 
-  it("is refused when another tool wrote it, and written again by the one that did", async () => {
+  it("is refused when another tool wrote it, and written again by the one that did, keeping what a person added", async () => {
     const out = path.join(tmp, "dump-again");
     expect((await session.call("dump_library", { out })).isError).toBe(false);
     const other = await session.call("check_presentations", { out });
     expect(other.text).toContain("holds what dump wrote");
-    fs.writeFileSync(path.join(out, "songs", "Songs", "Gone.txt"), "a song since removed");
+    fs.writeFileSync(path.join(out, "README.txt"), "beside the results");
     expect((await session.call("dump_library", { out })).isError).toBe(false);
-    expect(listing(out)).not.toContain("songs/Songs/Gone.txt");
+    expect(text(path.join(out, "README.txt"))).toBe("beside the results");
+
+    fs.writeFileSync(path.join(out, "songs", "Songs", "Holy notes.txt"), "among the results");
+    const refused = await session.call("dump_library", { out });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("was not written by dump");
+    expect(text(path.join(out, "songs", "Songs", "Holy notes.txt"))).toBe("among the results");
+    expect(listing(out)).toContain("songs/Songs/Holy.txt");
+  });
+
+  it("is written by one call at a time", async () => {
+    const out = path.join(tmp, "together");
+    const results = await Promise.all([1, 2, 3].map(() => session.call("check_presentations", { out })));
+    expect(results.map((r) => r.isError)).toEqual([false, false, false]);
+    expect(listing(out)).toEqual([MARKER, "check.json", "check.txt"]);
+    expect(JSON.parse(text(path.join(out, MARKER))).files).toEqual(["check.json", "check.txt"]);
   });
 
   it("is refused when it is not an absolute path", async () => {

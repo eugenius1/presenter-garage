@@ -43,6 +43,8 @@ function capture(): Io & { stdout: string; stderr: string } {
 }
 
 const listing = (dir: string) => fs.readdirSync(dir).sort();
+/** Every file and folder under a folder, relative. */
+const tree = (dir: string) => (fs.readdirSync(dir, { recursive: true }) as string[]).map((f) => f.split(path.sep).join("/")).sort();
 
 describe.skipIf(!sqlite)("presenter-garage", () => {
   beforeAll(() => {
@@ -160,16 +162,24 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
     });
 
     it("writes again into its own output, and into nothing else that is not empty", async () => {
-      fs.writeFileSync(path.join(out, "text", "bas", "stale.txt"), "gone");
-      // A link left where the report goes is replaced, not written through.
+      // A file a person put among the results, and a link left where the report goes, are theirs: the run stops and removes nothing.
+      fs.writeFileSync(path.join(out, "text", "bas", "notes.txt"), "mine");
       const elsewhere = path.join(tmp, "elsewhere.txt");
       fs.writeFileSync(elsewhere, "untouched");
       fs.rmSync(path.join(out, "report.html"));
       fs.symlinkSync(elsewhere, path.join(out, "report.html"));
-      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", out, "--json"], capture())).toBe(0);
-      expect(fs.existsSync(path.join(out, "text", "bas", "stale.txt"))).toBe(false);
+      const before = tree(out);
+      const kept = capture();
+      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", out], kept)).toBe(1);
+      expect(kept.stderr).toContain("were not written by compare");
+      expect(tree(out)).toEqual(before);
       expect(fs.readFileSync(elsewhere, "utf8")).toBe("untouched");
+
+      fs.rmSync(path.join(out, "text", "bas", "notes.txt"));
+      fs.rmSync(path.join(out, "report.html"));
+      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", out, "--json"], capture())).toBe(0);
       expect(fs.lstatSync(path.join(out, "report.html")).isFile()).toBe(true);
+      expect(tree(out)).toEqual(before.filter((f) => f !== "text/bas/notes.txt"));
 
       const foreign = path.join(tmp, "foreign");
       fs.mkdirSync(foreign);

@@ -11,8 +11,9 @@ import { isInside, LibraryError } from "../library";
  * to go there. On disk they are only somebody's library again, so a run
  * pointed at the wrong folder must not scatter them through it, or clear it
  * out: a folder is written only when it is empty, or when the same command
- * wrote it before, which the marker file it leaves says. It is never one
- * inside a library the run reads, nor one holding it.
+ * wrote it before, which the marker file it leaves says, and then only what
+ * that marker lists is removed. It is never one inside a library the run
+ * reads, nor one holding it.
  *
  * Not a ProPresenter file, so AGENTS.md's write guards are not what protects
  * it; the libraries stay untouched because nothing here is let near them.
@@ -25,8 +26,8 @@ const FORMAT = "presenter-garage/out";
 export type Command = "sources" | "dump" | "compare" | "check" | "rules-check";
 
 /**
- * What each command writes at the top of its folder, removed before it
- * writes again, so a song that has gone since leaves no file behind.
+ * What each command writes at the top of its folder: the only places it
+ * writes, and the only places the next run clears.
  */
 const GENERATED: Record<Command, readonly string[]> = {
   sources: ["sources.json", "sources.txt"],
@@ -46,12 +47,52 @@ export interface OutFolder {
   mkdir(relative: string): Promise<void>;
 }
 
+/** What the marker says: the command that wrote the folder, and everything it wrote there. */
+interface Marker {
+  command: string;
+  files: Set<string>;
+  folders: Set<string>;
+}
+
+/** The run writing into each folder now, by real path, which the next run there waits for. */
+const busy = new Map<string, Promise<unknown>>();
+
 /**
- * Make `out` ready for `command` to write into, refusing it if it is inside
- * any of `libraries`, or holds one, or is neither empty nor this command's.
+ * Run `write` with `out` ready for `command` to write into, refusing it if it
+ * is inside any of `libraries`, or holds one, or is neither empty nor this
+ * command's, or if what this command wrote there before now holds a file it
+ * did not write.
+ *
+ * Runs into the same folder take turns: two at once would each clear what
+ * the other is writing. Every file and folder the run writes is recorded in
+ * the marker, even when it fails part way, so the next run removes exactly
+ * those and nothing a person put beside them.
  */
-export async function openOut(out: string, command: Command, libraries: readonly string[]): Promise<OutFolder> {
+export async function writeOut<T>(
+  out: string,
+  command: Command,
+  libraries: readonly string[],
+  write: (folder: OutFolder) => Promise<T>
+): Promise<T> {
   const dir = path.resolve(out);
+  const key = await realPath(dir);
+  const before = busy.get(key) ?? Promise.resolve();
+  const run = before.then(() => openAndWrite(dir, command, libraries, write));
+  const settled = run.catch(() => undefined);
+  busy.set(key, settled);
+  try {
+    return await run;
+  } finally {
+    if (busy.get(key) === settled) busy.delete(key);
+  }
+}
+
+async function openAndWrite<T>(
+  dir: string,
+  command: Command,
+  libraries: readonly string[],
+  write: (folder: OutFolder) => Promise<T>
+): Promise<T> {
   // Before anything is made: a folder created inside a library is already a write to it.
   await refuseLibraries(dir, libraries);
   const entries = await fs.readdir(dir).catch((e: NodeJS.ErrnoException) => {
@@ -64,35 +105,118 @@ export async function openOut(out: string, command: Command, libraries: readonly
     await refuseLibraries(dir, libraries);
   } else if (entries.length > 0) {
     const marked = await marker(dir);
-    if (marked !== command) {
+    if (marked?.command !== command) {
       throw new LibraryError(
         marked
-          ? `${dir} holds what ${marked} wrote. Give ${command} a folder of its own: an empty or new one.`
+          ? `${dir} holds what ${marked.command} wrote. Give ${command} a folder of its own: an empty or new one.`
           : `${dir} is not empty and is not a folder this command wrote. Give an empty or new folder.`
       );
     }
-    for (const name of GENERATED[command]) await fs.rm(path.join(dir, name), { recursive: true, force: true });
+    await clear(dir, command, marked);
   }
+  const created = new Date().toISOString();
+  const files = new Set<string>();
+  const folders = new Set<string>();
+  const record = () => mark(dir, { format: FORMAT, version: 1, command, created, files: [...files].sort(), folders: [...folders].sort() });
   // First, so that a run that stops part way leaves a folder the next run knows as its own.
-  await fs.rm(path.join(dir, MARKER), { force: true });
-  await fs.writeFile(path.join(dir, MARKER), `${JSON.stringify({ format: FORMAT, version: 1, command, created: new Date().toISOString() }, null, 2)}\n`, { flag: "wx" });
-  return {
+  await record();
+  const folder: OutFolder = {
     dir,
-    put: (relative, content) => put(dir, relative, content),
-    mkdir: async (relative) => void (await placed(dir, relative, true)),
+    put: async (relative, content) => {
+      const file = await placed(dir, command, relative);
+      return put(file, content, () => files.add(posix(dir, file)));
+    },
+    mkdir: async (relative) => {
+      folders.add(posix(dir, await placed(dir, command, relative, true)));
+    },
   };
+  let result: T;
+  try {
+    result = await write(folder);
+  } catch (e) {
+    await record().catch(() => undefined);
+    throw e;
+  }
+  await record();
+  return result;
 }
 
-/** The command that marked a folder as its own, if one did. */
-async function marker(dir: string): Promise<string | undefined> {
+/**
+ * A path under `dir` as the marker records it: relative, with `/` between
+ * its parts, and composed, as a file system that decomposes names gives
+ * them back otherwise.
+ */
+const posix = (dir: string, file: string) => path.relative(dir, file).split(path.sep).join("/").normalize("NFC");
+
+/** The marker, if a command left one; a link where it should be is somebody else's, whatever it points at. */
+async function marker(dir: string): Promise<Marker | undefined> {
   try {
     const stat = await fs.lstat(path.join(dir, MARKER));
-    // A link where the marker should be is somebody else's, whatever it points at.
     if (!stat.isFile()) return undefined;
-    const parsed = JSON.parse(await fs.readFile(path.join(dir, MARKER), "utf8")) as { format?: unknown; command?: unknown };
-    return parsed.format === FORMAT && typeof parsed.command === "string" ? parsed.command : undefined;
+    const parsed = JSON.parse(await fs.readFile(path.join(dir, MARKER), "utf8")) as { format?: unknown; command?: unknown; files?: unknown; folders?: unknown };
+    if (parsed.format !== FORMAT || typeof parsed.command !== "string") return undefined;
+    const strings = (list: unknown) =>
+      new Set(Array.isArray(list) ? list.filter((s): s is string => typeof s === "string").map((s) => s.normalize("NFC")) : []);
+    return { command: parsed.command, files: strings(parsed.files), folders: strings(parsed.folders) };
   } catch {
     return undefined;
+  }
+}
+
+/** Write the marker whole, never half: written beside it, then moved over it. */
+async function mark(dir: string, content: object): Promise<void> {
+  const next = path.join(dir, `${MARKER}.new`);
+  await fs.rm(next, { force: true });
+  await fs.writeFile(next, `${JSON.stringify(content, null, 2)}\n`, { flag: "wx" });
+  await fs.rename(next, path.join(dir, MARKER));
+}
+
+/**
+ * Remove what `command` wrote before, so a song that has gone since leaves
+ * no file behind. Anything under its names the marker does not list, a file
+ * a person added or one a run that stopped part way could not record, is
+ * refused before a thing is removed.
+ */
+async function clear(dir: string, command: Command, marked: Marker): Promise<void> {
+  const ours = new Set(marked.folders);
+  for (const file of marked.files) {
+    for (let up = path.posix.dirname(file); up !== "."; up = path.posix.dirname(up)) ours.add(up);
+  }
+  const files: string[] = [];
+  const folders: string[] = [];
+  const strangers: string[] = [];
+  const walk = async (relative: string): Promise<void> => {
+    const stat = await fs.lstat(path.join(dir, relative)).catch((e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT") return undefined;
+      throw e;
+    });
+    if (!stat) return;
+    const recorded = relative.normalize("NFC");
+    if (stat.isDirectory()) {
+      for (const name of await fs.readdir(path.join(dir, relative))) await walk(`${relative}/${name}`);
+      // After what is in it, so it is removed once empty.
+      if (ours.has(recorded)) folders.push(relative);
+    } else if (stat.isFile() && marked.files.has(recorded)) {
+      files.push(relative);
+    } else {
+      strangers.push(relative);
+    }
+  };
+  for (const name of GENERATED[command]) await walk(name);
+  if (strangers.length > 0) {
+    const shown = strangers.slice(0, 3).map((s) => path.join(dir, s)).join(", ");
+    const more = strangers.length > 3 ? ` and ${strangers.length - 3} more` : "";
+    throw new LibraryError(
+      `${shown}${more} ${strangers.length === 1 ? "was" : "were"} not written by ${command}, which would remove it to write again. ` +
+        "Move what you want to keep out of the folder, or give an empty or new one."
+    );
+  }
+  for (const file of files) await fs.rm(path.join(dir, file));
+  for (const folder of folders) {
+    await fs.rmdir(path.join(dir, folder)).catch((e: NodeJS.ErrnoException) => {
+      // A folder a person made inside it keeps it.
+      if (e.code !== "ENOTEMPTY" && e.code !== "EEXIST" && e.code !== "ENOENT") throw e;
+    });
   }
 }
 
@@ -130,11 +254,15 @@ async function realPath(p: string): Promise<string> {
 /**
  * Where `relative` is under `dir`, with the folder it goes in made, or the
  * folder itself where it is one: refused if it would land outside `dir`,
- * whether by its name or by a link.
+ * whether by its name or by a link, or anywhere but under one of the names
+ * `command` writes, the only places the next run looks to clear.
  */
-async function placed(dir: string, relative: string, isFolder = false): Promise<string> {
+async function placed(dir: string, command: Command, relative: string, isFolder = false): Promise<string> {
   const file = path.resolve(dir, relative);
   if (!isInside(dir, file) || file === dir) throw new LibraryError(`Refusing to write outside ${dir}: ${relative}`);
+  if (!GENERATED[command].includes(posix(dir, file).split("/")[0])) {
+    throw new LibraryError(`Refusing to write ${relative}: ${command} writes only ${GENERATED[command].join(", ")}`);
+  }
   const parent = isFolder ? file : path.dirname(file);
   const real = await fs.realpath(dir);
   // Asked before the folder is made, so a link in the way has nothing made through it, and again after.
@@ -148,18 +276,22 @@ async function placed(dir: string, relative: string, isFolder = false): Promise<
 }
 
 /**
- * Write a file under `dir`, refusing any path that would land outside it,
- * whether by its name or by a link, and any file already there: what this
- * command wrote before is gone by now, so anything left is somebody else's.
+ * Write a new file, refusing any already there: what this command wrote
+ * before is gone by now, so anything left is somebody else's. `made` is
+ * told once the file is this run's, before a byte is written, so a file
+ * left half written is still known as its own.
  */
-async function put(dir: string, relative: string, content: string): Promise<string> {
-  const file = await placed(dir, relative);
-  try {
-    // `wx` never follows a link left where the file goes, and never replaces a file.
-    await fs.writeFile(file, content, { flag: "wx" });
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new LibraryError(`${file} is already there, and is not this command's to replace.`);
+async function put(file: string, content: string, made: () => void): Promise<string> {
+  // `wx` never follows a link left where the file goes, and never replaces a file.
+  const handle = await fs.open(file, "wx").catch((e: NodeJS.ErrnoException) => {
+    if (e.code === "EEXIST") throw new LibraryError(`${file} is already there, and is not this command's to replace.`);
     throw e;
+  });
+  try {
+    made();
+    await handle.writeFile(content);
+  } finally {
+    await handle.close();
   }
   return file;
 }

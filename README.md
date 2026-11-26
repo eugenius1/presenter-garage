@@ -228,8 +228,9 @@ or the other, and download your picks as `decisions.json`. It also writes
 `dump <source> --out <dir>` writes every song of one library as JSON and text.
 `sources`, `check` and `rules check` take `--out` too, and then write what they
 would print there. `--out` is a new or empty folder, or one the same command
-wrote before, which it marks with a `.presenter-garage.json`; never one inside
-a library.
+wrote before, which it marks with a `.presenter-garage.json` listing every file
+it wrote; never one inside a library. Writing again removes only those files:
+a file you add among them stops the run instead of being deleted.
 
 ProPresenter 22 records no edit dates from before the upgrade, so a workspace
 song nobody has edited since is dated from the `.pro` file it was made from,

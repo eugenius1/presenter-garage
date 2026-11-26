@@ -41,7 +41,7 @@ export const OUT = z
   .string()
   .describe(
     "An absolute folder for the results, outside the library: a new or empty one, or one this tool wrote before " +
-      "(its earlier results are replaced). Anything else is refused."
+      "(its earlier results are replaced, and a file added among them stops the call). Anything else is refused."
   );
 
 /** The folder a model named, as an absolute path. */
