@@ -58,8 +58,8 @@ A source is a folder of .pro files, a ProPresenter 22 workspace folder, or
   bas=private/machines/bas   haut=active
 
 Options:
-  --out <dir>             Where each run makes a new folder for its files, never inside a
-                          library
+  --out <dir>             Where each run makes a new folder for its files, never inside, nor
+                          holding, a library the run reads
   --json                  Print JSON instead of text, for scripts and agents
   --prefer <label>        The main library, kept when nothing else decides (default: haut)
   --legacy <label>=<dir>  The .pro folder a workspace was made from, for edit dates before

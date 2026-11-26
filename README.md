@@ -71,7 +71,7 @@ that would.
 Editing needs a client that can ask you a question mid-task (MCP
 *elicitation*); with one that cannot, no slide is changed. The tools that
 write a whole library to a folder (below) still make their new folder there,
-never inside a library and never over a file. Close a song in
+never inside, nor holding, a library they read, and never over a file. Close a song in
 ProPresenter before editing it: ProPresenter may save its own copy over the
 change. Backups go to `~/Library/Application Support/Presenter
 Garage/Backups` on macOS and `%APPDATA%\Presenter Garage\Backups` on
@@ -137,9 +137,9 @@ given an `out` folder writes every rule break with its line, and
 the rules as loaded. Each answers with counts and the paths it wrote, so the
 lyrics stay on your computer until you ask the assistant to read one. They
 are the command line's files (below), written by the same code: each call
-makes a new folder of its own inside the folder you give, never inside a
-library, and nothing already there is touched. In read-only mode none of them
-writes: `check_presentations` is offered without `out`, answering with its
+makes a new folder of its own inside the folder you give, never inside, nor
+holding, a library the call reads, and nothing already there is touched. In
+read-only mode none of them writes: `check_presentations` is offered without `out`, answering with its
 findings, and the others are not offered at all.
 
 #### Claude Desktop
@@ -236,7 +236,7 @@ or the other, and download your picks as `decisions.json`. It also writes
 `sources`, `check` and `rules check` take `--out` too, and then write what they
 would print there. Each run makes a new folder of its own inside `--out`,
 named for the command and the time (`compare-2026-11-26T10-12-02Z`), and
-prints where; never inside a library. Nothing already in `--out` is replaced
+prints where; never inside, nor holding, a library the run reads. Nothing already in `--out` is replaced
 or removed, so earlier runs, and any a failure stopped part way, stay
 beside the new one until you delete them.
 

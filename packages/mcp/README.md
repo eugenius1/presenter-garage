@@ -51,7 +51,8 @@ Besides the slide text you confirm, it writes only:
 - the results of the tools that write to a folder you name, `out`:
   `find_libraries`, `dump_library`, `compare_libraries`, `check_rules`, and
   `check_presentations` given `out`. Each call makes a new folder of its own
-  inside `out`, never inside a library, and never writes over a file.
+  inside `out`, never inside, nor holding, a library the call reads, and
+  never writes over a file.
 
 Editing slide text and `save_rules` are offered only while the library open
 can be backed up.

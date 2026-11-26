@@ -22,8 +22,8 @@ import { rulesFor } from "./tools/rules";
  * lyrics have no reason to go there, so they stay in the folder until the
  * person asks for one to be read. The files are the ones the command line
  * writes with `--out`, written by the same code in `packages/node`, which
- * makes each call a new folder of its own inside `out`, never inside a
- * library, and never writes over or removes a file.
+ * makes each call a new folder of its own inside `out`, never inside, nor
+ * holding, a library the call reads, and never writes over or removes a file.
  *
  * Offered only when the server may write: Read only means no file at all.
  */
