@@ -260,6 +260,15 @@ describe("use_library", () => {
     await client.close();
   });
 
+  it("tells the model nothing can be written when the library it starts on cannot be backed up", async () => {
+    const { client } = await connect(second, { backupDir: path.join(second, "Backups") });
+    const instructions = client.getInstructions() ?? "";
+    expect(instructions).toContain("Nothing can be written in this library");
+    expect(instructions).not.toContain("plan_slide_edits");
+    expect((await client.listTools()).tools.map((t) => t.name)).not.toContain("plan_slide_edits");
+    await client.close();
+  });
+
   it("is offered by a read-only server too, which reads the library it opens and still writes nothing", async () => {
     const { client, call } = await connect(first, { readOnly: true }, { elicitation: { form: {} } });
     client.setRequestHandler(ElicitRequestSchema, acceptAll);

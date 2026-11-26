@@ -91,6 +91,8 @@ function libraryInstruction(start: OpenLibrary | { problem: string }): string {
  */
 export function createServer(start: OpenLibrary | { problem: string }, options: ServerOptions = {}): McpServer {
   const library = new Library(start, options);
+  // The editing tools are offered only while the library open can be backed up, so the instructions say so too.
+  const editing = !options.readOnly && "root" in start && start.backupDir !== undefined;
   const server = new McpServer(
     { name: "presenter-garage", version },
     {
@@ -98,9 +100,11 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
         libraryInstruction(start) +
         (options.readOnly
           ? "Nothing is written."
-          : "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
-            "confirm every line before anything is written, and each file is backed up first.") +
-        rulesInstruction(options) +
+          : editing
+            ? "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
+              "confirm every line before anything is written, and each file is backed up first."
+            : "Nothing can be written in this library, since it cannot be backed up; the notes say why.") +
+        rulesInstruction({ ...options, readOnly: !editing }) +
         ("root" in start && start.notes.length ? ` Important: ${start.notes.join(" ")}` : ""),
     }
   );

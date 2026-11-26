@@ -45,7 +45,8 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
         const dir = given.startsWith("file:") ? fileURLToPath(given) : given;
         if (!path.isAbsolute(dir)) throw new LibraryError(`Give the library's absolute path, not ${given}.`);
         const [root] = await openRoots([dir]);
-        const current = library.peek();
+        // Once any change under way is made, so the person is shown the library they are really leaving.
+        const current = await library.get().catch(() => undefined);
         if (current?.root === root) return { answer: "accept", unchanged: true, library: await library.describe() };
 
         if (!server.server.getClientCapabilities()?.elicitation?.form) {
@@ -62,8 +63,8 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
           reply = await server.server.elicitInput(
             {
               message:
-                `Open ${root} in place of ${current?.root ?? "no library"}? Presenter Garage would then read` +
-                `${current?.backupDir ? " and edit" : ""} only that library.${doubt}`,
+                `Open ${root} in place of ${current?.root ?? "no library"}? Presenter Garage would then work ` +
+                `in that library alone.${doubt}`,
               requestedSchema: { type: "object", properties: {} },
             },
             { timeout: CONFIRM_TIMEOUT_MS, signal }

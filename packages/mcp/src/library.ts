@@ -90,7 +90,9 @@ export async function openLibrary(dir: string, source: LibrarySource, options: L
  */
 export async function isProPresenterLibrary(dir: string): Promise<boolean> {
   if (!(await isFolder(dir))) return false;
-  if (await workspaceAt(await fs.realpath(dir))) return true;
+  const real = await fs.realpath(dir).catch(() => undefined);
+  if (!real) return false;
+  if (await workspaceAt(real)) return true;
   if (path.basename(path.dirname(path.resolve(dir))) === "Libraries") return true;
   for (const folder of [dir, path.join(dir, "ProPresenter")]) {
     for (const name of ["Libraries", "Playlists", "Configuration"]) {
@@ -147,7 +149,7 @@ export class Library {
     return this.current;
   }
 
-  /** The library open now, without waiting: for saying which one a person is asked to switch from. */
+  /** The library open now, without waiting for a change under way. */
   peek(): OpenLibrary | undefined {
     return this.current;
   }
