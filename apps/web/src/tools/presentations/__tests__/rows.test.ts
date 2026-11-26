@@ -4,18 +4,12 @@ import { decodePresentation, encodePresentation, type TextIssueKind } from "@pre
 import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { reviewRuns, rowsFor, type ReviewSlide, type Row } from "../rows";
 
-/**
+/*
  * Slides of the synthetic song, by index: 0 Clean, 1 Leading, 2 Trailing,
  * 3 Gap, 4 Doubled, 5 Empty, 6 Comma, 7 Punctuation (a full stop on its
- * second line). Each kind of finding sits on one slide.
+ * second line). Each kind of finding sits on one slide: a leading space on
+ * 1, a trailing space on 2, the blank line on 3, a double space on 4.
  */
-const SLIDE_OF: Partial<Record<TextIssueKind, number>> = {
-  leadingSpace: 1,
-  trailingSpace: 2,
-  blankLine: 3,
-  repeatedSpace: 4,
-  trailingFullStop: 7,
-};
 
 function review(bytes: Uint8Array, kinds: TextIssueKind[]) {
   const one = examine("Song.pro", bytes);
@@ -36,7 +30,6 @@ const shown = (runs: ReviewSlide[][]): Row[] =>
 describe("reviewRuns", () => {
   it("shows a row in the middle with two slides either side, the row in place of its line", () => {
     const { runs, stray } = review(song, ["blankLine"]);
-    expect(SLIDE_OF.blankLine).toBe(3);
     expect(runs.map(shape)).toEqual([
       [
         [1, ["Fine here", " leading space"]],

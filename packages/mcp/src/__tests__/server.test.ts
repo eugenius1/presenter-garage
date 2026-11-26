@@ -1032,30 +1032,30 @@ describe("editing slide text", () => {
       expect(around(requestedSchema.properties.line1)).toBe(
         [
           "Slides 2–6:",
-          "  2 [Verse]: Fine here /  leading space",
-          "  3 [Chorus]: trailing space  / Fine",
-          "> 4 [Chorus]: «1: Above» / (blank) / Below",
+          "  2 [Verse]: Fine here ⏎  leading space",
+          "  3 [Chorus]: trailing space  ⏎ Fine",
+          "> 4 [Chorus]: ⟦1: Above⟧ ⏎ ∅ ⏎ Below",
           "  5 [Chorus]: two  spaces here",
-          "  6 [Chorus]: (no text)",
+          "  6 [Chorus]: ∅",
         ].join("\n")
       );
-      expect(message).toMatch(/slides 2 either side of it as they read now/);
+      expect(message).toMatch(/the 2 slides either side of it as they read now/);
     });
 
     it("fewer at the start and at the end", async () => {
       const start = await formFor([{ boxIndex: 0, lineIndex: 1, text: "And one more" }]);
       expect(around(start.requestedSchema.properties.line1).split("\n")).toEqual([
         "Slides 1–3:",
-        "> 1 [Verse]: A tidy line / «1: And another»",
-        "  2 [Verse]: Fine here /  leading space",
-        "  3 [Chorus]: trailing space  / Fine",
+        "> 1 [Verse]: A tidy line ⏎ ⟦1: And another⟧",
+        "  2 [Verse]: Fine here ⏎  leading space",
+        "  3 [Chorus]: trailing space  ⏎ Fine",
       ]);
       const end = await formFor([{ boxIndex: 7, lineIndex: 3, text: "Gloire!", insert: "after" }]);
       expect(around(end.requestedSchema.properties.line1).split("\n")).toEqual([
         "Slides 6–8:",
-        "  6 [Chorus]: (no text)",
-        "  7 [Chorus]: Que ton nom, / pour toujours , / sois glorifie",
-        "> 8 [Chorus]: Tu es saint; / je te loue. / et je chanterai… / Gloire... / «1: added»",
+        "  6 [Chorus]: ∅",
+        "  7 [Chorus]: Que ton nom, ⏎ pour toujours , ⏎ sois glorifie",
+        "> 8 [Chorus]: Tu es saint; ⏎ je te loue. ⏎ et je chanterai… ⏎ Gloire... ⏎ ⟦1: added⟧",
       ]);
     });
 
@@ -1065,7 +1065,19 @@ describe("editing slide text", () => {
       raw.cue_groups = [{ ...raw.cue_groups[0], cue_identifiers: raw.cue_groups[0].cue_identifiers.slice(0, 1) }];
       fs.writeFileSync(file, encodePresentation(raw));
       const { requestedSchema } = await formFor([{ boxIndex: 0, lineIndex: 0, text: "Before", insert: "before" }]);
-      expect(around(requestedSchema.properties.line1)).toBe("Slide 1:\n> 1 [Verse]: «1: added» / A tidy line / And another");
+      expect(around(requestedSchema.properties.line1)).toBe("Slide 1:\n> 1 [Verse]: ⟦1: added⟧ ⏎ A tidy line ⏎ And another");
+    });
+
+    it("tells one text box from the next on a slide", async () => {
+      const raw = decodePresentation(syntheticTextPresentation("Song")) as any;
+      const elements = (cue: any) => cue.actions[0].slide.presentation.base_slide.elements;
+      elements(raw.cues[0]).push(structuredClone(elements(raw.cues[1])[0]));
+      fs.writeFileSync(file, encodePresentation(raw));
+      const { requestedSchema } = await formFor([{ boxIndex: 1, lineIndex: 0, text: "Fine" }]);
+      expect(around(requestedSchema.properties.line1).split("\n").slice(0, 2)).toEqual([
+        "Slides 1–3:",
+        "> 1 [Verse]: A tidy line ⏎ And another ‖ ⟦1: Fine here⟧ ⏎  leading space",
+      ]);
     });
 
     it("changes close together share their slides, shown once; changes far apart each get their own", async () => {
@@ -1080,18 +1092,18 @@ describe("editing slide text", () => {
       // too far from them to meet (their runs end at 4 and start at 6).
       expect(around(line1).split("\n")).toEqual([
         "Slides 1–4:",
-        "> 1 [Verse]: «1: A tidy line» / «2: And another»",
-        "> 2 [Verse]: Fine here / «3:  leading space»",
-        "  3 [Chorus]: trailing space  / Fine",
-        "  4 [Chorus]: Above / (blank) / Below",
+        "> 1 [Verse]: ⟦1: A tidy line⟧ ⏎ ⟦2: And another⟧",
+        "> 2 [Verse]: Fine here ⏎ ⟦3:  leading space⟧",
+        "  3 [Chorus]: trailing space  ⏎ Fine",
+        "  4 [Chorus]: Above ⏎ ∅ ⏎ Below",
       ]);
       expect(around(line2)).toBe("Slides 1–4: shown under change 1.");
       expect(around(line3)).toBe("Slides 1–4: shown under change 1.");
       expect(around(line4).split("\n")).toEqual([
         "Slides 6–8:",
-        "  6 [Chorus]: (no text)",
-        "  7 [Chorus]: Que ton nom, / pour toujours , / sois glorifie",
-        "> 8 [Chorus]: «4: Tu es saint;» / je te loue. / et je chanterai… / Gloire...",
+        "  6 [Chorus]: ∅",
+        "  7 [Chorus]: Que ton nom, ⏎ pour toujours , ⏎ sois glorifie",
+        "> 8 [Chorus]: ⟦4: Tu es saint;⟧ ⏎ je te loue. ⏎ et je chanterai… ⏎ Gloire...",
       ]);
     });
 
@@ -1100,10 +1112,10 @@ describe("editing slide text", () => {
       const { requestedSchema } = await formFor([{ boxIndex: 1, lineIndex: 1, text: "leading space" }]);
       expect(around(requestedSchema.properties.line1).split("\n")).toEqual([
         "Slides 1–4:",
-        "  1 [Couplet⍽1] (Bienvenue): A tidy line / And another",
-        "> 2 [Couplet⍽1] (Louange): Fine here / «1:  leading space»",
-        "  3 [Chorus] (Louange): trailing space  / Fine",
-        "  4 [Chorus] (Louange; Lumières, off): Above / (blank) / Below",
+        "  1 [Couplet⍽1] (Bienvenue): A tidy line ⏎ And another",
+        "> 2 [Couplet⍽1] (Louange): Fine here ⏎ ⟦1:  leading space⟧",
+        "  3 [Chorus] (Louange): trailing space  ⏎ Fine",
+        "  4 [Chorus] (Louange, Lumières (off)): Above ⏎ ∅ ⏎ Below",
       ]);
     });
 

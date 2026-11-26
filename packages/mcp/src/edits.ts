@@ -10,7 +10,7 @@ import {
   type Plan,
   type PlannedFile,
 } from "@presenter-garage/node/edits";
-import { CONTEXT_SLIDES, shownGroupName, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
+import { CONTEXT_SLIDES, macroNames, slideHeading, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
 import { LibraryError } from "@presenter-garage/node/library";
 import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
 import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
@@ -68,8 +68,9 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
       `Change ${count(plan.files.reduce((sum, f) => sum + f.lines.length, 0), "line")} in ${count(plan.files.length, "presentation")}? ` +
       `Untick any line to leave it as it is. Each presentation is backed up to ${backupDir} before it is changed. ` +
       closed +
-      ` Under each change are the slides ${CONTEXT_SLIDES} either side of it as they read now, to read it by; ` +
-      "nothing there changes but the lines marked «n: …» for change n, and «n: added» where line n is added. " +
+      ` Under each change are the ${CONTEXT_SLIDES} slides either side of it as they read now, to read it by: ` +
+      "⏎ between lines, ‖ between text boxes, ∅ for a blank line or a slide with no text. " +
+      "Nothing there changes but the line marked ⟦n: …⟧, which change n changes, and ⟦n: added⟧, where change n adds a line. " +
       "A > marks a slide holding a change.",
     requestedSchema: { type: "object" as const, properties },
   };
@@ -107,21 +108,28 @@ function runs(slides: readonly ContextSlide[]): ContextSlide[][] {
   return out;
 }
 
-/** One slide on one line: number, group and macros, then its lines, each change on it marked where it falls. */
+/**
+ * One slide on one line: number, group and macros, then its lines, each
+ * change on it marked where it falls. The marks and separators are ones
+ * lyrics do not use: French sets its quotes in « », and a line can hold a
+ * slash, or read "(blank)".
+ */
 function slideText(slide: ContextSlide, changes: PlannedFile["lines"]): string {
   const here = changes.filter(({ fix }) => fix.slideIndex === slide.slideIndex);
-  const macros = slide.macros.length ? ` (${slide.macros.map((m) => (m.enabled ? m.name : `${m.name}, off`)).join("; ")})` : "";
-  const texts: string[] = [];
+  const added = (side: "before" | "after", at: PlannedFile["lines"]) =>
+    at.filter(({ fix }) => fix.insert === side).map(({ n }) => `⟦${n}: added⟧`);
+  const boxes: string[][] = [];
+  let box: number | undefined;
   for (const line of slide.lines) {
+    if (line.boxIndex !== box) boxes.push([]);
+    box = line.boxIndex;
     const at = here.filter(({ fix }) => fix.boxIndex === line.boxIndex && fix.lineIndex === line.lineIndex);
-    const text = line.text === "" ? "(blank)" : line.text;
-    texts.push(...at.filter(({ fix }) => fix.insert === "before").map(({ n }) => `«${n}: added»`));
+    const text = line.text === "" ? "∅" : line.text;
     const changed = at.find(({ fix }) => !fix.insert);
-    texts.push(changed ? `«${changed.n}: ${text}»` : text);
-    texts.push(...at.filter(({ fix }) => fix.insert === "after").map(({ n }) => `«${n}: added»`));
+    boxes.at(-1)!.push(...added("before", at), changed ? `⟦${changed.n}: ${text}⟧` : text, ...added("after", at));
   }
-  const head = `${here.length ? ">" : " "} ${slide.slideIndex + 1} [${shownGroupName(slide.groupName ?? "")}]${macros}`;
-  return `${head}: ${texts.length ? texts.join(" / ") : "(no text)"}`;
+  const head = slideHeading(slide.slideIndex, slide.groupName ?? "", macroNames(slide.macros), here.length > 0);
+  return `${head}: ${boxes.length ? boxes.map((lines) => lines.join(" ⏎ ")).join(" ‖ ") : "∅"}`;
 }
 
 export interface ApplyResult {

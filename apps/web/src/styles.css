@@ -639,13 +639,14 @@ select.mini { max-width: 9em; }
 .context-run { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }
 .context-slide { border-left: 2px solid var(--border); padding-left: 10px; }
 .context-slide.holds-row { border-left-color: var(--accent-ui); }
-.context-head { font-size: 11px; color: var(--text-faint); }
+.context-head { font-size: 11px; color: var(--text-dim); }
 .rows li.context-line {
   font-size: 12px; color: var(--text-dim); white-space: pre-wrap;
   padding: 1px 0; border-top: none;
 }
 .rows li.context-line.empty { font-style: italic; }
-.rows li.finding-row { border-top: none; }
+/* A row's dashed rule only between two rows, not against the lines it sits among. */
+.rows li.context-line + li.finding-row { border-top: none; }
 
 /* Scoped to .rows to outrank `.rows .path`, which sets the dim colour these
    lines would otherwise inherit -- specificity beats intent. */

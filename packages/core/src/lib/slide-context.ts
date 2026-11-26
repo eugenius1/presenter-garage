@@ -17,6 +17,17 @@ export const CONTEXT_SLIDES = 2;
 /** A group name as it is drawn in plain text: a non-breaking space shown, since ProPresenter tells it from a space. */
 export const shownGroupName = (name: string) => name.replace(/\u00a0/g, "⍽");
 
+/** A slide's macros by name, as plain text shows them: one switched off on the slide marked `(off)`. */
+export const macroNames = (macros: readonly SlideMacro[]) => macros.map((m) => (m.enabled ? m.name : `${m.name} (off)`));
+
+/**
+ * A slide's heading in plain text, as the command line and the MCP server's
+ * confirmation both draw it: `>` where it holds what is shown around it,
+ * then its number, group and macros.
+ */
+export const slideHeading = (slideIndex: number, groupName: string, macros: readonly string[], marked: boolean) =>
+  `${marked ? ">" : " "} ${slideIndex + 1} [${shownGroupName(groupName)}]${macros.length ? ` (${macros.join(", ")})` : ""}`;
+
 /** One line a slide shows, by the address a change to it would name. */
 export interface ContextLine {
   boxIndex: number;
