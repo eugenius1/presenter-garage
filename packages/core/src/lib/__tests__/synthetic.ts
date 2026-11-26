@@ -536,3 +536,8 @@ export function withAttributes(bytes: Uint8Array, byBox: Record<number, object[]
   }
   return encodePresentation(doc);
 }
+
+/** Whether index `i` of `s` falls between the two halves of a surrogate pair. */
+export function insidePair(s: string, i: number): boolean {
+  return /[\uD800-\uDBFF]$/.test(s.slice(0, i)) && /^[\uDC00-\uDFFF]/.test(s.slice(i));
+}

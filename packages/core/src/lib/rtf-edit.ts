@@ -304,8 +304,22 @@ function insertionPoint(rtf: string, line: RtfLine, at: number): number {
  * ProPresenter 22 box are moved through the same splice the text is.
  */
 export function lineSplice(before: string, after: string): { start: number; end: number; inserted: string } {
+  // Never stop between the halves of a surrogate pair. Each half is its own
+  // escape, so the RTF would still read back, but the attribute ranges are
+  // moved through this same splice, and a range ending at such a boundary
+  // would cover half a character. Each boundary sits in both strings, so it
+  // moves when it falls inside a pair in either -- and only then: a lone half
+  // next to it is a character of its own, and stepping over one can carry the
+  // boundary into the pair beside it. Neither step can land inside another
+  // pair, since the unit it steps over is in both strings, a high half at the
+  // start and a low half at the end.
+  const pairAt = (s: string, i: number) =>
+    i > 0 && (s.charCodeAt(i - 1) & 0xfc00) === 0xd800 && (s.charCodeAt(i) & 0xfc00) === 0xdc00;
   let start = 0;
   while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  // Before the tail is trimmed, so that the tail can take the whole of what
+  // the two share at the end: "a😀b" to "a😁😀b" adds just the "😁".
+  if (pairAt(before, start) || pairAt(after, start)) start--;
   let tail = 0;
   while (
     tail < before.length - start &&
@@ -314,11 +328,7 @@ export function lineSplice(before: string, after: string): { start: number; end:
   ) {
     tail++;
   }
-  // Never stop between the halves of a surrogate pair: an escape stands for
-  // one half, and a splice between them would read back as two characters.
-  const high = (s: string, i: number) => (s.charCodeAt(i) & 0xfc00) === 0xd800;
-  if (start > 0 && high(before, start - 1)) start--;
-  if (tail > 0 && high(before, before.length - tail - 1)) tail--;
+  if (tail > 0 && (pairAt(before, before.length - tail) || pairAt(after, after.length - tail))) tail--;
   return { start, end: before.length - tail, inserted: after.slice(start, after.length - tail) };
 }
 
@@ -334,8 +344,7 @@ export function lineSplice(before: string, after: string): { start: number; end:
  *
  * Null for text with a line break or a control character in it, and for a
  * payload that is not an RTF document, which has nowhere to put new text. The
- * common-ends trim never stops inside a surrogate pair, since a splice
- * between its two escapes would read back as two characters.
+ * common-ends trim never stops inside a surrogate pair; see {@link lineSplice}.
  *
  * Each edit is right on its own; whether a set of them reads back as asked
  * once composed -- a removed line's break meeting new text on the next, say --

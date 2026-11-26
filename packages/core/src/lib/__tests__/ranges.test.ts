@@ -4,7 +4,7 @@ import { decodePresentation, openPresentation, readPresentation, textBoxRanges, 
 import type { LineFix } from "../fixes";
 import { AttributeRangeError, rangesAfter, type Range } from "../ranges";
 import { hasRealLibrary, libraryFiles, readLibraryFile } from "./corpus";
-import { capsByLine, syntheticTextPresentation, textLines, withAttributes } from "./synthetic";
+import { capsByLine, insidePair, syntheticTextPresentation, textLines, withAttributes } from "./synthetic";
 
 /**
  * A `.pro` file's attribute ranges moving with its text. ProPresenter
@@ -237,6 +237,45 @@ describe("what each line shows, whichever of the others is chosen", () => {
     expect(() => rangesAfter(box, fixes, [{ start: 1, end: 2, ...CAPS }])).toThrow(new AttributeRangeError(0, "dependsOnChoice", 0));
     // As the person would have left it, it was refused at apply.
     expect(() => rangesAfter(box, [fixes[1], fixes[2]], [{ start: 1, end: 2, ...CAPS }])).toThrow(AttributeRangeError);
+  });
+
+  it("never moves a range's end between the halves of a pair", () => {
+    // A pair only in the new text: a splice that stopped inside it moved a
+    // range over the replaced "X" onto the new character's high half alone.
+    const box = { boxIndex: 0, lines: [{ text: "X\uDE00" }] };
+    expect(() => rangesAfter(box, [fix(0, "😀")], [{ start: 0, end: 1, ...CAPS }])).toThrow(new AttributeRangeError(0, "replacedAcrossEdge", 0));
+    // A lone high half before a pair: a range over the lone half goes to the
+    // character replacing it, one over the whole line stays the whole line.
+    const lone = { boxIndex: 0, lines: [{ text: "\uD800😀" }] };
+    expect(rangesAfter(lone, [fix(0, "A😀")], [{ start: 0, end: 1, ...CAPS }]).moved).toEqual([{ start: 0, end: 1 }]);
+    expect(rangesAfter(lone, [fix(0, "A😀")], [{ start: 0, end: 3, ...CAPS }]).moved).toEqual([{ start: 0, end: 3 }]);
+
+    // Over the old "😀" alone, the new one is typed at its edge: refused, as for any character.
+    const shared = { boxIndex: 0, lines: [{ text: "a😀b" }] };
+    expect(() => rangesAfter(shared, [fix(0, "a😁😀b")], [{ start: 1, end: 3, ...CAPS }])).toThrow(new AttributeRangeError(0, "typedAtEdge", 0));
+
+    let kept = 0;
+    const changes = [["\uD800😀", "A😀"], ["\uD83DA", "\uD83DB"], ["X\uDE00", "😀"], ["\uD83DA", "😀"], ["😀x", "😁x"], ["a😀b", "a😁😀b"]];
+    for (const [before, after] of changes) {
+      for (let start = 0; start < before.length; start++) {
+        for (let end = start + 1; end <= before.length; end++) {
+          // A range that already ends inside a pair is no range ProPresenter writes.
+          if (insidePair(before, start) || insidePair(before, end)) continue;
+          let moved: { start: number; end: number }[];
+          try {
+            ({ moved } = rangesAfter({ boxIndex: 0, lines: [{ text: before }] }, [fix(0, after)], [{ start, end, ...CAPS }]));
+          } catch (error) {
+            expect(error).toBeInstanceOf(AttributeRangeError);
+            continue;
+          }
+          const where = `${JSON.stringify(before)} → ${JSON.stringify(after)}, [${start}, ${end})`;
+          expect(insidePair(after, moved[0].start) || insidePair(after, moved[0].end), where).toBe(false);
+          kept++;
+        }
+      }
+    }
+    // Not refused wholesale: most of these ranges have one right place to go.
+    expect(kept).toBeGreaterThan(10);
   });
 
   it("plans changes on lines far apart in a box with a range over all of it", () => {
