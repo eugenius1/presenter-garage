@@ -57,7 +57,7 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
         }
         const doubt = (await isProPresenterLibrary(root))
           ? ""
-          : " It does not look like a ProPresenter library: it holds no Libraries, Playlists or Configuration folder.";
+          : " It does not look like a ProPresenter library: it is no ProPresenter 22 workspace and holds no Libraries or Playlists folder.";
         let reply;
         try {
           reply = await server.server.elicitInput(

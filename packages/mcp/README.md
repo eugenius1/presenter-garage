@@ -25,7 +25,8 @@ read a ProPresenter 7 library from disk, and edit its slide text. Part of
 It reads one library at a time and nothing outside it, and writes outside it
 only the backups it makes before changing a file. It opens another library only
 once you approve the switch in your app (`use_library`), and in a client that
-declares roots, reads the first of them that is a ProPresenter library. Editing needs a
+declares roots, reads the first of them that is itself a ProPresenter folder
+or workspace. Editing needs a
 client that supports MCP elicitation; with one that does not, nothing is
 written. `--read-only` turns editing off entirely, and `--backup-dir=<folder>`
 chooses where backups go.

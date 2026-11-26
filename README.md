@@ -95,8 +95,9 @@ only you can say yes: your app shows you the library open now and the one
 asked for, and nothing changes unless you approve. A client that cannot ask
 you, such as one without MCP elicitation, cannot switch at all. In a client
 that tells its servers which folders you are working in (its *roots*), the
-first of them that is a ProPresenter library is the one read; the others are
-ignored.
+first of them that is itself a ProPresenter library (a ProPresenter folder or
+a ProPresenter 22 workspace) is the one read; the others are ignored, and so is
+a folder that only holds one, such as `Documents`.
 
 The folder has moved twice since. **ProPresenter 20** introduced workspaces,
 and one made there is a folder of the same files somewhere else: under

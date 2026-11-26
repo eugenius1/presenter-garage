@@ -674,7 +674,8 @@ it exists. `server.ts` describes and routes the tools; what each one answers
 is in `src/tools/`, one file per group of tools, and what writes is in
 `edits.ts`. It serves one library at a time, held by `Library` in
 `library.ts`: the folder it was started on (or the default), the first of the
-client's roots that is a ProPresenter library, read again on
+client's roots that is itself a ProPresenter folder or workspace (never a
+folder above one, which no person chose), read again on
 `roots/list_changed`, or one the person approved through `use_library`
 (`library-tools.ts`), asked by elicitation and never on the model's word.
 Each change opens the library afresh -- the notes, and the backup folder

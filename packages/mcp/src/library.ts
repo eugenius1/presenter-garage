@@ -82,24 +82,30 @@ export async function openLibrary(dir: string, source: LibrarySource, options: L
 }
 
 /**
- * Whether a folder is a ProPresenter library, for choosing among the
- * client's roots, which are usually the folders a person is working in
- * rather than ProPresenter's: a workspace, a ProPresenter folder (holding
- * `Libraries`, `Playlists` or `Configuration`), the folder above one, or one
- * library inside `Libraries`.
+ * Whether a folder is itself a ProPresenter library: a ProPresenter 22
+ * workspace, or a ProPresenter folder holding `Libraries` or `Playlists`.
+ *
+ * Stricter than a folder the server is started on, which may also be the
+ * folder above one: the client's roots are opened with nobody's approval,
+ * and are usually the folders a person is working in rather than
+ * ProPresenter's. A parent such as `~/Documents` would make everything in it
+ * the library.
  */
 export async function isProPresenterLibrary(dir: string): Promise<boolean> {
   if (!(await isFolder(dir))) return false;
   const real = await fs.realpath(dir).catch(() => undefined);
   if (!real) return false;
   if (await workspaceAt(real)) return true;
-  if (path.basename(path.dirname(path.resolve(dir))) === "Libraries") return true;
-  for (const folder of [dir, path.join(dir, "ProPresenter")]) {
-    for (const name of ["Libraries", "Playlists", "Configuration"]) {
-      if (await isFolder(path.join(folder, name))) return true;
-    }
+  for (const name of ["Libraries", "Playlists"]) {
+    if (await isFolder(path.join(dir, name))) return true;
   }
   return false;
+}
+
+/** The ProPresenter library directly inside a folder, as `Documents` holds `ProPresenter`, if there is one. */
+async function libraryInside(dir: string): Promise<string | undefined> {
+  const inside = path.join(dir, "ProPresenter");
+  return (await isProPresenterLibrary(inside)) ? inside : undefined;
 }
 
 /** What `current_library` and `use_library` say about a library. */
@@ -207,11 +213,25 @@ export class Library {
       }
       if (chosen === undefined) {
         const fallback = await this.reopenStart();
+        // A folder holding a library is not opened as one, but the library inside it can be, once the person approves.
+        const parents: string[] = [];
+        for (const folder of folders) {
+          const inside = await libraryInside(folder);
+          if (inside) {
+            parents.push(
+              `${folder} holds the ProPresenter library ${inside} but is not one itself, so it is not read: ` +
+                `use_library with ${inside} opens it once the person approves.`
+            );
+          }
+        }
         this.rootsNote =
           roots.length === 0
             ? undefined
-            : `None of the client's folders (${folders.join(", ") || roots.map((r) => r.uri).join(", ")}) is a ProPresenter library, so ` +
-              (fallback ? `${fallback.root} is read instead.` : "no library is open.");
+            : [
+                `None of the client's folders (${folders.join(", ") || roots.map((r) => r.uri).join(", ")}) is a ProPresenter library, so ` +
+                  (fallback ? `${fallback.root} is read instead.` : "no library is open."),
+                ...parents,
+              ].join(" ");
         return;
       }
       let opened: OpenLibrary;

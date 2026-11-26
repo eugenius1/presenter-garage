@@ -107,15 +107,40 @@ describe("the library open", () => {
     await client.close();
   });
 
-  it("is a workspace, a ProPresenter folder or the folder above it, or one library inside Libraries", async () => {
+  it("ignores a client root that only holds a library, and says to open the library inside with use_library", async () => {
+    // As ~/Documents holds ProPresenter: read whole, it would make everything in it the library.
+    const documents = path.join(tmp, "Documents");
+    fs.mkdirSync(path.join(documents, "ProPresenter", "Libraries", "Default"), { recursive: true });
+    const inside = path.join(documents, "ProPresenter");
+    const { client, call } = await withRoots(() => [documents]);
+    const open = (await call("current_library")).json();
+    expect(open).toMatchObject({ path: first, source: "configured" });
+    expect(open.notes.join(" ")).toContain(`None of the client's folders (${documents}) is a ProPresenter library`);
+    expect(open.notes.join(" ")).toContain(`${documents} holds the ProPresenter library ${inside} but is not one itself`);
+    expect(open.notes.join(" ")).toContain(`use_library with ${inside}`);
+    await client.close();
+  });
+
+  it("counts as a client's library only a workspace or a ProPresenter folder itself", async () => {
     expect(await isProPresenterLibrary(first)).toBe(true);
     expect(await isProPresenterLibrary(tmp)).toBe(false);
-    expect(await isProPresenterLibrary(path.join(first, "Libraries", "Default"))).toBe(true);
+    expect(await isProPresenterLibrary(path.join(first, "Libraries", "Default"))).toBe(false);
     expect(await isProPresenterLibrary(project)).toBe(false);
     expect(await isProPresenterLibrary(path.join(tmp, "missing"))).toBe(false);
     const above = path.join(tmp, "Above");
     fs.mkdirSync(path.join(above, "ProPresenter", "Playlists"), { recursive: true });
-    expect(await isProPresenterLibrary(above)).toBe(true);
+    expect(await isProPresenterLibrary(above)).toBe(false);
+    expect(await isProPresenterLibrary(path.join(above, "ProPresenter"))).toBe(true);
+  });
+
+  it("is still the folder above a ProPresenter folder when the server is started on it", async () => {
+    const above = path.join(tmp, "Started");
+    fs.mkdirSync(path.join(above, "ProPresenter", "Libraries", "Default"), { recursive: true });
+    fs.writeFileSync(path.join(above, "ProPresenter", "Libraries", "Default", "Above Song.pro"), syntheticTextPresentation("Above Song"));
+    const { client, call } = await connect(above, { backupDir: backups });
+    expect((await call("current_library")).json().path).toBe(above);
+    expect((await call("list_presentations")).json().presentations.map((p: { name: string }) => p.name)).toEqual(["Above Song"]);
+    await client.close();
   });
 });
 
