@@ -161,6 +161,34 @@ describe("changing a song's structure through the MCP server", () => {
     ).toBe("Macro swapped: “Louange” (1) → “Louange” (2).");
   });
 
+  it("says a tie moved or cut, a collection moved, and how many slides a group holds", () => {
+    const tie = (uuid: string, name: string) => ({ uuid, name });
+    const rename = (before: object, after: object, slides: number[]) =>
+      ({ kind: "renameGroup", groupIndex: 0, slides, before: { name: "A", ...before }, after: { name: "B", ...after } }) as const;
+    expect(describeChange(rename({ link: tie("1", "A") }, {}, []))).toContain("No longer tied to configured group “A”");
+    expect(describeChange(rename({ link: tie("1", "A") }, { link: tie("2", "B") }, [0]))).toContain(
+      "Tied to configured group “B” (2) instead of “A” (1)."
+    );
+    expect(
+      describeChange({
+        kind: "swapMacro",
+        slideIndex: 0,
+        cueUuid: "c",
+        actionIndex: 0,
+        macroIndex: 0,
+        before: { name: "Louange", uuid: "1", actionName: "x", collection: { uuid: "a", name: "Chants" } },
+        after: { name: "Bienvenue", uuid: "2", actionName: "x", collection: { uuid: "b", name: "Chants" } },
+      })
+    ).toBe("Macro swapped: “Louange” → “Bienvenue”. The slide records it in collection “Chants” (b) instead of “Chants” (a).");
+  });
+
+  it("refuses a plan of more changes than one plan takes", async () => {
+    const many = Array.from({ length: 201 }, () => ({ path: SONG, groupIndex: 0, name: "x" }));
+    expect((await call("plan_slide_edits", { edits: [], renameGroups: many.slice(0, 200), swapMacros: [{ path: SONG, slideIndex: 0, from: "a", to: "b" }] })).text).toMatch(
+      /At most 200 changes in one plan/
+    );
+  });
+
   it("refuses at plan time what it cannot plan, saying which", async () => {
     const refused = await call("plan_slide_edits", { swapMacros: [{ path: SONG, slideIndex: 2, from: "Louange", to: "Nothing" }] });
     expect(refused.isError).toBe(true);

@@ -265,6 +265,14 @@ describe("swapping a macro", () => {
     expect(at({ to: "Nothing" })).toBe("unknownMacro");
     expect(at({ to: "Louange" })).toBe("unchanged");
     expect(at({}, { groups: config.groups })).toBe("noMacroList");
+    // The slide triggering one macro twice: which of the two is a guess.
+    const doubled = song((doc) => {
+      const cue = doc.cues.find((c: any) => c.name === "Trailing");
+      const macro = cue.actions.find((a: any) => a.macro);
+      cue.actions.push({ ...macro.toJSON(), uuid: { string: "dddddddd-0000-4000-8000-000000000001" } });
+    });
+    const slide = structureOf(doubled).slides.findIndex((s) => s.macros.length === 2 && s.macros.every((m) => m.name === "Louange"));
+    expect(refusal(() => plan(doubled, [{ kind: "swapMacro", slideIndex: slide, from: "Louange", to: "Bienvenue" }]))).toBe("ambiguousMacro");
     const twice = { ...config, macros: [...config.macros!, { ...config.macros![0], uuid: "99999999-0000-4000-8000-000000000009" }] };
     expect(at({}, twice)).toBe("ambiguousMacro");
     expect(
@@ -303,6 +311,13 @@ describe("writing structural changes", () => {
       cue.actions.find((a: any) => a.macro).macro.identification.parameter_name = "Other";
     });
     expect(refusal(() => applyFixes(swapped, [], [swap]))).toBe("stale");
+  });
+
+  it("refuses a rename once the group it named has been replaced by another", () => {
+    const bytes = song();
+    const [change] = plan(bytes, [{ kind: "renameGroup", groupIndex: 1, name: "Refrain" }]);
+    const replaced = song((doc) => (doc.cue_groups[1].group.uuid = { string: "eeeeeeee-0000-4000-8000-000000000001" }));
+    expect(refusal(() => applyFixes(replaced, [], [change]))).toBe("stale");
   });
 
   it("refuses nothing at all", () => {

@@ -124,6 +124,39 @@ describe("a structural change in a workspace document", () => {
     expect(refusal(() => planWorkspaceEdit(root, [], changes))).toBe("stale");
   });
 
+  it("swaps a macro the workspace way: upper-case uuids, the collection the slide records moved with it", () => {
+    const root = document();
+    const [planned] = plan(root, [{ kind: "swapMacro", slideIndex: 2, from: "Louange", to: "Bienvenue" }]) as { cueUuid: string; actionIndex: number }[];
+    const id = ["cues", planned.cueUuid, "actions", planned.actionIndex, "ActionTypeData", "macro", "identification"];
+    const identification = valueAt(root, id);
+    identification.parameter_uuid = MACROS.louange.uuid.toUpperCase();
+    identification.parent_collection = { parameter_uuid: "00000000-0000-4000-8000-000000006979".toUpperCase(), parameter_name: "Louange", parent_collection: null };
+    const changes = plan(root, [{ kind: "swapMacro", slideIndex: 2, from: "Louange", to: "Bienvenue" }]);
+    const edit = planWorkspaceEdit(root, [], changes);
+    expect(edit.values.map(({ key, value }) => [key, value])).toEqual([
+      ["parameter_uuid", MACROS.bienvenue.uuid.toUpperCase()],
+      ["parameter_name", "Bienvenue"],
+      ["parameter_uuid", "00000000-0000-4000-8000-000000006978".toUpperCase()],
+      ["parameter_name", "Default Collection"],
+      ["name", "Bienvenue"],
+    ]);
+    expect(() => checkWorkspaceEdit(root, editedRoot(root, edit.boxes, edit.values), edit, [])).not.toThrow();
+  });
+
+  it("re-ties a group tied to a configured group to the one of its new name", () => {
+    const root = document((doc) => {
+      doc.cue_groups[1].group.color = { red: 0.5, green: 0.5, blue: 0.5, alpha: 1 };
+      doc.cue_groups[1].group.application_group_identifier = { string: "c3fdfda2-0000-4000-8000-000000000002" };
+      doc.cue_groups[1].group.application_group_name = "Couplet 4";
+    });
+    const edit = planWorkspaceEdit(root, [], plan(root, [{ kind: "renameGroup", groupIndex: 1, name: "Refrain" }]));
+    expect(edit.values.filter((v) => v.key.startsWith("application")).map(({ key, value }) => [key, value])).toEqual([
+      ["application_group_identifier", "143b5f28-0000-4000-8000-000000000003"],
+      ["application_group_name", "Refrain"],
+    ]);
+    expect(() => checkWorkspaceEdit(root, editedRoot(root, edit.boxes, edit.values), edit, [])).not.toThrow();
+  });
+
   it("refuses a document that also changed anything else, the structure included", () => {
     const root = document();
     const changes = plan(root, [{ kind: "swapMacro", slideIndex: 2, from: "Louange", to: "Bienvenue" }]);
