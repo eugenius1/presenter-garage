@@ -264,7 +264,7 @@ export function registerEditTools(server: McpServer, library: Library): Register
         "side of one line read in the order given. Line indexes always name lines as they read now, before " +
         "any edit. A group is named by its `groupIndex` in read_presentation's `groups`, and renamed to exactly " +
         "the name given (a non-breaking space is a different name); a name in ProPresenter's configured groups " +
-        "(read_configuration) brings that group's colour with it. A macro is named on its slide by name or uuid, " +
+        "(read_groups_and_macros) brings that group's colour with it. A macro is named on its slide by name or uuid, " +
         "and swapped for a configured macro, named the same way. Returns a `planId`, every line as it is and as " +
         "it would read (an added line with `before` null), and every structural change as it is and as it would " +
         "be; a line's `styling` says what the change does to formatting ranges on it (All Caps, say), which the " +

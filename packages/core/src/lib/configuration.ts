@@ -56,8 +56,9 @@ export interface ConfiguredMacro {
   /** The macro collections it is listed in, by name. */
   collections: string[];
   /**
-   * The same collections, each with its uuid where it has one: what a slide
-   * records as the macro's `parent_collection`.
+   * Every collection it is in, each with its uuid where it has one: what a
+   * slide records as the macro's `parent_collection`. Two collections of one
+   * name are both here, told apart by uuid.
    */
   collectionRefs?: { name: string; uuid?: string }[];
 }
@@ -108,10 +109,15 @@ export function readMacros(doc: RawDoc): ConfiguredMacro[] {
     return entry;
   };
   const listIn = (entry: ConfiguredMacro | undefined, collection: any) => {
+    if (!entry) return;
     const name: string = collection.name ?? "";
-    if (!entry || entry.collections.includes(name)) return;
-    entry.collections.push(name);
-    (entry.collectionRefs ??= []).push({ name, uuid: uuidOf(collection) });
+    const uuid = uuidOf(collection);
+    // Listed once by name, for reading; but every collection kept apart by
+    // its uuid, since a slide records one by uuid, and two can share a name.
+    if (!entry.collections.includes(name)) entry.collections.push(name);
+    const refs = (entry.collectionRefs ??= []);
+    const known = uuid ? refs.some((ref) => ref.uuid?.toLowerCase() === uuid.toLowerCase()) : refs.some((ref) => ref.name === name && !ref.uuid);
+    if (!known) refs.push({ name, uuid });
   };
 
   const collections: any[] = raw.macro_collections ?? [];

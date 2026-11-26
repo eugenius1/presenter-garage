@@ -8,7 +8,7 @@ import {
 } from "@presenter-garage/core/lib/configuration";
 import { findGroups, findMacros, LibraryError, readLibraryFile } from "@presenter-garage/node/library";
 
-/** ProPresenter's configured groups and macros: `read_configuration`. */
+/** ProPresenter's configured groups and macros: `read_groups_and_macros`. */
 
 export interface Configuration {
   /** The groups a slide can be put in, in ProPresenter's order. */

@@ -108,6 +108,22 @@ describe("a structural change in a workspace document", () => {
     expect(() => checkWorkspaceEdit(root, after, edit, [])).not.toThrow();
   });
 
+  it("swaps a macro whose identification leaves its name out, which reads as the empty default", () => {
+    const root = document();
+    const [planned] = plan(root, [{ kind: "swapMacro", slideIndex: 2, from: "Louange", to: "Bienvenue" }]) as { cueUuid: string; actionIndex: number }[];
+    const id = ["cues", planned.cueUuid, "actions", planned.actionIndex, "ActionTypeData", "macro", "identification"];
+    delete valueAt(root, id).parameter_name;
+    // Found by its action's name, as read_presentation lists it.
+    const changes = plan(root, [{ kind: "swapMacro", slideIndex: 2, from: "Louange", to: "Bienvenue" }]);
+    expect(changes[0].kind === "swapMacro" && changes[0].before.name).toBe("");
+    const edit = planWorkspaceEdit(root, [], changes);
+    expect(edit.values.find((v) => v.key === "parameter_name")).toEqual({ path: id, key: "parameter_name", value: "Bienvenue" });
+    expect(() => checkWorkspaceEdit(root, editedRoot(root, edit.boxes, edit.values), edit, [])).not.toThrow();
+    // Only the empty default stands in for a field left out: a name the plan did not read is still refused.
+    valueAt(root, id).parameter_name = "Other";
+    expect(refusal(() => planWorkspaceEdit(root, [], changes))).toBe("stale");
+  });
+
   it("refuses a document that also changed anything else, the structure included", () => {
     const root = document();
     const changes = plan(root, [{ kind: "swapMacro", slideIndex: 2, from: "Louange", to: "Bienvenue" }]);

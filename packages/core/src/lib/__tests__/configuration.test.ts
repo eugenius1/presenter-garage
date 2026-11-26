@@ -202,6 +202,28 @@ describe("the configured macros", () => {
     expect(readMacros(doc as any)).toMatchObject([{ ...MACROS.louange, collections: ["A"] }]);
   });
 
+  it("keeps apart two collections of one name, by uuid, while listing the name once", () => {
+    const type = messageType("rv.data.MacrosDocument");
+    const louange = { uuid: { string: MACROS.louange.uuid }, name: "Louange" };
+    const doc = type.fromObject({
+      macros: [louange],
+      macro_collections: [
+        { name: "Chants", items: [{ macro_id: louange.uuid }] },
+        { uuid: { string: "aaaaaaaa-0000-4000-8000-000000000001" }, name: "Chants", items: [{ macro_id: louange.uuid }] },
+        { uuid: { string: "bbbbbbbb-0000-4000-8000-000000000002" }, name: "Chants", items: [{ macro_id: louange.uuid }] },
+        // The same collection again, in another case: still one.
+        { uuid: { string: "BBBBBBBB-0000-4000-8000-000000000002" }, name: "Chants", items: [{ macro_id: louange.uuid }] },
+      ],
+    });
+    const [macro] = readMacros(doc as any);
+    expect(macro.collections).toEqual(["Chants"]);
+    expect(macro.collectionRefs).toEqual([
+      { name: "Chants", uuid: undefined },
+      { name: "Chants", uuid: "aaaaaaaa-0000-4000-8000-000000000001" },
+      { name: "Chants", uuid: "bbbbbbbb-0000-4000-8000-000000000002" },
+    ]);
+  });
+
   it("reads nothing from an empty document", () => {
     expect(readMacros(decodeMacrosDocument(new Uint8Array()))).toEqual([]);
     expect(readMacros({} as any)).toEqual([]);

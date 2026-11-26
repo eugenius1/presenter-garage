@@ -250,13 +250,19 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[], changes
  */
 function valueEdits(root: Json, change: StructureChange): ValueEdit[] {
   const edits: ValueEdit[] = [];
-  /** Set `key` at `path`, which must be a map holding `was` there (or nothing, where `was` is undefined). */
+  /**
+   * Set `key` at `path`, which must be a map holding `was` there (or nothing,
+   * where `was` is undefined). A string field left out of the map reads as
+   * its default, `""`, through the conversion, so a `was` of `""` is held by
+   * a map without the key too -- and only that default stands in for it.
+   */
   const set = (path: LoroKey[], key: string, was: unknown, value: ValueEdit["value"]) => {
     const map = valueAt(root, path);
     if (!isObject(map)) throw new FixError("lossy");
     const now = map[key];
     const empty = (v: unknown) => v === null || v === undefined || v === "";
-    if ((now !== was && !(was === undefined && empty(now))) || isObject(now) || Array.isArray(now)) throw new FixError("lossy");
+    const holds = now === was || (was === undefined && empty(now)) || (was === "" && now === undefined);
+    if (!holds || isObject(now) || Array.isArray(now)) throw new FixError("lossy");
     if (now !== value && !(empty(now) && empty(value))) edits.push({ path, key, value });
   };
 

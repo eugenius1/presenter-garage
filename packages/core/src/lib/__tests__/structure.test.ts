@@ -235,6 +235,27 @@ describe("swapping a macro", () => {
     expect(refusal(() => plan(bytes, [{ kind: "swapMacro", slideIndex: louangeSlide, from: "Louange", to: "Lumières" }]))).toBe("macroCollection");
   });
 
+  it("keeps the collection the slide records when the new macro is in it, though another shares its name", () => {
+    const second = "bbbbbbbb-0000-4000-8000-000000000002";
+    const bytes = song((doc) => {
+      const cue = doc.cues.find((c: any) => c.name === "Trailing");
+      cue.actions.find((a: any) => a.macro).macro.identification.parent_collection = { parameter_uuid: { string: second }, parameter_name: "Chants" };
+    });
+    const bienvenue = {
+      ...config.macros![0],
+      collectionRefs: [
+        { name: "Chants", uuid: "aaaaaaaa-0000-4000-8000-000000000001" },
+        { name: "Chants", uuid: second },
+      ],
+    };
+    const slide = structureOf(bytes).slides.findIndex((s) => s.macros.some((m) => m.collection));
+    const [change] = plan(bytes, [{ kind: "swapMacro", slideIndex: slide, from: "Louange", to: "Bienvenue" }], {
+      ...config,
+      macros: [bienvenue, ...config.macros!.slice(1)],
+    });
+    expect(change.kind === "swapMacro" && change.after.collection).toEqual({ uuid: second, name: "Chants" });
+  });
+
   it("refuses what it cannot plan", () => {
     const bytes = song();
     const at = (request: Partial<StructureRequest>, with_ = config) =>
