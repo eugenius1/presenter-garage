@@ -1,12 +1,14 @@
+import type { ReactNode } from "react";
 import type { PresentationReport, TextIssueKind } from "@presenter-garage/core/lib/presentation";
 import { useI18n } from "../../i18n";
-import type { Row } from "./rows";
+import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
+import { reviewRuns, type ReviewSlide, type Row } from "./rows";
 import { visibleWhitespace } from "./whitespace";
 
 /**
  * Every line with something wrong, file by file, each one as it is and as it
- * would read, with a tick box on every line a fix exists for. The run writes
- * only the lines left ticked.
+ * would read, with a tick box on every line a fix exists for, among the
+ * slides around it. The run writes only the lines left ticked.
  */
 export function FindingsCard({
   withIssues,
@@ -16,6 +18,7 @@ export function FindingsCard({
   countOf,
   onToggleKind,
   rows,
+  contextOf,
   excluded,
   running,
   showFolders,
@@ -33,6 +36,8 @@ export function FindingsCard({
   countOf: (kind: TextIssueKind) => number;
   onToggleKind: (kind: TextIssueKind) => void;
   rows: ReadonlyMap<string, Row[]>;
+  /** The slides around a file's findings, shown with its rows to read them by. */
+  contextOf: (filename: string) => readonly ContextSlide[];
   /** The lines the reader has taken out of the run. */
   excluded: ReadonlySet<string>;
   running: boolean;
@@ -108,68 +113,151 @@ export function FindingsCard({
             )}
 
             {!report.error && (
-              <ul className="rows">
-                {lines.map((row) => (
-                  <li key={row.key}>
-                    <div className="fix-head">
-                      {row.fix && (
-                        <input
-                          type="checkbox"
-                          // Named by where the line is rather than by what
-                          // it says: the text is on screen beside it, and
-                          // a label of " leading space" would announce the
-                          // problem instead of the choice.
-                          aria-label={`${f(p.slide, { n: num(row.slideIndex + 1) })} ${f(
-                            p.line,
-                            { n: num(row.lineIndex + 1) }
-                          )}`}
-                          checked={!excluded.has(row.key)}
-                          onChange={() => onToggleRow(row.key)}
-                          disabled={running}
-                        />
-                      )}
-                      <span>
-                        {row.kinds.map((kind) => (
-                          <span className={`tag ${kind}`} key={kind}>
-                            {p.kinds[kind]}
-                          </span>
-                        ))}{" "}
-                        <span className="node-count">
-                          {f(p.slide, { n: num(row.slideIndex + 1) })}
-                          {row.groupName ? ` · ${row.groupName}` : ""} {"·"}{" "}
-                          {f(p.line, { n: num(row.lineIndex + 1) })}
-                        </span>
-                      </span>
-                    </div>
-
-                    {/* Rendered with the whitespace made visible, since the
-                        whole point is characters you cannot otherwise see. */}
-                    <div className="path whitespace">
-                      {row.text === "" ? "—" : visibleWhitespace(row.text)}
-                    </div>
-
-                    {row.fix ? (
-                      <div className="path whitespace becomes">
-                        <span className="becomes-label">{p.becomes}</span>{" "}
-                        {row.fix.after === null ? (
-                          <em>{p.lineRemoved}</em>
-                        ) : row.fix.after === "" ? (
-                          "—"
-                        ) : (
-                          visibleWhitespace(row.fix.after)
-                        )}
-                      </div>
-                    ) : (
-                      <div className="why">{p.noFixFor}</div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <Review
+                rows={lines}
+                context={contextOf(report.filename)}
+                slideCount={report.slideCount}
+                excluded={excluded}
+                running={running}
+                onToggleRow={onToggleRow}
+              />
             )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A file's rows among the slides around them, two either side, with each
+ * slide's group and macros: whether a line is right is often plain only
+ * from the lines around it. The slides and lines only there to read are set
+ * apart from the rows and offer nothing to tick; only a row does, as before.
+ */
+function Review({
+  rows,
+  context,
+  slideCount,
+  excluded,
+  running,
+  onToggleRow,
+}: {
+  rows: Row[];
+  context: readonly ContextSlide[];
+  slideCount: number;
+  excluded: ReadonlySet<string>;
+  running: boolean;
+  onToggleRow: (key: string) => void;
+}) {
+  const { runs, stray } = reviewRuns(rows, context, slideCount);
+  const item = (row: Row) => (
+    <FindingRow key={row.key} row={row} checked={!excluded.has(row.key)} running={running} onToggle={onToggleRow} />
+  );
+  return (
+    <>
+      {runs.map((run) => (
+        <div className="context-run" key={run[0].slideIndex}>
+          {run.map((slide) => (
+            <ContextSlideView key={slide.slideIndex} slide={slide} item={item} />
+          ))}
+        </div>
+      ))}
+      {stray.length > 0 && <ul className="rows">{stray.map(item)}</ul>}
+    </>
+  );
+}
+
+/** One slide of a run: its number, group and macros, then its lines, a row in place of each line it is about. */
+function ContextSlideView({ slide, item }: { slide: ReviewSlide; item: (row: Row) => ReactNode }) {
+  const { t, f, num } = useI18n();
+  const p = t.tools.presentations;
+  const macros = slide.macros.map((m) => (m.enabled ? m.name : f(p.macroOff, { name: m.name }))).join(", ");
+  return (
+    <div className={slide.holdsRow ? "context-slide holds-row" : "context-slide"}>
+      <div className="context-head">
+        {f(p.slide, { n: num(slide.slideIndex + 1) })}
+        {slide.groupName ? ` · ${slide.groupName}` : ""}
+        {macros ? ` · ${macros}` : ""}
+      </div>
+      <ul className="rows">
+        {slide.items.length === 0 && <li className="context-line empty">{p.noTextOnSlide}</li>}
+        {slide.items.map((entry) =>
+          "row" in entry ? (
+            item(entry.row)
+          ) : (
+            <li className="context-line" key={`${entry.line.boxIndex}:${entry.line.lineIndex}`}>
+              {entry.line.text === "" ? "—" : entry.line.text}
+            </li>
+          )
+        )}
+      </ul>
+    </div>
+  );
+}
+
+/** One line with something wrong: as it is, as it would read, and the tick box choosing it where a fix exists. */
+function FindingRow({
+  row,
+  checked,
+  running,
+  onToggle,
+}: {
+  row: Row;
+  checked: boolean;
+  running: boolean;
+  onToggle: (key: string) => void;
+}) {
+  const { t, f, num } = useI18n();
+  const p = t.tools.presentations;
+  return (
+    <li className="finding-row">
+      <div className="fix-head">
+        {row.fix && (
+          <input
+            type="checkbox"
+            // Named by where the line is rather than by what
+            // it says: the text is on screen beside it, and
+            // a label of " leading space" would announce the
+            // problem instead of the choice.
+            aria-label={`${f(p.slide, { n: num(row.slideIndex + 1) })} ${f(p.line, { n: num(row.lineIndex + 1) })}`}
+            checked={checked}
+            onChange={() => onToggle(row.key)}
+            disabled={running}
+          />
+        )}
+        <span>
+          {row.kinds.map((kind) => (
+            <span className={`tag ${kind}`} key={kind}>
+              {p.kinds[kind]}
+            </span>
+          ))}{" "}
+          <span className="node-count">
+            {f(p.slide, { n: num(row.slideIndex + 1) })}
+            {row.groupName ? ` · ${row.groupName}` : ""} {"·"} {f(p.line, { n: num(row.lineIndex + 1) })}
+          </span>
+        </span>
+      </div>
+
+      {/* Rendered with the whitespace made visible, since the
+          whole point is characters you cannot otherwise see. */}
+      <div className="path whitespace">{row.text === "" ? "—" : visibleWhitespace(row.text)}</div>
+
+      {row.fix ? (
+        <div className="path whitespace becomes">
+          <span className="becomes-label">{p.becomes}</span>{" "}
+          {row.fix.after === null ? (
+            <em>{p.lineRemoved}</em>
+          ) : row.fix.after === "" ? (
+            "—"
+          ) : (
+            visibleWhitespace(row.fix.after)
+          )}
+        </div>
+      ) : (
+        <div className="why">{p.noFixFor}</div>
+      )}
+    </li>
   );
 }
 

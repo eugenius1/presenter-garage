@@ -252,7 +252,8 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
     expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
     const { properties } = (asked.at(-1)!.params as { requestedSchema: { properties: Record<string, { description: string }> } }).requestedSchema;
-    expect(properties.line1.description).toBe(
+    // What the field says of its change, before the slides around it.
+    expect(properties.line1.description.split("\n\n")[0]).toBe(
       "Added after “sois glorifie”: “sois glorifie”. Styling: All Caps on the whole line, as on the line beside it."
     );
     const read = (await edit("read_presentation", { path: song })).json();
@@ -285,7 +286,9 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
     const { properties } = (asked.at(-1)!.params as { requestedSchema: { properties: Record<string, { description: string }> } })
       .requestedSchema;
-    expect(properties.line1.description).toBe(`“Que ton nom,” → “Que ton nom”. Styling: ${styling.join("; ")}.`);
+    expect(properties.line1.description.split("\n\n")[0]).toBe(`“Que ton nom,” → “Que ton nom”. Styling: ${styling.join("; ")}.`);
+    // A workspace's song is shown among its slides like any other.
+    expect(properties.line1.description).toMatch(/\n\nSlides \d+–\d+:\n/);
     expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
   });
 

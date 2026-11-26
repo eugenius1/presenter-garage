@@ -156,6 +156,60 @@ describe("finding and showing fixes", () => {
   });
 });
 
+describe("showing each fix among the slides around it", () => {
+  /** The context run's slides, each as its heading and the lines only there to read. */
+  const slidesShown = () =>
+    [...document.querySelectorAll(".context-slide")].map((slide) => [
+      slide.querySelector(".context-head")!.textContent,
+      [...slide.querySelectorAll(".context-line")].map((line) => line.textContent),
+    ]);
+
+  it("shows two slides either side, each with its group, the lines around set apart and nothing in them to tick", async () => {
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    // The four findings sit on slides 2 to 5: one run, from slide 1 to slide 7.
+    expect(slidesShown()).toEqual([
+      ["slide 1 · Verse", ["A tidy line", "And another"]],
+      ["slide 2 · Verse", ["Fine here"]],
+      ["slide 3 · Chorus", ["Fine"]],
+      ["slide 4 · Chorus", ["Above", "Below"]],
+      ["slide 5 · Chorus", []],
+      ["slide 6 · Chorus", ["no text on this slide"]],
+      ["slide 7 · Chorus", ["Que ton nom,", "pour toujours ,", "sois glorifie"]],
+    ]);
+    expect(document.querySelectorAll(".context-slide.holds-row")).toHaveLength(4);
+    // A tick box for each line a fix is offered for, and none anywhere else.
+    expect(document.querySelectorAll(".context-line input")).toHaveLength(0);
+    expect(screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ })).toHaveLength(4);
+    // Each row still shows its line as it is and as it would read, in place among the others.
+    const gap = [...document.querySelectorAll(".context-slide")][3];
+    expect([...gap.querySelectorAll(".rows > li")].map((li) => li.className)).toEqual(["context-line", "finding-row", "context-line"]);
+  });
+
+  it("names each slide's macros, a switched-off one said so", async () => {
+    store.set("Chants/Checked Song.pro", syntheticMacroSong());
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    const heads = slidesShown().map(([head]) => head);
+    expect(heads).toContain(`slide 1 · Couplet\u00a01 · ${MACROS.bienvenue.name}`);
+    expect(heads).toContain(`slide 4 · Chorus · ${MACROS.louange.name}, ${MACROS.lumieres.name} (off)`);
+  });
+
+  it("gives each file its own run, with its own tick boxes", async () => {
+    store.set("Chants/Other Song.pro", syntheticTextPresentation("Other Song"));
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+
+    expect(document.querySelectorAll(".context-run")).toHaveLength(2);
+    expect(screen.getAllByRole("checkbox", { name: /^slide \d+ line \d+$/ })).toHaveLength(8);
+  });
+});
+
 describe("the opt-in checks", () => {
   it("offers one switch per mark, all off to begin with", async () => {
     const user = userEvent.setup();
@@ -196,9 +250,12 @@ describe("the opt-in checks", () => {
     await user.click(screen.getByRole("checkbox", { name: "Also look for trailing full stops" }));
     await screen.findByRole("button", { name: "Trailing full stop 1" });
 
-    // Both spellings are in the fixture and neither is a finding.
-    expect(screen.queryByText(/chanterai/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Gloire...")).not.toBeInTheDocument();
+    // Both spellings are in the fixture and neither is a finding: each is
+    // on screen only as a line around the full stop that is.
+    const asFinding = (text: string | RegExp) => screen.queryAllByText(text).filter((el) => el.closest(".finding-row"));
+    expect(asFinding(/chanterai/)).toEqual([]);
+    expect(asFinding("Gloire...")).toEqual([]);
+    expect(screen.getByText("Gloire...")).toHaveClass("context-line");
   });
 });
 

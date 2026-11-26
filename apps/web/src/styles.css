@@ -632,6 +632,21 @@ select.mini { max-width: 9em; }
 .fix-head input { accent-color: var(--accent-ui); cursor: pointer; margin: 0; flex: none; }
 .fix-head .tag + .tag { margin-left: 4px; }
 
+/* The slides around a fix, there to read it by. Set back from the rows --
+   smaller, in the body face rather than the rows' monospace, nothing to tick
+   -- so the line being changed stands out, and a slide holding one is edged
+   in the accent. Dim rather than faint: these are read, so they keep AA. */
+.context-run { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.context-slide { border-left: 2px solid var(--border); padding-left: 10px; }
+.context-slide.holds-row { border-left-color: var(--accent-ui); }
+.context-head { font-size: 11px; color: var(--text-faint); }
+.rows li.context-line {
+  font-size: 12px; color: var(--text-dim); white-space: pre-wrap;
+  padding: 1px 0; border-top: none;
+}
+.rows li.context-line.empty { font-style: italic; }
+.rows li.finding-row { border-top: none; }
+
 /* Scoped to .rows to outrank `.rows .path`, which sets the dim colour these
    lines would otherwise inherit -- specificity beats intent. */
 .rows .becomes { color: var(--added-strong); }

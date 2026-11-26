@@ -256,6 +256,10 @@ export function Presentations() {
     return byFile;
   }, [examined, shown]);
 
+  /** The slides around each file's findings, which its rows are shown among. */
+  const contextByFile = useMemo(() => new Map(examined.map((one) => [one.report.filename, one.context])), [examined]);
+  const contextOf = (filename: string) => contextByFile.get(filename) ?? [];
+
   /** The fixes still ticked, grouped by file, in the order they were listed. */
   const chosen = useMemo(
     () =>
@@ -771,6 +775,7 @@ export function Presentations() {
           countOf={countOf}
           onToggleKind={toggle}
           rows={rows}
+          contextOf={contextOf}
           excluded={excluded}
           running={running}
           showFolders={showFolders}

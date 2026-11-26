@@ -6,6 +6,7 @@ import {
   type TrailingPunctuation,
 } from "@presenter-garage/core/lib/presentation";
 import { groupBy } from "@presenter-garage/core/lib/collections";
+import { contextWindows, type ContextLine, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
 import type { CheckName, RuleSet } from "@presenter-garage/core/lib/rules";
 
 /**
@@ -55,6 +56,7 @@ export const optionalFrom = (set: RuleSet) =>
 export interface Row {
   key: string;
   slideIndex: number;
+  boxIndex: number;
   lineIndex: number;
   groupName?: string;
   text: string;
@@ -79,6 +81,7 @@ function rowsOf(filename: string, issues: TextIssue[], fixes: LineFix[]): Row[] 
   return [...groupBy(issues, fixKey)].map(([line, [first, ...rest]]) => ({
     key: rowKey(filename, first),
     slideIndex: first.slideIndex,
+    boxIndex: first.boxIndex,
     lineIndex: first.lineIndex,
     groupName: first.groupName,
     text: first.text,
@@ -105,3 +108,52 @@ export const lineOf = (row: Row) => JSON.stringify([row.fix!.boxIndex, row.text]
 
 /** Every kind, for what has to hold whichever are on screen. */
 export const EVERY_KIND: ReadonlySet<TextIssueKind> = new Set(ALL_KINDS);
+
+/** One slide of a run shown around rows: its lines in order, each a row where one is on it, or a line only to read. */
+export interface ReviewSlide extends Omit<ContextSlide, "lines"> {
+  items: ({ row: Row } | { line: ContextLine })[];
+  /** Whether a row is on it, which sets it apart from the slides only there to read. */
+  holdsRow: boolean;
+}
+
+/**
+ * A file's rows among the slides around them: each run of slides that
+ * overlap or meet, each slide's lines in order with a row standing in for
+ * the line it is about. Every row comes back exactly once, in a run or, for
+ * a row whose slide is not in `context`, in `stray`, so a line that can be
+ * ticked is never left off the screen; a line only to read is never a row.
+ */
+export function reviewRuns(
+  rows: readonly Row[],
+  context: readonly ContextSlide[],
+  slideCount: number
+): { runs: ReviewSlide[][]; stray: Row[] } {
+  const slides = new Map(context.map((slide) => [slide.slideIndex, slide]));
+  const placed = new Set<Row>();
+  const runs = contextWindows(
+    rows.map((row) => row.slideIndex),
+    slideCount
+  ).map(({ from, to }) => {
+    const run: ReviewSlide[] = [];
+    for (let i = from; i <= to; i++) {
+      const slide = slides.get(i);
+      if (!slide) continue;
+      const here = rows.filter((row) => row.slideIndex === i);
+      const items: ReviewSlide["items"] = slide.lines.map((line) => {
+        const row = here.find((r) => !placed.has(r) && r.boxIndex === line.boxIndex && r.lineIndex === line.lineIndex);
+        if (!row) return { line };
+        placed.add(row);
+        return { row };
+      });
+      // A row whose line the slide does not list still goes on its slide.
+      for (const row of here) {
+        if (placed.has(row)) continue;
+        placed.add(row);
+        items.push({ row });
+      }
+      run.push({ slideIndex: i, groupName: slide.groupName, macros: slide.macros, items, holdsRow: here.length > 0 });
+    }
+    return run;
+  });
+  return { runs: runs.filter((run) => run.length > 0), stray: rows.filter((row) => !placed.has(row)) };
+}
