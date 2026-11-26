@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { BigIntStats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isInside, LibraryError } from "../library";
@@ -47,11 +49,26 @@ export interface OutFolder {
   mkdir(relative: string): Promise<void>;
 }
 
+/**
+ * A file a run wrote: where, and which file it is. A name alone cannot say
+ * that: a file a person puts at the same name, or at one a file system
+ * holds apart only by how its accents are composed, is another file.
+ */
+interface Written {
+  /** Relative to the folder, with `/` between its parts, as the run named it. */
+  path: string;
+  /** The file system's own identity for it, device and inode, taken from the file the run created. */
+  id: string;
+  /** Its size and modification time once written: a file changed since is no longer only the run's. */
+  size?: string;
+  mtime?: string;
+}
+
 /** What the marker says: the command that wrote the folder, and everything it wrote there. */
 interface Marker {
   command: string;
-  files: Set<string>;
-  folders: Set<string>;
+  files: Written[];
+  folders: string[];
 }
 
 /** The run writing into each folder now, by real path, which the next run there waits for. */
@@ -115,16 +132,25 @@ async function openAndWrite<T>(
     await clear(dir, command, marked);
   }
   const created = new Date().toISOString();
-  const files = new Set<string>();
+  const files = new Map<string, Written>();
   const folders = new Set<string>();
-  const record = () => mark(dir, { format: FORMAT, version: 1, command, created, files: [...files].sort(), folders: [...folders].sort() });
+  const record = () =>
+    mark(dir, {
+      format: FORMAT,
+      version: 1,
+      command,
+      created,
+      files: [...files.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      folders: [...folders].sort(),
+    });
   // First, so that a run that stops part way leaves a folder the next run knows as its own.
   await record();
   const folder: OutFolder = {
     dir,
     put: async (relative, content) => {
       const file = await placed(dir, command, relative);
-      return put(file, content, () => files.add(posix(dir, file)));
+      const name = posix(dir, file);
+      return put(file, content, (identity) => files.set(name, { path: name, ...identity }));
     },
     mkdir: async (relative) => {
       folders.add(posix(dir, await placed(dir, command, relative, true)));
@@ -141,12 +167,22 @@ async function openAndWrite<T>(
   return result;
 }
 
+/** A path under `dir` as the marker records it: relative, with `/` between its parts. */
+const posix = (dir: string, file: string) => path.relative(dir, file).split(path.sep).join("/");
+
 /**
- * A path under `dir` as the marker records it: relative, with `/` between
- * its parts, and composed, as a file system that decomposes names gives
- * them back otherwise.
+ * A path the marker may name: relative, below the folder, in plain parts.
+ * Anything else, an absolute path, `..`, an empty part, is not one this
+ * code wrote, and is dropped rather than walked.
  */
-const posix = (dir: string, file: string) => path.relative(dir, file).split(path.sep).join("/").normalize("NFC");
+const isOutputPath = (p: unknown): p is string =>
+  typeof p === "string" && p.length > 0 && !p.includes("\\") && !p.includes("\0") && p.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+
+/** A file's identity, and once it is written its size and time, as the marker records them. */
+const identity = (stat: BigIntStats, written: boolean): Omit<Written, "path"> => ({
+  id: `${stat.dev}:${stat.ino}`,
+  ...(written ? { size: String(stat.size), mtime: String(stat.mtimeNs) } : {}),
+});
 
 /** The marker, if a command left one; a link where it should be is somebody else's, whatever it points at. */
 async function marker(dir: string): Promise<Marker | undefined> {
@@ -155,20 +191,33 @@ async function marker(dir: string): Promise<Marker | undefined> {
     if (!stat.isFile()) return undefined;
     const parsed = JSON.parse(await fs.readFile(path.join(dir, MARKER), "utf8")) as { format?: unknown; command?: unknown; files?: unknown; folders?: unknown };
     if (parsed.format !== FORMAT || typeof parsed.command !== "string") return undefined;
-    const strings = (list: unknown) =>
-      new Set(Array.isArray(list) ? list.filter((s): s is string => typeof s === "string").map((s) => s.normalize("NFC")) : []);
-    return { command: parsed.command, files: strings(parsed.files), folders: strings(parsed.folders) };
+    const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+    const optional = (value: unknown) => value === undefined || typeof value === "string";
+    // Only what this code would have written: anything else owns nothing, so whatever it names is a stranger.
+    const files = list(parsed.files).filter(
+      (f): f is Written =>
+        typeof f === "object" && f !== null && isOutputPath((f as Written).path) && typeof (f as Written).id === "string" && optional((f as Written).size) && optional((f as Written).mtime)
+    );
+    return { command: parsed.command, files, folders: list(parsed.folders).filter(isOutputPath) };
   } catch {
     return undefined;
   }
 }
 
-/** Write the marker whole, never half: written beside it, then moved over it. */
+/**
+ * Write the marker whole, never half: written beside it, then moved over
+ * it. Beside it under a name no other run or person has, so nothing already
+ * there is touched; only the marker itself is replaced.
+ */
 async function mark(dir: string, content: object): Promise<void> {
-  const next = path.join(dir, `${MARKER}.new`);
-  await fs.rm(next, { force: true });
+  const next = path.join(dir, `${MARKER}.${randomUUID()}.new`);
   await fs.writeFile(next, `${JSON.stringify(content, null, 2)}\n`, { flag: "wx" });
-  await fs.rename(next, path.join(dir, MARKER));
+  try {
+    await fs.rename(next, path.join(dir, MARKER));
+  } catch (e) {
+    await fs.rm(next, { force: true });
+    throw e;
+  }
 }
 
 /**
@@ -180,23 +229,36 @@ async function mark(dir: string, content: object): Promise<void> {
 async function clear(dir: string, command: Command, marked: Marker): Promise<void> {
   const ours = new Set(marked.folders);
   for (const file of marked.files) {
-    for (let up = path.posix.dirname(file); up !== "."; up = path.posix.dirname(up)) ours.add(up);
+    for (let up = path.posix.dirname(file.path); up !== "." && up !== path.posix.dirname(up); up = path.posix.dirname(up)) ours.add(up);
   }
+  const byId = new Map(marked.files.map((file) => [file.id, file]));
+  /**
+   * Whether this entry is the very file the run wrote: the same identity,
+   * unchanged since, at its name. The name is compared composed only because
+   * a file system that decomposes names gives them back so; the identity is
+   * what makes it the run's, and each identity is claimed once.
+   */
+  const owned = (relative: string, stat: BigIntStats) => {
+    const file = byId.get(`${stat.dev}:${stat.ino}`);
+    if (!file || !stat.isFile() || file.path.normalize("NFC") !== relative.normalize("NFC")) return false;
+    if (file.size !== undefined && (file.size !== String(stat.size) || file.mtime !== String(stat.mtimeNs))) return false;
+    byId.delete(file.id);
+    return true;
+  };
   const files: string[] = [];
   const folders: string[] = [];
   const strangers: string[] = [];
   const walk = async (relative: string): Promise<void> => {
-    const stat = await fs.lstat(path.join(dir, relative)).catch((e: NodeJS.ErrnoException) => {
+    const stat = await fs.lstat(path.join(dir, relative), { bigint: true }).catch((e: NodeJS.ErrnoException) => {
       if (e.code === "ENOENT") return undefined;
       throw e;
     });
     if (!stat) return;
-    const recorded = relative.normalize("NFC");
     if (stat.isDirectory()) {
       for (const name of await fs.readdir(path.join(dir, relative))) await walk(`${relative}/${name}`);
-      // After what is in it, so it is removed once empty.
-      if (ours.has(recorded)) folders.push(relative);
-    } else if (stat.isFile() && marked.files.has(recorded)) {
+      // After what is in it, so it is removed once empty; only one named as the run named it, and only if empty by then.
+      if (ours.has(relative)) folders.push(relative);
+    } else if (owned(relative, stat)) {
       files.push(relative);
     } else {
       strangers.push(relative);
@@ -278,18 +340,20 @@ async function placed(dir: string, command: Command, relative: string, isFolder 
 /**
  * Write a new file, refusing any already there: what this command wrote
  * before is gone by now, so anything left is somebody else's. `made` is
- * told once the file is this run's, before a byte is written, so a file
- * left half written is still known as its own.
+ * told the file's identity once the file is this run's, before a byte is
+ * written, so a file left half written is still known as its own, and again
+ * with its size and time once it is written.
  */
-async function put(file: string, content: string, made: () => void): Promise<string> {
+async function put(file: string, content: string, made: (identity: Omit<Written, "path">) => void): Promise<string> {
   // `wx` never follows a link left where the file goes, and never replaces a file.
   const handle = await fs.open(file, "wx").catch((e: NodeJS.ErrnoException) => {
     if (e.code === "EEXIST") throw new LibraryError(`${file} is already there, and is not this command's to replace.`);
     throw e;
   });
   try {
-    made();
+    made(identity(await handle.stat({ bigint: true }), false));
     await handle.writeFile(content);
+    made(identity(await handle.stat({ bigint: true }), true));
   } finally {
     await handle.close();
   }

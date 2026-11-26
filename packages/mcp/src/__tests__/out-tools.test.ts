@@ -224,7 +224,7 @@ describe("the out folder", () => {
     const results = await Promise.all([1, 2, 3].map(() => session.call("check_presentations", { out })));
     expect(results.map((r) => r.isError)).toEqual([false, false, false]);
     expect(listing(out)).toEqual([MARKER, "check.json", "check.txt"]);
-    expect(JSON.parse(text(path.join(out, MARKER))).files).toEqual(["check.json", "check.txt"]);
+    expect(JSON.parse(text(path.join(out, MARKER))).files.map((f: { path: string }) => f.path)).toEqual(["check.json", "check.txt"]);
   });
 
   it("is refused when it is not an absolute path", async () => {
