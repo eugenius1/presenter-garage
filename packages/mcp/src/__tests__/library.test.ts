@@ -302,7 +302,7 @@ describe("use_library", () => {
   it("tells the model nothing can be written when the library it starts on cannot be backed up", async () => {
     const { client } = await connect(second, { backupDir: path.join(second, "Backups") });
     const instructions = client.getInstructions() ?? "";
-    expect(instructions).toContain("Nothing can be written in this library");
+    expect(instructions).toContain("Slide text cannot be edited in this library");
     expect(instructions).not.toContain("plan_slide_edits");
     expect((await client.listTools()).tools.map((t) => t.name)).not.toContain("plan_slide_edits");
     await client.close();

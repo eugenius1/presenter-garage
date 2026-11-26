@@ -617,7 +617,9 @@ six:
   `workspace.ts` to read a ProPresenter 22 workspace as though it were those
   files, `rules.ts` to find, load and save a team's rules, `workspace-write.ts` to write slide text into one, and `planning.ts`
   and `apply.ts` (with `plans.ts` and `styling.ts`, all re-exported as
-  `edits.ts`) to plan and apply an edit through them. Its one dependency, `loro-crdt`, is imported from its `base64` build,
+  `edits.ts`) to plan and apply an edit through them, and `commands/`, the
+  read-only commands the command line runs and the MCP server offers as
+  tools (see `cli` below). Its one dependency, `loro-crdt`, is imported from its `base64` build,
   which carries the WebAssembly inline so the server stays one file.
   Kept out of `mcp` so the desktop app and the command line share the
   one write path rather than grow a second.
@@ -626,9 +628,11 @@ six:
   routing.
 - **`mcp`** (`presenter-garage-mcp`, published to npm): the MCP server.
 - **`cli`** (`@presenter-garage/cli`, private): the `presenter-garage`
-  command, `npm run cli -- <command>` from a checkout. Read-only so far:
-  `sources`, `dump`, `compare`, `check` and `rules check`, all reading
-  through `node` as the server does, a workspace only through
+  command, `npm run cli -- <command>` from a checkout, `cli.ts` parsing the
+  arguments and printing. Read-only so far: `sources`, `dump`, `compare`,
+  `check` and `rules check`, whose work is all in `packages/node/src/commands/`
+  so that the MCP server's tools run the same code and write the same files.
+  They read through `node` as the server does, a workspace only through
   `openDatabase()`. `check` (`check.ts`) prints each rule break with two
   slides either side. `compare` matches songs
   (`compare.ts`), proposes a version for each place two versions differ by
@@ -638,8 +642,16 @@ six:
   marked (`diff.ts`), and writes `report.html` (`report.ts`), one file with
   its data and script inline so it opens from the disk and can be passed on.
   The page builds its elements with `textContent`, never `innerHTML`: its
-  data is lyrics. It writes only under `--out`, into a folder that is empty
-  or one it wrote before. When it comes to write, it is bound by AGENTS.md
+  data is lyrics. Every file a command writes goes through `writeOut()` in
+  `out-folder.ts`, into a new folder the run makes for itself inside the
+  `--out` folder, never inside a library the run reads, nor holding one.
+  Nothing there ever removes or replaces a file: every folder and file is
+  made with an exclusive `mkdir` or `wx` open, so two runs at once, as the
+  MCP server makes them, each get their own folder, and a run that fails
+  part way leaves what it wrote for the person to delete. The writers are
+  in `output.ts`, and each returns
+  the counts and paths the command prints and the server answers with. When
+  it comes to write a library, it is bound by AGENTS.md
   like every other surface: guard 2 from `packages/node`, guard 3 from a
   person at a terminal or a plan file a person reviewed.
 - **`desktop`** (`@presenter-garage/desktop`, private): the web app in
@@ -672,7 +684,14 @@ Shared analysis lives in `packages/core/src/lib/`, shared interface pieces in
 `packages/mcp/` is the MCP server. It calls `core` and nothing in `core` knows
 it exists. `server.ts` describes and routes the tools; what each one answers
 is in `src/tools/`, one file per group of tools, and what writes is in
-`edits.ts`. It serves one library at a time, held by `Library` in
+`edits.ts`. `out-tools.ts` offers the command line's commands as tools
+(`find_libraries`, `dump_library`, `compare_libraries`, `check_rules`, and
+`check_presentations` given `out`), which write to a folder through
+`packages/node/src/commands/` and answer with counts and paths: an answer
+goes to the model's provider, and a library's lyrics have no business
+there. Read-only offers none of them (`check_presentations` only without
+`out`), and `compare_libraries` reads its
+second library only once the person approves, as `use_library` asks. It serves one library at a time, held by `Library` in
 `library.ts`: the folder it was started on (or the default), the first of the
 client's roots that is itself a ProPresenter folder or workspace (never a
 folder above one, which no person chose), read again on
@@ -692,7 +711,8 @@ test holds equal. It touches the disk only through `packages/node`.
 In `library.ts` there, every path a tool is given is resolved with `realpath`
 before it is compared with the configured folders, and nothing opens a file
 for writing; `write.ts` is the only code that does, apart from `rules.ts`
-writing a team's `rules.json` beside its `RULES.md`, `workspace-write.ts` the
+writing a team's `rules.json` beside its `RULES.md`, `commands/out-folder.ts`
+writing a command's results into its `out` folder, `workspace-write.ts` the
 only code that opens a workspace's database for writing, and `apply.ts`
 beside them the only caller of either, called in turn by the server and the
 desktop app. Node has no

@@ -65,11 +65,13 @@ it to fix a typo, reword a line, or add one, and before anything is written your
 shows you every line as it is and as it would read, with a tick box for each.
 Every file is backed up outside your library first, and the result is read
 back before it is kept. Started with `--read-only` (or the extension's *Read
-only* setting), it never changes a file and does not even offer the editing
-tools.
+only* setting), it never writes a file and does not even offer the tools
+that would.
 
 Editing needs a client that can ask you a question mid-task (MCP
-*elicitation*); with one that cannot, nothing is written. Close a song in
+*elicitation*); with one that cannot, no slide is changed. The tools that
+write a whole library to a folder (below) still make their new folder there,
+never inside, nor holding, a library they read, and never over a file. Close a song in
 ProPresenter before editing it: ProPresenter may save its own copy over the
 change. Backups go to `~/Library/Application Support/Presenter
 Garage/Backups` on macOS and `%APPDATA%\Presenter Garage\Backups` on
@@ -88,7 +90,7 @@ ProPresenter's own network API can show and trigger slides, and there are MCP
 servers for that, but it cannot read a presentation's file or edit its text.
 This works on the files instead, through the same code as the app.
 
-It reads one library at a time, and nothing outside it. The usual one is
+It works in one library at a time. The usual one is
 `Documents/ProPresenter`, which holds `Libraries` and `Playlists` on both macOS
 and Windows. The assistant can ask to open another with `use_library`, but
 only you can say yes: your app shows you the library open now and the one
@@ -97,7 +99,10 @@ you, such as one without MCP elicitation, cannot switch at all. In a client
 that tells its servers which folders you are working in (its *roots*), the
 first of them that is itself a ProPresenter library (a ProPresenter folder or
 a ProPresenter 22 workspace) is the one read; the others are ignored, and so is
-a folder that only holds one, such as `Documents`.
+a folder that only holds one, such as `Documents`. Outside the library open it
+reads only what a tool needs: a second library that `compare_libraries` sets
+beside it once you approve, the places ProPresenter keeps its libraries for
+`find_libraries`, and your team's rules (below).
 
 The folder has moved twice since. **ProPresenter 20** introduced workspaces,
 and one made there is a folder of the same files somewhere else: under
@@ -123,6 +128,19 @@ makes no network connection, but every answer it gives — slide text, notes,
 file names, media-bin entries — goes into the conversation with your
 assistant, and an assistant that runs on a hosted model, such as Claude, sends
 the conversation to that model's provider like anything else you type.
+
+So for a whole library the server writes to a folder instead of answering:
+`dump_library` writes out every song, `compare_libraries` sets the library
+beside another (once you approve reading that one), `check_presentations`
+given an `out` folder writes every rule break with its line, and
+`find_libraries` and `check_rules` list the libraries on your computer and
+the rules as loaded. Each answers with counts and the paths it wrote, so the
+lyrics stay on your computer until you ask the assistant to read one. They
+are the command line's files (below), written by the same code: each call
+makes a new folder of its own inside the folder you give, never inside, nor
+holding, a library the call reads, and nothing already there is touched. In
+read-only mode none of them writes: `check_presentations` is offered without `out`, answering with its
+findings, and the others are not offered at all.
 
 #### Claude Desktop
 
@@ -160,7 +178,7 @@ command `npx`, arguments `-y presenter-garage-mcp` followed by your folder.
 Pass one folder; with none, it reads the workspace ProPresenter 22
 has open, else `~/Documents/ProPresenter`, else the one workspace ProPresenter
 20 or 21 made elsewhere. Add
-`--read-only` to turn editing off. Reading a ProPresenter 22 workspace needs
+`--read-only` to turn off everything that writes. Reading a ProPresenter 22 workspace needs
 Node 22.13 or later.
 
 Claude Code can also install it as a plugin from this repository's marketplace,
@@ -215,6 +233,12 @@ or the other, and download your picks as `decisions.json`. It also writes
 `compare.json` and a text view of every song, so
 `git diff --no-index --word-diff text/bas text/haut` works in a terminal.
 `dump <source> --out <dir>` writes every song of one library as JSON and text.
+`sources`, `check` and `rules check` take `--out` too, and then write what they
+would print there. Each run makes a new folder of its own inside `--out`,
+named for the command and the time (`compare-2026-11-26T10-12-02Z`), and
+prints where; never inside, nor holding, a library the run reads. Nothing already in `--out` is replaced
+or removed, so earlier runs, and any a failure stopped part way, stay
+beside the new one until you delete them.
 
 ProPresenter 22 records no edit dates from before the upgrade, so a workspace
 song nobody has edited since is dated from the `.pro` file it was made from,
@@ -236,7 +260,7 @@ has changed since. [docs/rules/](docs/rules/) has a sample to start from.
 Keep the two files in the folder you run the assistant or the command from,
 or in `Documents/ProPresenter`, never inside a ProPresenter workspace folder.
 Through the MCP server, the assistant finds them there (`read_rules`,
-`save_rules`, `check_presentations`). On the command line:
+`save_rules`, `check_presentations`, `check_rules`). On the command line:
 
 ```bash
 npm run cli -- check haut=active --rules path/to/rules.json

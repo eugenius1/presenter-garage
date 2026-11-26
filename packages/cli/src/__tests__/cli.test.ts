@@ -4,9 +4,10 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { putDocument } from "@presenter-garage/node/__tests__/workspace-db";
 import { run, type Io } from "../cli";
-import { discover, foundText } from "../discover";
-import { activeWorkspace } from "../source";
-import { sqlite, writeLibrary, writeRegistry, writeWorkspace, type SongSpec } from "./fixtures";
+import { discover, foundText } from "@presenter-garage/node/commands/discover";
+import { writeSources } from "@presenter-garage/node/commands/output";
+import { activeWorkspace } from "@presenter-garage/node/commands/source";
+import { sqlite, writeLibrary, writeRegistry, writeWorkspace, type SongSpec } from "@presenter-garage/node/__tests__/songs";
 
 /**
  * The command end to end, over a folder of `.pro` files ("bas") and a
@@ -42,6 +43,14 @@ function capture(): Io & { stdout: string; stderr: string } {
 }
 
 const listing = (dir: string) => fs.readdirSync(dir).sort();
+/** Every file and folder under a folder, relative. */
+const tree = (dir: string) => (fs.readdirSync(dir, { recursive: true }) as string[]).map((f) => f.split(path.sep).join("/")).sort();
+/** The one folder a run made inside `out`. */
+function runFolder(out: string): string {
+  const made = listing(out);
+  expect(made).toHaveLength(1);
+  return path.join(out, made[0]);
+}
 
 describe.skipIf(!sqlite)("presenter-garage", () => {
   beforeAll(() => {
@@ -89,15 +98,16 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   describe("compare", () => {
+    /** The folder the run made inside `--out`. */
     let out: string;
     let io: ReturnType<typeof capture>;
     let store: string[];
 
     beforeAll(async () => {
-      out = path.join(tmp, "out");
       store = listing(path.join(haut, "DocumentStore"));
       io = capture();
-      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", out], io)).toBe(0);
+      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", path.join(tmp, "out")], io)).toBe(0);
+      out = runFolder(path.join(tmp, "out"));
     });
 
     it("prints a summary of counts and paths, and no lyrics", () => {
@@ -107,6 +117,8 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(io.stdout).toContain("Chants/Chords.pro: This is a text file");
       expect(io.stdout).toContain("not downloaded to this computer yet");
       expect(io.stdout).not.toMatch(/Digne|Seulement|ligne/);
+      expect(io.stdout).toContain(`Folder: ${out}`);
+      expect(path.basename(out)).toMatch(/^compare-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ$/);
     });
 
     it("leaves the workspace as it found it", () => {
@@ -158,25 +170,20 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(lamb.rows[0].b.slides[0].lines[0]).toEqual(["Digne est l'Agneau ", ["de Dieu"]]);
     });
 
-    it("writes again into its own output, and into nothing else that is not empty", async () => {
-      fs.writeFileSync(path.join(out, "text", "bas", "stale.txt"), "gone");
-      // A link left where the report goes is replaced, not written through.
-      const elsewhere = path.join(tmp, "elsewhere.txt");
-      fs.writeFileSync(elsewhere, "untouched");
-      fs.rmSync(path.join(out, "report.html"));
-      fs.symlinkSync(elsewhere, path.join(out, "report.html"));
-      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", out, "--json"], capture())).toBe(0);
-      expect(fs.existsSync(path.join(out, "text", "bas", "stale.txt"))).toBe(false);
-      expect(fs.readFileSync(elsewhere, "utf8")).toBe("untouched");
-      expect(fs.lstatSync(path.join(out, "report.html")).isFile()).toBe(true);
-
-      const foreign = path.join(tmp, "foreign");
-      fs.mkdirSync(foreign);
-      fs.writeFileSync(path.join(foreign, "notes.txt"), "mine");
-      const refused = capture();
-      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", foreign], refused)).toBe(1);
-      expect(refused.stderr).toContain("is not empty and is not a folder this command wrote");
-      expect(listing(foreign)).toEqual(["notes.txt"]);
+    it("writes each run to a new folder, and never touches what is already there", async () => {
+      // A file a person put beside the results, and one among them: neither is replaced or removed.
+      const parent = path.join(tmp, "out");
+      fs.writeFileSync(path.join(parent, "notes.txt"), "mine");
+      fs.writeFileSync(path.join(out, "text", "bas", "notes.txt"), "mine too");
+      const before = tree(parent);
+      const again = capture();
+      expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", parent, "--json"], again)).toBe(0);
+      const next = JSON.parse(again.stdout).out;
+      expect(path.dirname(next)).toBe(parent);
+      expect(next).not.toBe(out);
+      expect(tree(parent).filter((f) => !f.startsWith(path.basename(next)))).toEqual(before);
+      expect(fs.readFileSync(path.join(parent, "notes.txt"), "utf8")).toBe("mine");
+      expect(tree(next)).toEqual(tree(out).filter((f) => f !== "text/bas/notes.txt"));
     });
 
     it("answers in JSON for an agent", async () => {
@@ -184,16 +191,16 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(await run(["compare", `bas=${bas}`, `haut=${haut}`, "--out", path.join(tmp, "out-json"), "--json"], json)).toBe(0);
       const parsed = JSON.parse(json.stdout);
       expect(parsed.summary.buckets).toMatchObject({ identical: 1, different: 2, renamed: 0, onlyA: 1, onlyB: 1 });
-      expect(parsed.files.report).toBe(path.join(tmp, "out-json", "report.html"));
+      expect(parsed.files.report).toBe(path.join(runFolder(path.join(tmp, "out-json")), "report.html"));
       expect(json.stdout).not.toMatch(/Digne|Seulement|ligne/);
     });
   });
 
   describe("dump", () => {
     it("writes every song as JSON and text, with an index that holds no words", async () => {
-      const out = path.join(tmp, "dump");
       const io = capture();
-      expect(await run(["dump", `haut=${haut}`, "--out", out], io)).toBe(0);
+      expect(await run(["dump", `haut=${haut}`, "--out", path.join(tmp, "dump")], io)).toBe(0);
+      const out = runFolder(path.join(tmp, "dump"));
       expect(io.stdout).toContain(`haut: 4 songs written to ${out}`);
       const song = JSON.parse(fs.readFileSync(path.join(out, "songs", "Chants", "Edited.json"), "utf8"));
       expect(song).toMatchObject({ name: "Edited", id: EDITED, groups: [{ name: "Refrain", slides: [{ lines: ["Nouvelle ligne"] }] }] });
@@ -201,6 +208,14 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       const index = fs.readFileSync(path.join(out, "index.json"), "utf8");
       expect(JSON.parse(index).songs).toHaveLength(4);
       expect(index).not.toContain("Nouvelle");
+    });
+
+    it("never writes into the .pro folder a workspace was made from, which it reads too", async () => {
+      const before = fs.readdirSync(legacy, { recursive: true });
+      const io = capture();
+      expect(await run(["dump", `haut=${haut}`, "--out", path.join(legacy, "results")], io)).toBe(1);
+      expect(io.stderr).toContain("is inside the library");
+      expect(fs.readdirSync(legacy, { recursive: true })).toEqual(before);
     });
 
     it("prints the songs only when asked", async () => {
@@ -241,6 +256,15 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(text).toContain(`* ProPresenter: ${haut} (Cloud, schema 22.9.0, active)`);
       expect(text).toContain(`made from ${legacy}`);
       expect(await activeWorkspace(registry)).toBe(haut);
+
+      // With --out, the same list is written, and the terminal gets counts and the folder.
+      const written = await writeSources(path.join(tmp, "sources"), found);
+      const out = runFolder(path.join(tmp, "sources"));
+      expect(written).toMatchObject({ out, workspaces: 1, folderWorkspaces: 1, documents: false, active: true });
+      expect(fs.readFileSync(path.join(out, "sources.txt"), "utf8")).toBe(`${text}\n`);
+      expect(JSON.parse(fs.readFileSync(path.join(out, "sources.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(found)));
+      // Not into a folder inside a library it found.
+      await expect(writeSources(path.join(haut, "results"), found)).rejects.toThrow("is inside the library");
       await expect(activeWorkspace(path.join(tmp, "nowhere"))).rejects.toThrow("no active workspace");
     });
   });
@@ -261,7 +285,10 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       fs.writeFileSync(file, "");
       const notFolder = capture();
       expect(await run(["dump", `bas=${bas}`, "--out", file], notFolder)).toBe(1);
-      expect(notFolder.stderr).toContain("ENOTDIR");
+      expect(notFolder.stderr).toContain("is not a folder");
+      const underFile = capture();
+      expect(await run(["dump", `bas=${bas}`, "--out", path.join(file, "results")], underFile)).toBe(1);
+      expect(underFile.stderr).toContain("is not a folder");
       const unlabelled = capture();
       expect(await run(["dump", path.parse(tmp).root, "--lyrics"], unlabelled)).toBe(1);
       expect(unlabelled.stderr).toContain("a label");

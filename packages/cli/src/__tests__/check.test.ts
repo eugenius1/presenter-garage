@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { run, type Io } from "../cli";
 import { syntheticMacrosFile } from "@presenter-garage/core/lib/__tests__/synthetic";
-import { writeLibrary } from "./fixtures";
+import { writeLibrary } from "@presenter-garage/node/__tests__/songs";
 
 /**
  * `check` and `rules check` end to end, over a folder of `.pro` files and a
@@ -59,6 +59,9 @@ beforeAll(() => {
 
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
+/** The folders runs made inside `out`, oldest first. */
+const runFolders = (out: string) => fs.readdirSync(out).sort().map((name) => path.join(out, name));
+
 describe("check", () => {
   it("lists each break with two slides either side, in the language asked for", async () => {
     const io = capture();
@@ -102,6 +105,39 @@ describe("check", () => {
     expect(withWords.stdout).toContain("Holy holy x3");
   });
 
+  it("with --out, writes every break and its words there, and prints counts and paths alone", async () => {
+    const parent = path.join(tmp, "check-out");
+    const io = capture();
+    expect(await run(["check", `lib=${library}`, "--rules", team, "--lang", "en", "--out", parent], io)).toBe(0);
+    const [out] = runFolders(parent);
+    expect(io.stdout).toContain("lib: 3 rule breaks in 1 of 4 songs, 1 more excepted");
+    expect(io.stdout).toContain(`Folder: ${out}`);
+    expect(io.stdout).toContain(`Text: ${path.join(out, "check.txt")}`);
+    expect(io.stdout).not.toContain("Holy holy");
+    // The same as printed without --out: the files are what the terminal would have shown.
+    const printed = capture();
+    await run(["check", `lib=${library}`, "--rules", team, "--lang", "en"], printed);
+    expect(fs.readFileSync(path.join(out, "check.txt"), "utf8")).toBe(printed.stdout);
+    const withWords = capture();
+    await run(["check", `lib=${library}`, "--rules", team, "--lang", "en", "--json", "--lyrics"], withWords);
+    expect(JSON.parse(fs.readFileSync(path.join(out, "check.json"), "utf8"))).toEqual(JSON.parse(withWords.stdout));
+
+    const json = capture();
+    expect(await run(["check", `lib=${library}`, "--rules", team, "--out", parent, "--json"], json)).toBe(0);
+    // A folder of its own, beside the first run's.
+    const second = runFolders(parent).filter((dir) => dir !== out);
+    expect(second).toHaveLength(1);
+    expect(JSON.parse(json.stdout)).toMatchObject({ out: second[0], breaks: { total: 3, byTier: [0, 3, 0], songs: 1, excepted: 1 }, source: { songs: 4 } });
+  });
+
+  it("never writes inside the library it reads", async () => {
+    const before = fs.readdirSync(library, { recursive: true });
+    const io = capture();
+    expect(await run(["check", `lib=${library}`, "--rules", team, "--out", path.join(library, "Songs", "results")], io)).toBe(1);
+    expect(io.stderr).toContain("is inside the library");
+    expect(fs.readdirSync(library, { recursive: true })).toEqual(before);
+  });
+
   it("refuses rules it cannot read, saying where", async () => {
     const broken = path.join(tmp, "broken");
     fs.mkdirSync(broken);
@@ -140,6 +176,16 @@ describe("rules check", () => {
     expect(io.stdout).toContain("3 rules (tier 1: 0, tier 2: 3, tier 3: 0, off: 0), 1 exceptions");
     expect(io.stdout).toContain("ends-on-pause: last-group, tier 2, only in Songs");
     expect(io.stdout).toContain("compile it again");
+  });
+
+  it("with --out, writes the rules there as well as printing them", async () => {
+    const io = capture();
+    expect(await run(["rules", "check", path.join(team, "rules.json"), "--out", path.join(tmp, "rules-out")], io)).toBe(0);
+    const [out] = runFolders(path.join(tmp, "rules-out"));
+    expect(path.basename(out)).toMatch(/^rules-check-/);
+    expect(io.stdout).toContain(`Written to ${out}`);
+    expect(fs.readFileSync(path.join(out, "rules-check.txt"), "utf8")).toContain("ends-on-pause: last-group, tier 2, only in Songs");
+    expect(JSON.parse(fs.readFileSync(path.join(out, "rules-check.json"), "utf8"))).toMatchObject({ rules: 3, exceptions: 1, stale: true });
   });
 
   it("stops the whole read with exit 1, a clean error and nothing printed as findings, when a song opens and its rules name a macro the list lacks", async () => {

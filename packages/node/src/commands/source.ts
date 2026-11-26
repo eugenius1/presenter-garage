@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { openPresentation } from "@presenter-garage/core/lib/presentation";
-import { findPresentations, LibraryError, openRoots, readFoundFile } from "@presenter-garage/node/library";
-import { explain } from "@presenter-garage/node/presentations";
-import { documentAt, isEdit, registeredWorkspaces, workspaceAt } from "@presenter-garage/node/workspace";
+import { findPresentations, isFile, LibraryError, openRoots, readFoundFile } from "../library";
+import { explain } from "../presentations";
+import { documentAt, isEdit, registeredWorkspaces, workspaceAt } from "../workspace";
 import { unknownMacros, type RuleSet } from "@presenter-garage/core/lib/rules";
-import { libraryOf, rulesConfiguration } from "@presenter-garage/node/rules";
+import { libraryOf, rulesConfiguration } from "../rules";
 import { fileEdited, nameKey, songOf, type Edited, type Song, type SongRules } from "./song";
 
 /**
@@ -36,6 +36,9 @@ export function parseSource(arg: string): SourceSpec {
 
 /** A label names a folder of text views and a column of the report, so it is a plain word that cannot climb out of one. */
 const LABEL = /^[\p{L}\p{N}][\p{L}\p{N}_.-]*$/u;
+
+/** Whether a name can be a source's label. */
+export const isLabel = (name: string) => LABEL.test(name);
 
 export interface SongFailure {
   file: string;
@@ -77,13 +80,23 @@ export interface ReadOptions {
   progress?: (done: number, total: number) => void;
   /** The rules to check each song against; the default text checks when absent. */
   rules?: RuleSet;
+  /**
+   * Read only this file or folder inside the source, resolved, as the MCP
+   * server's `check_presentations` takes one: each song still checked
+   * against its whole library's configured lists.
+   */
+  within?: string;
 }
 
 export async function readSource(spec: SourceSpec, options: ReadOptions = {}): Promise<Source> {
   const given = spec.path === "active" ? await activeWorkspace() : spec.path;
   const [root] = await openRoots([given]);
   const workspace = await workspaceAt(root);
-  const { files, truncated } = await findPresentations([root]);
+  const { files, truncated } = options.within
+    ? (await isFile(options.within))
+      ? { files: [options.within], truncated: false }
+      : await findPresentations([options.within])
+    : await findPresentations([root]);
   const { problems: ruleNotes, ...config } = options.rules ? await rulesConfiguration([root]) : { problems: [] };
   // A macro name the list does not hold would make its rule find nothing, or
   // everything; asked of each song's library once a song there opens, since a
@@ -225,6 +238,39 @@ export function legacyMatcher(before: readonly Song[]): (song: Song) => Song | u
 export function sourceMeta(source: Source) {
   const { songs, ...meta } = source;
   return { ...meta, songs: songs.length };
+}
+
+/** A source as counts and paths alone: what an answer says about it, the files it could not read left to what was written. */
+export interface SourceCounts {
+  label: string;
+  root: string;
+  kind: Source["kind"];
+  songs: number;
+  notRead: number;
+  truncated: boolean;
+  upgradedAt?: string;
+  legacy?: string;
+}
+
+export function sourceCounts(source: Source): SourceCounts {
+  return {
+    label: source.label,
+    root: source.root,
+    kind: source.kind,
+    songs: source.songs.length,
+    notRead: source.failures.length,
+    truncated: source.truncated,
+    ...(source.upgradedAt ? { upgradedAt: source.upgradedAt } : {}),
+    ...(source.legacy ? { legacy: source.legacy } : {}),
+  };
+}
+
+/** The files that would not read, as a few lines to follow a summary: nothing when every file read. */
+export function failuresText(source: Source): string {
+  if (!source.failures.length && !source.truncated) return "";
+  const lines = source.failures.map((f) => `  ${f.file}: ${f.reason}`);
+  if (source.truncated) lines.push("  (stopped at the walk's limit: not every file was read)");
+  return `\n${source.label}: ${source.failures.length} not read\n${lines.join("\n")}`;
 }
 
 const only = <T>(list: readonly T[]): T | undefined => (list.length === 1 ? list[0] : undefined);

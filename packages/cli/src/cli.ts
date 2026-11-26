@@ -1,21 +1,30 @@
-import path from "node:path";
 import { parseArgs } from "node:util";
 import { createI18n, detectLanguage, isLang, type I18n } from "@presenter-garage/core/i18n/core";
 import { LibraryError } from "@presenter-garage/node/library";
 import { findRules, loadRules, type LoadedRules } from "@presenter-garage/node/rules";
-import { checkJson, checkText, notes, rulesMeta, rulesText } from "./check";
-import { compareSongs, summarise, summaryText } from "./compare";
-import { discover, foundText } from "./discover";
-import { labelKey, writeCompare, writeDump } from "./output";
-import { songText } from "./song";
-import { parseSource, readSource, sourceMeta, type ReadOptions, type Source, type SourceSpec } from "./source";
+import { checkJson, checkText, rulesMeta, rulesText } from "@presenter-garage/node/commands/check";
+import { summaryText } from "@presenter-garage/node/commands/compare";
+import { discover, foundText } from "@presenter-garage/node/commands/discover";
+import { knownLibraries, labelKey, writeCheck, writeCompare, writeDump, writeRulesCheck, writeSources } from "@presenter-garage/node/commands/output";
+import { songText } from "@presenter-garage/node/commands/song";
+import {
+  failuresText,
+  parseSource,
+  readSource,
+  sourceMeta,
+  type ReadOptions,
+  type Source,
+  type SourceSpec,
+} from "@presenter-garage/node/commands/source";
 
 /**
  * `presenter-garage`: read-only commands over ProPresenter libraries.
  *
  * What goes to the terminal is counts and paths, never lyrics unless asked
  * for: an agent running this over a thousand songs should not have them
- * poured into its context. The words go into files under `--out`.
+ * poured into its context. The words go into files under `--out`, written
+ * by `packages/node/src/commands/output.ts`, which the MCP server's tools
+ * write through too, so either leaves the same files.
  */
 
 export interface Io {
@@ -37,12 +46,20 @@ Commands:
                                 (with --json: where each is and what it says)
   rules check [<file>]          Read the rules, and say whether they are older than RULES.md
 
+With --out, sources, check and rules check write what they would print to
+files there too, and print only counts and paths.
+
+Each run makes a new folder of its own inside the --out folder, such as
+dump-2026-11-26T10-12-02Z, and writes only there: nothing already in the
+--out folder is ever replaced or removed.
+
 A source is a folder of .pro files, a ProPresenter 22 workspace folder, or
 "active" (the workspace ProPresenter has open), with a label in front:
   bas=private/machines/bas   haut=active
 
 Options:
-  --out <dir>             Where files go: a new or empty folder, or one this command wrote
+  --out <dir>             Where each run makes a new folder for its files, never inside, nor
+                          holding, a library the run reads
   --json                  Print JSON instead of text, for scripts and agents
   --prefer <label>        The main library, kept when nothing else decides (default: haut)
   --legacy <label>=<dir>  The .pro folder a workspace was made from, for edit dates before
@@ -96,7 +113,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     const i18n = createI18n(isLang(values.lang) ? values.lang : systemLanguage());
     switch (command) {
       case "sources":
-        return await sources(values.json, io);
+        if (args.length) throw new UsageError("sources takes no source.");
+        return await sources(values.out, values.json, io);
       case "dump":
         if (args.length !== 1) throw new UsageError("dump takes one source.");
         return await dump(parseSource(args[0]), { out: values.out, json: values.json, lyrics: values.lyrics, legacy }, io);
@@ -106,11 +124,15 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
         return await compare(args.map(parseSource) as [SourceSpec, SourceSpec], { out: values.out, json: values.json, prefer: values.prefer, legacy, rules: await rules() }, io);
       case "check":
         if (args.length !== 1) throw new UsageError("check takes one source.");
-        return await check(parseSource(args[0]), { json: values.json, lyrics: values.lyrics, legacy, rules: await rules(), i18n }, io);
+        return await check(parseSource(args[0]), { out: values.out, json: values.json, lyrics: values.lyrics, legacy, rules: await rules(), i18n }, io);
       case "rules": {
         if (args[0] !== "check" || args.length > 2) throw new UsageError("rules takes check, and a file if it is not the one found.");
         const loaded = await loadRules(await findRules(args[1] ?? values.rules));
-        io.out(values.json ? JSON.stringify(rulesMeta(loaded), null, 2) : rulesText(loaded));
+        if (values.out) {
+          // No library is read here, so the ones on this computer are what the folder is kept out of.
+          const written = await writeRulesCheck(values.out, loaded, knownLibraries(await discover()));
+          io.out(values.json ? JSON.stringify(written, null, 2) : [rulesText(loaded), `Written to ${written.out}`].join("\n"));
+        } else io.out(values.json ? JSON.stringify(rulesMeta(loaded), null, 2) : rulesText(loaded));
         return 0;
       }
       default:
@@ -142,9 +164,17 @@ function legacyFolders(specs: readonly string[]): Map<string, string> {
   return map;
 }
 
-async function sources(json: boolean, io: Io): Promise<number> {
+async function sources(out: string | undefined, json: boolean, io: Io): Promise<number> {
   const found = await discover();
-  io.out(json ? JSON.stringify(found, null, 2) : foundText(found));
+  if (out) {
+    const written = await writeSources(out, found);
+    io.out(
+      json
+        ? JSON.stringify(written, null, 2)
+        : `${written.workspaces} ProPresenter 22 workspaces, ${written.folderWorkspaces} older workspaces` +
+            `${written.documents ? ", Documents/ProPresenter" : ""} written to ${written.out}`
+    );
+  } else io.out(json ? JSON.stringify(found, null, 2) : foundText(found));
   return 0;
 }
 
@@ -176,9 +206,9 @@ async function dump(
   if (!options.out && !options.lyrics) throw new UsageError("dump needs --out <dir>, or --lyrics to print the songs.");
   const source = await read(spec, options.legacy, io);
   if (options.out) {
-    const result = await writeDump(path.resolve(options.out), source);
-    if (options.json) io.out(JSON.stringify({ source: sourceMeta(source), out: result.out }, null, 2));
-    else io.out(`${source.label}: ${source.songs.length} songs written to ${result.out}${failuresText(source)}`);
+    const written = await writeDump(options.out, source);
+    if (options.json) io.out(JSON.stringify(written, null, 2));
+    else io.out(`${source.label}: ${source.songs.length} songs written to ${written.out}${failuresText(source)}`);
     return 0;
   }
   if (options.json) io.out(JSON.stringify({ source: sourceMeta(source), songs: source.songs }, null, 2));
@@ -203,22 +233,18 @@ async function compare(
   }
   const a = await read(specs[0], options.legacy, io, options.rules);
   const b = await read(specs[1], options.legacy, io, options.rules);
-  const pairs = compareSongs(a.songs, b.songs, { labels: { a: a.label, b: b.label }, prefer: options.prefer });
-  const count = (s: Source) => ({ label: s.label, songs: s.songs.length, failures: s.failures.length });
-  const summary = summarise(pairs, count(a), count(b));
-  const written = await writeCompare(path.resolve(options.out), a, b, pairs, summary);
-  if (options.json) {
-    // Counts and paths only: every pair, without its words, is in compare.json.
-    io.out(JSON.stringify({ summary, rules: rulesMeta(options.rules), a: sourceMeta(a), b: sourceMeta(b), files: written }, null, 2));
-  } else {
+  const written = await writeCompare(options.out, a, b, { prefer: options.prefer, rules: options.rules });
+  // Counts and paths only: every pair, without its words, is in compare.json.
+  if (options.json) io.out(JSON.stringify(written, null, 2));
+  else {
     io.out(
       [
-        summaryText(summary) + failuresText(a) + failuresText(b),
-        ...notes(a, options.rules),
-        ...b.ruleNotes.map((note) => `${b.label}: ${note}`),
-        `Report: ${written.report}`,
-        `Data:   ${written.json}`,
-        `Text:   git diff --no-index --word-diff ${shellQuote(written.text.a)} ${shellQuote(written.text.b)}`,
+        summaryText(written.summary) + failuresText(a) + failuresText(b),
+        ...written.notes,
+        `Folder: ${written.out}`,
+        `Report: ${written.files.report}`,
+        `Data:   ${written.files.json}`,
+        `Text:   git diff --no-index --word-diff ${shellQuote(written.files.text.a)} ${shellQuote(written.files.text.b)}`,
       ].join("\n")
     );
   }
@@ -227,20 +253,29 @@ async function compare(
 
 async function check(
   spec: SourceSpec,
-  options: { json: boolean; lyrics: boolean; legacy: Map<string, string>; rules: LoadedRules; i18n: I18n },
+  options: { out?: string; json: boolean; lyrics: boolean; legacy: Map<string, string>; rules: LoadedRules; i18n: I18n },
   io: Io
 ): Promise<number> {
   const source = await read(spec, options.legacy, io, options.rules);
-  if (options.json) io.out(JSON.stringify(checkJson(source, options.rules, options.i18n, options.lyrics), null, 2));
+  if (options.out) {
+    const written = await writeCheck(options.out, source, options.rules, options.i18n);
+    const { breaks } = written;
+    io.out(
+      options.json
+        ? JSON.stringify(written, null, 2)
+        : [
+            `${source.label}: ${breaks.total} rule breaks in ${breaks.songs} of ${source.songs.length} songs` +
+              (breaks.excepted ? `, ${breaks.excepted} more excepted` : "") +
+              failuresText(source),
+            ...written.notes,
+            `Folder: ${written.out}`,
+            `Text: ${written.files.text}`,
+            `Data: ${written.files.json}`,
+          ].join("\n")
+    );
+  } else if (options.json) io.out(JSON.stringify(checkJson(source, options.rules, options.i18n, options.lyrics), null, 2));
   else io.out(checkText(source, options.rules, options.i18n) + failuresText(source));
   return 0;
-}
-
-function failuresText(source: Source): string {
-  if (!source.failures.length && !source.truncated) return "";
-  const lines = source.failures.map((f) => `  ${f.file}: ${f.reason}`);
-  if (source.truncated) lines.push("  (stopped at the walk's limit: not every file was read)");
-  return `\n${source.label}: ${source.failures.length} not read\n${lines.join("\n")}`;
 }
 
 /** A path as a POSIX shell reads it back, whatever spaces or quotes it holds. */

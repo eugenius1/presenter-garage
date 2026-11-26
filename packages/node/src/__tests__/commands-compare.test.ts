@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { openPresentation } from "@presenter-garage/core/lib/presentation";
-import { compareSongs, contentOf, laterOf, looseLine, summarise, summaryText, type Pair } from "../compare";
-import { alignGroups, BREAK, sideBySide } from "../diff";
+import { compareSongs, contentOf, laterOf, looseLine, summarise, summaryText, type Pair } from "../commands/compare";
+import { alignGroups, BREAK, sideBySide } from "../commands/diff";
 import type { RuleSet } from "@presenter-garage/core/lib/rules";
-import { nameKey, songOf, songText, type Edited, type Group, type Song } from "../song";
-import { legacyMatcher } from "../source";
-import { proFile, type SongSpec } from "./fixtures";
+import { nameKey, songOf, songText, type Edited, type Group, type Song } from "../commands/song";
+import { legacyMatcher } from "../commands/source";
+import { proFile, type SongSpec } from "./songs";
 
 const NBSP = " ";
 
