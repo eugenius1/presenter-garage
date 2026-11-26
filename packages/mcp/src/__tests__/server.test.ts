@@ -877,6 +877,8 @@ describe("editing slide text", () => {
     request.params as { message: string; requestedSchema: { properties: Record<string, { description: string }> } };
 
   const lines = () => textLines(new Uint8Array(fs.readFileSync(file)));
+  /** What a field says of its own change, before the slides around it. */
+  const change = (field: { description: string }) => field.description.split("\n\n")[0];
 
   beforeAll(async () => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-edit-")));
@@ -939,7 +941,7 @@ describe("editing slide text", () => {
     reply = () => ({ action: "accept", content: { line1: true, line2: true, line3: false } });
     const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
     const { properties } = form(asked[0]).requestedSchema;
-    expect(properties.line2.description).toBe("Added after “Que ton nom,”: “Que ton nom,”");
+    expect(change(properties.line2)).toBe("Added after “Que ton nom,”: “Que ton nom,”");
     expect((properties.line1 as { title?: string }).title).toMatch(/text box 7, new line before line 1\)/);
 
     expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
@@ -962,10 +964,10 @@ describe("editing slide text", () => {
 
     const result = (await edit("apply_slide_edits", { planId: planned.planId })).json();
     const { properties } = form(asked[0]).requestedSchema;
-    expect(properties.line1.description).toBe(
+    expect(change(properties.line1)).toBe(
       "Added after “A tidy line”: “new line”. Styling: All Caps on the whole line, as on the line beside it."
     );
-    expect(properties.line2.description).toBe("Added after “Fine here”: “not”");
+    expect(change(properties.line2)).toBe("Added after “Fine here”: “not”");
     expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
     const ranges = textBoxRanges(decodePresentation(new Uint8Array(fs.readFileSync(file)))).get(0)!;
     // "A tidy line" and the new line under one range, "And another" moved past it.
@@ -1006,13 +1008,125 @@ describe("editing slide text", () => {
     expect(asked).toHaveLength(1);
     const { message, requestedSchema } = form(asked[0]);
     expect(message).toContain(backups);
-    expect(requestedSchema.properties.line1.description).toBe("“A tidy line” → “A tidier line”");
+    expect(change(requestedSchema.properties.line1)).toBe("“A tidy line” → “A tidier line”");
     expect((requestedSchema.properties.line1 as { title?: string }).title).toMatch(/text box 1, line 1/);
 
     expect(result).toMatchObject({ answer: "accept", files: [{ written: true, lines: 2 }] });
     expect(lines()[0]).toEqual(["A tidier line", "And another"]);
     expect(lines()[6][0]).toBe("Que ton nom");
     expect(fs.readFileSync(result.files[0].backup)).toEqual(original);
+  });
+
+  describe("shows each change among the slides around it", () => {
+    /** The form for a plan, with every line left ticked and nothing written that matters here. */
+    const formFor = async (edits: Record<string, unknown>[]) => {
+      const { planId } = await plan(edits);
+      await edit("apply_slide_edits", { planId });
+      return form(asked.at(-1)!);
+    };
+    const around = (field: { description: string }) => field.description.split("\n\n").slice(1).join("\n\n");
+
+    it("two slides either side of a change in the middle, each with its group, the change marked", async () => {
+      const { message, requestedSchema } = await formFor([{ boxIndex: 3, lineIndex: 0, text: "Above it" }]);
+      expect(change(requestedSchema.properties.line1)).toBe("“Above” → “Above it”");
+      expect(around(requestedSchema.properties.line1)).toBe(
+        [
+          "Slides 2–6:",
+          "  2 [Verse]: Fine here ⏎  leading space",
+          "  3 [Chorus]: trailing space  ⏎ Fine",
+          "> 4 [Chorus]: ⟦1: Above⟧ ⏎ ∅ ⏎ Below",
+          "  5 [Chorus]: two  spaces here",
+          "  6 [Chorus]: ∅",
+        ].join("\n")
+      );
+      expect(message).toMatch(/the 2 slides either side of it as they read now/);
+    });
+
+    it("fewer at the start and at the end", async () => {
+      const start = await formFor([{ boxIndex: 0, lineIndex: 1, text: "And one more" }]);
+      expect(around(start.requestedSchema.properties.line1).split("\n")).toEqual([
+        "Slides 1–3:",
+        "> 1 [Verse]: A tidy line ⏎ ⟦1: And another⟧",
+        "  2 [Verse]: Fine here ⏎  leading space",
+        "  3 [Chorus]: trailing space  ⏎ Fine",
+      ]);
+      const end = await formFor([{ boxIndex: 7, lineIndex: 3, text: "Gloire!", insert: "after" }]);
+      expect(around(end.requestedSchema.properties.line1).split("\n")).toEqual([
+        "Slides 6–8:",
+        "  6 [Chorus]: ∅",
+        "  7 [Chorus]: Que ton nom, ⏎ pour toujours , ⏎ sois glorifie",
+        "> 8 [Chorus]: Tu es saint; ⏎ je te loue. ⏎ et je chanterai… ⏎ Gloire... ⏎ ⟦1: added⟧",
+      ]);
+    });
+
+    it("a single-slide presentation as that slide alone", async () => {
+      const raw = decodePresentation(syntheticTextPresentation("Song")) as any;
+      raw.cues = raw.cues.slice(0, 1);
+      raw.cue_groups = [{ ...raw.cue_groups[0], cue_identifiers: raw.cue_groups[0].cue_identifiers.slice(0, 1) }];
+      fs.writeFileSync(file, encodePresentation(raw));
+      const { requestedSchema } = await formFor([{ boxIndex: 0, lineIndex: 0, text: "Before", insert: "before" }]);
+      expect(around(requestedSchema.properties.line1)).toBe("Slide 1:\n> 1 [Verse]: ⟦1: added⟧ ⏎ A tidy line ⏎ And another");
+    });
+
+    it("tells one text box from the next on a slide", async () => {
+      const raw = decodePresentation(syntheticTextPresentation("Song")) as any;
+      const elements = (cue: any) => cue.actions[0].slide.presentation.base_slide.elements;
+      elements(raw.cues[0]).push(structuredClone(elements(raw.cues[1])[0]));
+      fs.writeFileSync(file, encodePresentation(raw));
+      const { requestedSchema } = await formFor([{ boxIndex: 1, lineIndex: 0, text: "Fine" }]);
+      expect(around(requestedSchema.properties.line1).split("\n").slice(0, 2)).toEqual([
+        "Slides 1–3:",
+        "> 1 [Verse]: A tidy line ⏎ And another ‖ ⟦1: Fine here⟧ ⏎  leading space",
+      ]);
+    });
+
+    it("changes close together share their slides, shown once; changes far apart each get their own", async () => {
+      const { requestedSchema } = await formFor([
+        { boxIndex: 0, lineIndex: 0, text: "First" },
+        { boxIndex: 0, lineIndex: 1, text: "Second" },
+        { boxIndex: 1, lineIndex: 1, text: "leading space" },
+        { boxIndex: 7, lineIndex: 0, text: "Tu es saint" },
+      ]);
+      const { line1, line2, line3, line4 } = requestedSchema.properties;
+      // Slides 1 and 2: one run, under the first change in it. Slide 8 is
+      // too far from them to meet (their runs end at 4 and start at 6).
+      expect(around(line1).split("\n")).toEqual([
+        "Slides 1–4:",
+        "> 1 [Verse]: ⟦1: A tidy line⟧ ⏎ ⟦2: And another⟧",
+        "> 2 [Verse]: Fine here ⏎ ⟦3:  leading space⟧",
+        "  3 [Chorus]: trailing space  ⏎ Fine",
+        "  4 [Chorus]: Above ⏎ ∅ ⏎ Below",
+      ]);
+      expect(around(line2)).toBe("Slides 1–4: shown under change 1.");
+      expect(around(line3)).toBe("Slides 1–4: shown under change 1.");
+      expect(around(line4).split("\n")).toEqual([
+        "Slides 6–8:",
+        "  6 [Chorus]: ∅",
+        "  7 [Chorus]: Que ton nom, ⏎ pour toujours , ⏎ sois glorifie",
+        "> 8 [Chorus]: ⟦4: Tu es saint;⟧ ⏎ je te loue. ⏎ et je chanterai… ⏎ Gloire...",
+      ]);
+    });
+
+    it("names each slide's macros, one switched off said so, and shows a non-breaking space in a group name", async () => {
+      fs.writeFileSync(file, syntheticMacroSong());
+      const { requestedSchema } = await formFor([{ boxIndex: 1, lineIndex: 1, text: "leading space" }]);
+      expect(around(requestedSchema.properties.line1).split("\n")).toEqual([
+        "Slides 1–4:",
+        "  1 [Couplet⍽1] (Bienvenue): A tidy line ⏎ And another",
+        "> 2 [Couplet⍽1] (Louange): Fine here ⏎ ⟦1:  leading space⟧",
+        "  3 [Chorus] (Louange): trailing space  ⏎ Fine",
+        "  4 [Chorus] (Louange, Lumières (off)): Above ⏎ ∅ ⏎ Below",
+      ]);
+    });
+
+    it("adds nothing that can be ticked: one tick box per changed line, and only those", async () => {
+      const { requestedSchema } = await formFor([
+        { boxIndex: 0, lineIndex: 0, text: "First" },
+        { boxIndex: 3, lineIndex: 0, text: "Above it" },
+      ]);
+      expect(Object.keys(requestedSchema.properties)).toEqual(["line1", "line2"]);
+      expect(Object.values(requestedSchema.properties).map((p) => (p as { type?: string }).type)).toEqual(["boolean", "boolean"]);
+    });
   });
 
   it("writes only the lines left ticked", async () => {

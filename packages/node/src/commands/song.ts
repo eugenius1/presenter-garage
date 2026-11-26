@@ -1,4 +1,5 @@
 import type { RawDoc } from "@presenter-garage/core/lib/decode";
+import { macroNames } from "@presenter-garage/core/lib/slide-context";
 import { presentationName } from "../presentations";
 import { hasText, readDetails, shownBounds, type PresentationDoc } from "@presenter-garage/core/lib/presentation";
 import { checkRules, countByTier, DEFAULT_RULES, type Finding, type RuleConfiguration, type RuleSet } from "@presenter-garage/core/lib/rules";
@@ -91,7 +92,7 @@ export function songOf(file: string, raw: RawDoc, doc: PresentationDoc, edited: 
     groupOfSlide.push(groups.length - 1);
     group.slides.push({
       lines: linesBySlide.get(slide.slideIndex) ?? [],
-      macros: slide.macros.map((m) => (m.enabled ? m.name : `${m.name} (off)`)),
+      macros: macroNames(slide.macros),
     });
   }
 

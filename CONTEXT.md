@@ -52,6 +52,12 @@ The order of a song's slides as ProPresenter numbers them: its groups as
 stored, each group's slides in order. Rules read slides in this order, never
 an arrangement's.
 
+**Context** (of a change)
+The slides around a change a person is asked to approve, two either side
+(fewer at the start or end of a song), each with its group and macros, as
+they read now. Changes close together share theirs. Context is only read:
+nothing in it can be ticked or written.
+
 ## Sync
 
 **Base**

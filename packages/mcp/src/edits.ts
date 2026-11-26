@@ -8,7 +8,9 @@ import {
   PlanStore,
   type AppliedFile,
   type Plan,
+  type PlannedFile,
 } from "@presenter-garage/node/edits";
+import { CONTEXT_SLIDES, macroNames, slideHeading, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
 import { LibraryError } from "@presenter-garage/node/library";
 import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
 import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
@@ -27,31 +29,35 @@ export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter
 const { t } = createI18n("en");
 const refusals = t.tools.presentations.refusals;
 
-/** A confirmation form: one tick box per line, all ticked, each saying what it changes. */
+/** A confirmation form: one tick box per line, all ticked, each saying what it changes and showing the slides around it. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
-  for (const file of plan.files) for (const { fix, n, styling } of file.lines) {
-    // Box and line too: a slide can hold the same line twice, and a person
-    // choosing one of them has to be able to tell which.
-    const where = [
-      `slide ${fix.slideIndex + 1}`,
-      fix.groupName,
-      `text box ${fix.boxIndex + 1}, ${fix.insert ? `new line ${fix.insert} line` : "line"} ${fix.lineIndex + 1}`,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    properties[`line${n}`] = {
-      type: "boolean",
-      title: `${n}. ${file.name} (${where})`,
-      // An added line as it would read, and the line it goes beside as it
-      // reads now, so it can be placed without the slide in front of them.
-      description:
-        (fix.insert
-          ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
-          : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`) +
-        (styling ? `. Styling: ${styling.join("; ")}.` : ""),
-      default: true,
-    };
+  for (const file of plan.files) {
+    const around = contextOf(file);
+    for (const { fix, n, styling } of file.lines) {
+      // Box and line too: a slide can hold the same line twice, and a person
+      // choosing one of them has to be able to tell which.
+      const where = [
+        `slide ${fix.slideIndex + 1}`,
+        fix.groupName,
+        `text box ${fix.boxIndex + 1}, ${fix.insert ? `new line ${fix.insert} line` : "line"} ${fix.lineIndex + 1}`,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      properties[`line${n}`] = {
+        type: "boolean",
+        title: `${n}. ${file.name} (${where})`,
+        // An added line as it would read, and the line it goes beside as it
+        // reads now, so it can be placed without the slide in front of them.
+        description:
+          (fix.insert
+            ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
+            : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`) +
+          (styling ? `. Styling: ${styling.join("; ")}.` : "") +
+          (around.get(n) ?? ""),
+        default: true,
+      };
+    }
   }
   const count = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
   const closed = plan.files.some((file) => file.workspace)
@@ -61,9 +67,69 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
     message:
       `Change ${count(plan.files.reduce((sum, f) => sum + f.lines.length, 0), "line")} in ${count(plan.files.length, "presentation")}? ` +
       `Untick any line to leave it as it is. Each presentation is backed up to ${backupDir} before it is changed. ` +
-      closed,
+      closed +
+      ` Under each change are the ${CONTEXT_SLIDES} slides either side of it as they read now, to read it by: ` +
+      "⏎ between lines, ‖ between text boxes, ∅ for a blank line or a slide with no text. " +
+      "Nothing there changes but the line marked ⟦n: …⟧, which change n changes, and ⟦n: added⟧, where change n adds a line. " +
+      "A > marks a slide holding a change.",
     requestedSchema: { type: "object" as const, properties },
   };
+}
+
+/**
+ * The slides around a file's changes, as text to put under each change:
+ * the whole run under the first change in it, and a pointer to that under
+ * the others, so changes close together share their context instead of
+ * repeating it. Compact, since a client's form is no reading pane. Display
+ * only: nothing here is a field, so nothing here can be ticked or written.
+ */
+function contextOf(file: PlannedFile): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const run of runs(file.context ?? [])) {
+    const first = run[0].slideIndex;
+    const last = run.at(-1)!.slideIndex;
+    const inRun = file.lines.filter(({ fix }) => fix.slideIndex >= first && fix.slideIndex <= last);
+    if (inRun.length === 0) continue;
+    const span = first === last ? `Slide ${first + 1}` : `Slides ${first + 1}–${last + 1}`;
+    out.set(inRun[0].n, `\n\n${span}:\n${run.map((slide) => slideText(slide, inRun)).join("\n")}`);
+    for (const { n } of inRun.slice(1)) out.set(n, `\n\n${span}: shown under change ${inRun[0].n}.`);
+  }
+  return out;
+}
+
+/** Slides that follow one another, each run one stretch of context. */
+function runs(slides: readonly ContextSlide[]): ContextSlide[][] {
+  const out: ContextSlide[][] = [];
+  for (const slide of slides) {
+    const run = out.at(-1);
+    if (run && run.at(-1)!.slideIndex === slide.slideIndex - 1) run.push(slide);
+    else out.push([slide]);
+  }
+  return out;
+}
+
+/**
+ * One slide on one line: number, group and macros, then its lines, each
+ * change on it marked where it falls. The marks and separators are ones
+ * lyrics do not use: French sets its quotes in « », and a line can hold a
+ * slash, or read "(blank)".
+ */
+function slideText(slide: ContextSlide, changes: PlannedFile["lines"]): string {
+  const here = changes.filter(({ fix }) => fix.slideIndex === slide.slideIndex);
+  const added = (side: "before" | "after", at: PlannedFile["lines"]) =>
+    at.filter(({ fix }) => fix.insert === side).map(({ n }) => `⟦${n}: added⟧`);
+  const boxes: string[][] = [];
+  let box: number | undefined;
+  for (const line of slide.lines) {
+    if (line.boxIndex !== box) boxes.push([]);
+    box = line.boxIndex;
+    const at = here.filter(({ fix }) => fix.boxIndex === line.boxIndex && fix.lineIndex === line.lineIndex);
+    const text = line.text === "" ? "∅" : line.text;
+    const changed = at.find(({ fix }) => !fix.insert);
+    boxes.at(-1)!.push(...added("before", at), changed ? `⟦${changed.n}: ${text}⟧` : text, ...added("after", at));
+  }
+  const head = slideHeading(slide.slideIndex, slide.groupName ?? "", macroNames(slide.macros), here.length > 0);
+  return `${head}: ${boxes.length ? boxes.map((lines) => lines.join(" ⏎ ")).join(" ‖ ") : "∅"}`;
 }
 
 export interface ApplyResult {

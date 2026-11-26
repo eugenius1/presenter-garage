@@ -305,6 +305,8 @@ export const en = {
       selectAll: "Select all",
       selectNone: "Select none",
       selectFile: "Select every line in this file",
+      macroOff: "{name} (off)",
+      noTextOnSlide: "no text on this slide",
       becomes: "becomes",
       lineRemoved: "the line is removed",
       noFixFor: "No automatic fix — this line has to be edited in ProPresenter.",

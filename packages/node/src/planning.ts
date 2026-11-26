@@ -6,6 +6,7 @@ import { changeSite, EditError, examine, fixKey, planFixes, planLineEdits, type 
 import type { PresentationDoc } from "@presenter-garage/core/lib/presentation";
 import { checkPresentationFidelity } from "@presenter-garage/core/lib/presentation";
 import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
+import { contextSlides } from "@presenter-garage/core/lib/slide-context";
 import type { AppliedFile } from "./apply";
 import { LibraryError, readFoundFile, resolveInRoots } from "./library";
 import { LossyFile, WorkspaceRefused } from "./paths";
@@ -116,7 +117,7 @@ export async function planSlideEdits(
       throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[refusal.reason]}. Nothing was planned.`);
     }
     if (refusal) throw new LibraryError(`${real}: ${refusals[refusal.reason]}. Nothing was planned.`);
-    files.push(plannedFile(real, doc, read, fixes, n, styling));
+    files.push({ ...plannedFile(real, doc, read, fixes, n, styling), context: contextSlides(doc, fixes) });
     n += fixes.length;
   }
 

@@ -1,5 +1,6 @@
 import type { I18n } from "@presenter-garage/core/i18n/core";
 import { describeFinding, findingTags } from "@presenter-garage/core/i18n/rules";
+import { contextWindows, shownGroupName, slideHeading } from "@presenter-garage/core/lib/slide-context";
 import type { LoadedRules } from "../rules";
 import type { Song, SongFinding } from "./song";
 import { sourceMeta, type Source } from "./source";
@@ -8,15 +9,12 @@ import { sourceMeta, type Source } from "./source";
  * `check`: every rule break in a library, for a person at a terminal or an
  * agent reading JSON.
  *
- * A person sees each break with two slides either side, since whether a
+ * A person sees each break with two slides either side (`contextWindows()`), since whether a
  * repeat marker is already sung out, or a Pause belongs where it is, is
  * plain only from what is around it. An agent gets where each break is and
  * what it says, and the words only when it asks: a library's worth of lyrics
  * would fill its context and leave this computer for nothing.
  */
-
-/** Slides shown either side of a break. */
-export const CONTEXT = 2;
 
 interface FlatSlide {
   group: string;
@@ -25,9 +23,6 @@ interface FlatSlide {
 }
 
 const flatSlides = (song: Song): FlatSlide[] => song.groups.flatMap((g) => g.slides.map((s) => ({ group: g.name, ...s })));
-
-/** A group name as it is drawn: a non-breaking space shown, since ProPresenter tells it from a space. */
-const shownName = (name: string) => name.replace(/ /g, "⍽");
 
 export function checkText(source: Source, rules: LoadedRules, i18n: I18n): string {
   const out: string[] = [];
@@ -51,20 +46,18 @@ export function checkText(source: Source, rules: LoadedRules, i18n: I18n): strin
 }
 
 function heading(finding: SongFinding, i18n: I18n): string {
-  const where = `${i18n.f(i18n.t.tools.presentations.slide, { n: finding.slideIndex + 1 })}${finding.groupName ? ` [${shownName(finding.groupName)}]` : ""}`;
+  const where = `${i18n.f(i18n.t.tools.presentations.slide, { n: finding.slideIndex + 1 })}${finding.groupName ? ` [${shownGroupName(finding.groupName)}]` : ""}`;
   return `${where}: ${describeFinding(i18n, finding)} (${finding.rule}, ${findingTags(i18n, finding)})`;
 }
 
 /** The slides around a break, the one it is on marked, and its line marked where it has one. */
 function context(slides: readonly FlatSlide[], finding: SongFinding): string[] {
   const lines: string[] = [];
-  const from = Math.max(0, finding.slideIndex - CONTEXT);
-  const to = Math.min(slides.length - 1, finding.slideIndex + CONTEXT);
+  const [{ from, to }] = contextWindows([finding.slideIndex], slides.length);
   for (let i = from; i <= to; i++) {
     const slide = slides[i];
     const here = i === finding.slideIndex;
-    const macros = slide.macros.length ? ` (${slide.macros.join(", ")})` : "";
-    lines.push(`${here ? ">" : " "} ${i + 1} [${shownName(slide.group)}]${macros}`);
+    lines.push(slideHeading(i, slide.group, slide.macros, here));
     for (const line of slide.lines) {
       const marked = here && finding.text !== undefined && line === finding.text;
       lines.push(`${marked ? ">" : " "}   ${line}`);

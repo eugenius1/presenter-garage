@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LineFix } from "@presenter-garage/core/lib/fixes";
+import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
 
 /**
  * A plan of slide-text edits, between being made and being applied: what
@@ -27,6 +28,12 @@ export interface PlannedFile {
    * in words.
    */
   lines: { n: number; fix: LineFix; styling?: string[] }[];
+  /**
+   * The slides around the changes as the file read when planned, for a
+   * surface that shows them to the person approving; display only, never
+   * written. Unset where the person saw them before the plan was made.
+   */
+  context?: ContextSlide[];
 }
 
 export interface Plan {

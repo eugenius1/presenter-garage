@@ -313,6 +313,8 @@ export const fr: Dictionary = {
       selectAll: "Tout sélectionner",
       selectNone: "Tout désélectionner",
       selectFile: "Sélectionner toutes les lignes de ce fichier",
+      macroOff: "{name} (désactivée)",
+      noTextOnSlide: "aucun texte sur cette diapositive",
       becomes: "devient",
       lineRemoved: "la ligne est supprimée",
       noFixFor: "Pas de correction automatique — cette ligne doit être modifiée dans ProPresenter.",

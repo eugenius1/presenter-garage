@@ -36,6 +36,7 @@ import {
   type TextCut,
 } from "./rtf-edit";
 import { groupBy } from "./collections";
+import { contextSlides, type ContextSlide } from "./slide-context";
 import type { RawDoc } from "./decode";
 import type { Finding } from "./rules";
 import { AttributeRangeError, rangesAfter, type LineStyling } from "./ranges";
@@ -682,6 +683,12 @@ export interface Examined {
    */
   fixable: PresentationDoc;
   /**
+   * The slides around every finding, for showing each fix among its
+   * neighbours. Kept here for the same reason as `findings`: `fixable` has
+   * only the boxes with a problem, and the neighbours are mostly others.
+   */
+  context: ContextSlide[];
+  /**
    * What a team's rules found, when `examine` was given them. Worked out here
    * rather than later because `fixable` keeps only the boxes with a text
    * problem, and the rules look at every slide, group and macro.
@@ -694,6 +701,7 @@ export function unreadable(filename: string, problem: ReadProblem, detail?: stri
   return {
     report: unreadableReport(filename, problem, detail),
     fixable: { name: filename, slideCount: 0, slides: [], textBoxes: [] },
+    context: [],
   };
 }
 
@@ -720,6 +728,7 @@ export function examine(
   return {
     report,
     fixable: { ...doc, textBoxes: doc.textBoxes.filter((box) => wanted.has(box.boxIndex)) },
+    context: contextSlides(doc, report.issues),
     ...(findings ? { findings } : {}),
   };
 }
