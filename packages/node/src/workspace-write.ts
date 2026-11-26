@@ -163,7 +163,7 @@ const SELECT_ROW = "SELECT * FROM workspace_streams WHERE document_id = ? AND sc
 export async function readForPlanning(
   workspace: Workspace,
   document: StoredDocument
-): Promise<{ bytes: Uint8Array; sha256: string; root: unknown }> {
+): Promise<{ bytes: Uint8Array; sha256: string; root: unknown; snapshot: Uint8Array }> {
   await checkWritableWorkspace(workspace);
   if (document.kind !== "Presentation") throw new LibraryError(`Not a presentation: ${document.path}`);
   if (!(await isOwnPath(workspace.store))) {
@@ -194,7 +194,7 @@ export async function readForPlanning(
     );
   }
   const { message } = presentationFromWorkspace(root);
-  return { bytes: encodePresentation(message), sha256: hex(row.sha256), root };
+  return { bytes: encodePresentation(message), sha256: hex(row.sha256), root, snapshot: row.snapshot };
 }
 
 /** Refuse a document store of a version this has not been checked against. */
@@ -611,6 +611,34 @@ function checkSnapshot(item: Ready, snapshot: Uint8Array, peer: bigint): Uint8Ar
     throw failure(e);
   } finally {
     doc.free();
+  }
+}
+
+/**
+ * Make an edit on a copy of a document in memory, as `writeOne` will, and
+ * check the result as it will: for planning, so a document not shaped as
+ * its JSON suggests -- a map that is not a container, a tree that is not a
+ * tree -- is refused before anybody is asked rather than after. Writes
+ * nothing. Throws `FixError` or `AttributeRangeError`.
+ */
+export function rehearseWorkspaceEdit(snapshot: Uint8Array, fixes: readonly LineFix[], changes: readonly StructureChange[]): void {
+  const doc = new LoroDoc();
+  const after = new LoroDoc();
+  try {
+    doc.import(snapshot);
+    const root = (doc.toJSON() as { root?: unknown }).root;
+    const edit = planWorkspaceEdit(root, fixes, changes);
+    const version = doc.version().toJSON();
+    const peer = newPeer(version);
+    doc.setPeerId(peer);
+    editDocument(doc, edit);
+    doc.commit();
+    after.import(doc.export({ mode: "snapshot" }));
+    if (!onlyPeerAdded(version, after.version().toJSON(), String(peer))) throw new FixError("verifyFailed");
+    checkWorkspaceEdit(root, (after.toJSON() as { root?: unknown }).root, edit, fixes);
+  } finally {
+    doc.free();
+    after.free();
   }
 }
 

@@ -35,7 +35,7 @@ import { open, presentationName } from "./presentations";
 import { rulesConfiguration } from "./rules";
 import { planStyling } from "./styling";
 import { documentAt, isInWorkspace } from "./workspace";
-import { readForPlanning } from "./workspace-write";
+import { readForPlanning, rehearseWorkspaceEdit } from "./workspace-write";
 import { sha256 } from "./write";
 
 /**
@@ -205,12 +205,13 @@ export async function planSlideEdits(
       throw new LibraryError(`${real}, ${where}: ${refusals.attributeRanges}: ${rangeRefusals[refusal.reason]}. Nothing was planned.`);
     }
     if (refusal) throw new LibraryError(`${real}: ${refusals[refusal.reason]}. Nothing was planned.`);
-    // A `.pro` file's structural changes made in memory now, as applying will
-    // make them, so one that would not read back is refused before anybody
-    // is asked rather than after. (A workspace's were planned with its lines.)
-    if (read.root === undefined && changes.length > 0) {
+    // Structural changes made in memory now, as applying will make them --
+    // on the decoded file, or on the Loro document itself -- so one that would
+    // not read back is refused before anybody is asked rather than after.
+    if (changes.length > 0) {
       try {
-        applyFixes(read.bytes, fixes, changes);
+        if (read.snapshot) rehearseWorkspaceEdit(read.snapshot, fixes, changes);
+        else applyFixes(read.bytes, fixes, changes);
       } catch (e) {
         if (!(e instanceof FixError)) throw e;
         throw new LibraryError(`${real}: ${refusals[e.reason]}. Nothing was planned.`);
@@ -250,6 +251,8 @@ interface ReadForPlan {
   workspace?: PlannedFile["workspace"];
   /** The workspace document's own content, which its edit is planned against. */
   root?: unknown;
+  /** The workspace document's snapshot as stored, which its edit is rehearsed on. */
+  snapshot?: Uint8Array;
 }
 
 /**
@@ -260,8 +263,8 @@ interface ReadForPlan {
 async function readForPlan(real: string): Promise<ReadForPlan> {
   const found = await documentAt(real);
   if (found) {
-    const { bytes, sha256: digest, root } = await readForPlanning(found.workspace, found.document);
-    return { bytes, sha256: digest, root, workspace: { root: found.workspace.root, documentId: found.document.id } };
+    const { bytes, sha256: digest, root, snapshot } = await readForPlanning(found.workspace, found.document);
+    return { bytes, sha256: digest, root, snapshot, workspace: { root: found.workspace.root, documentId: found.document.id } };
   }
   if (await isInWorkspace(real)) throw new LibraryError(`Not a presentation in the workspace: ${real}`);
   const { bytes } = await readFoundFile(real);

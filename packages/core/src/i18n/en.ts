@@ -433,6 +433,10 @@ export const en = {
         noMacroList: "ProPresenter's configured macros could not be read, so no macro can be put on a slide",
         unknownMacro: "no configured macro has that name or uuid",
         macroCollection: "the slide records which collection its macro is in, and the new macro is in no collection",
+        noGroupList: "ProPresenter's configured groups could not be read, so whether the new name brings a colour or a tie to a configured group cannot be told",
+        ambiguousGroup: "two configured groups go by that name",
+        groupTie: "the group is tied to a configured group, and the configured group of that name has no uuid to tie it to",
+        noIdentification: "the slide's macro records no uuid or name of its own to replace",
       },
     },
     mediaBin: {

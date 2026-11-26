@@ -12,7 +12,7 @@ import {
   type RequestedChange,
 } from "@presenter-garage/node/edits";
 import { CONTEXT_SLIDES, macroNames, slideHeading, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
-import { colorName, type StructureChange } from "@presenter-garage/core/lib/structure";
+import { canonical, colorName, type MacroRef, type StructureChange } from "@presenter-garage/core/lib/structure";
 import { LibraryError } from "@presenter-garage/node/library";
 import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
 import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
@@ -47,18 +47,28 @@ function changeWhere(change: StructureChange): string {
 export function describeChange(change: StructureChange): string {
   if (change.kind === "swapMacro") {
     const { before, after } = change;
-    const collection =
-      after.collection && after.collection.name !== before.collection?.name
-        ? ` The slide records it in collection “${after.collection.name}” instead of “${before.collection?.name ?? ""}”.`
-        : "";
-    return `Macro swapped: “${before.name}” → “${after.name}”.${collection}`;
+    // Names alone where they differ; with uuids where they do not, so nothing written goes unsaid.
+    const sameName = before.name === after.name;
+    const macro = (ref: MacroRef) => (sameName ? `“${ref.name}” (${ref.uuid ?? "no uuid"})` : `“${ref.name}”`);
+    const said = [`Macro swapped: ${macro(before)} → ${macro(after)}.`];
+    if (after.collection && canonical(after.collection) !== canonical(before.collection)) {
+      const sameCollection = before.collection?.name === after.collection.name;
+      const collection = (c: MacroRef["collection"]) => (c ? `“${c.name}”${sameCollection ? ` (${c.uuid ?? "no uuid"})` : ""}` : "none");
+      said.push(`The slide records it in collection ${collection(after.collection)} instead of ${collection(before.collection)}.`);
+    }
+    if (after.actionName !== before.actionName) said.push(`Its action is renamed to match: “${before.actionName}” → “${after.actionName}”.`);
+    return said.join(" ");
   }
   const { before, after } = change;
   const said = [`Group renamed: “${before.name}” → “${after.name}”.`];
-  if (colorName(before.color) !== colorName(after.color)) said.push(`Colour: ${colorName(before.color)} → ${colorName(after.color)}, as the configured group has it.`);
+  // Compared exactly, not as shown: a difference too small to show is still written, and still said.
+  if (canonical(before.color) !== canonical(after.color)) {
+    const shown = colorName(before.color) === colorName(after.color) ? " (the same to the eye, set exactly)" : "";
+    said.push(`Colour: ${colorName(before.color)} → ${colorName(after.color)}, as the configured group has it${shown}.`);
+  }
   if (before.link && !after.link) said.push(`No longer tied to configured group “${before.link.name ?? before.link.uuid}”, which it would no longer be.`);
-  else if (after.link && (after.link.uuid !== before.link?.uuid || after.link.name !== before.link?.name)) {
-    said.push(`Tied to configured group “${after.link.name}” instead of “${before.link?.name ?? before.link?.uuid}”.`);
+  else if (after.link && canonical(after.link) !== canonical(before.link)) {
+    said.push(`Tied to configured group “${after.link.name}” (${after.link.uuid}) instead of “${before.link?.name ?? ""}” (${before.link?.uuid ?? "no uuid"}).`);
   }
   said.push("Arrangements name groups by uuid, which does not change, so each keeps the group where it was.");
   return said.join(" ");

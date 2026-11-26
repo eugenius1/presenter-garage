@@ -140,6 +140,22 @@ describe("renaming a group", () => {
     ).toBe("duplicate");
   });
 
+  it("refuses without the configured groups, rather than cut a tie it should move", () => {
+    const tied = song((doc) => {
+      doc.cue_groups[1].group.application_group_identifier = { string: CONFIGURED_GROUPS[1].uuid.string };
+      doc.cue_groups[1].group.application_group_name = "Couplet 4";
+    });
+    const rename: StructureRequest[] = [{ kind: "renameGroup", groupIndex: 1, name: "Refrain" }];
+    expect(refusal(() => plan(tied, rename, { macros: config.macros }))).toBe("noGroupList");
+    expect(refusal(() => plan(tied, rename, { ...config, groups: [] }))).toBe("noGroupList");
+    // Two configured groups of the name: which one's colour and uuid is a guess.
+    const twice = { ...config, groups: [...config.groups!, { ...config.groups![2], uuid: "99999999-0000-4000-8000-000000000009" }] };
+    expect(refusal(() => plan(tied, rename, twice))).toBe("ambiguousGroup");
+    // A configured group of the name with no uuid has nothing to tie the group to.
+    const noUuid = { ...config, groups: config.groups!.map((g) => (g.name === "Refrain" ? { ...g, uuid: undefined } : g)) };
+    expect(refusal(() => plan(tied, rename, noUuid))).toBe("groupTie");
+  });
+
   it("keeps the exact name asked for, a non-breaking space a different name from a space", () => {
     const [change] = plan(song(), [{ kind: "renameGroup", groupIndex: 0, name: "Couplet 1" }]);
     expect(change.kind === "renameGroup" && change.after).toEqual({ name: "Couplet 1" });
@@ -178,6 +194,25 @@ describe("swapping a macro", () => {
     const slide = structureOf(bytes).slides.findIndex((s) => s.macros.some((m) => m.actionName === "My own name"));
     const [change] = plan(bytes, [{ kind: "swapMacro", slideIndex: slide, from: MACROS.louange.uuid.toUpperCase(), to: MACROS.bienvenue.uuid }]);
     expect(change.kind === "swapMacro" && change.after.actionName).toBe("My own name");
+  });
+
+  it("names a macro the slide records no name for by its action's, as read_presentation lists it", () => {
+    const bytes = song((doc) => {
+      const cue = doc.cues.find((c: any) => c.name === "Leading");
+      cue.actions.find((a: any) => a.macro).macro.identification.parameter_name = "";
+    });
+    const slide = structureOf(bytes).slides.findIndex((s) => s.macros.some((m) => m.name === ""));
+    const [change] = plan(bytes, [{ kind: "swapMacro", slideIndex: slide, from: "Louange", to: "Bienvenue" }]);
+    expect(macrosOn(applyFixes(bytes, [], [change]), slide)).toEqual(["Bienvenue"]);
+  });
+
+  it("refuses a macro the slide records nothing of its own for", () => {
+    const bytes = song((doc) => {
+      const cue = doc.cues.find((c: any) => c.name === "Leading");
+      cue.actions.find((a: any) => a.macro).macro.identification = null;
+    });
+    const slide = structureOf(bytes).slides.findIndex((s) => s.macros.some((m) => m.uuid === undefined));
+    expect(refusal(() => plan(bytes, [{ kind: "swapMacro", slideIndex: slide, from: "Louange", to: "Bienvenue" }]))).toBe("noIdentification");
   });
 
   it("moves the collection the slide records to one the new macro is in", () => {

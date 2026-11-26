@@ -177,9 +177,12 @@ And these in particular documents:
   nodes whose children are cue nodes. `cue_groups` is gone. The shape
   `toJSON()` gives it -- each node an `id` like `12@3456`, `parent`,
   `index`, `fractional_index`, `meta` and `children` -- is exactly what Loro
-  gives for a `LoroTree`, so that is what it is: `meta` is the node's own
-  map (`LoroTreeNode.data`), and a group's name and colour are in
-  `meta.Kind.group`. A playlist tree is the same kind of tree.
+  gives for a `LoroTree`, which is taken to be what it is, `meta` being the
+  node's own map (`LoroTreeNode.data`) and a group's name and colour in
+  `meta.Kind.group`. That is inferred from the JSON, not yet seen in a real
+  snapshot's containers; a write that finds otherwise is refused at plan
+  time (*A group renamed, a macro swapped* in
+  [propresenter-22-writing.md](propresenter-22-writing.md)).
 - **Playlists.** One tree of nodes whose `meta.Kind` is `group`, `playlist`
   or `item`, with `meta.name` and `meta.uuid`; the one top node is the old
   root. Children are in display order.

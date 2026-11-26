@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { LoroDoc, LoroTree } from "loro-crdt/base64";
+import { FixError } from "@presenter-garage/core/lib/fixes";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decodeGroupsDocument, decodeMacrosDocument, readGroups, readMacros } from "@presenter-garage/core/lib/configuration";
 import { decodePresentation, encodePresentation, openPresentation } from "@presenter-garage/core/lib/presentation";
@@ -10,7 +11,7 @@ import { syntheticGroupsFile, syntheticMacroSong, syntheticMacrosFile, textLines
 import { workspacePresentation } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
 import { openRoots } from "../library";
 import { workspaceAt, type Workspace } from "../workspace";
-import { readForPlanning, writeWorkspaceEdits, type WorkspaceReplacement } from "../workspace-write";
+import { readForPlanning, rehearseWorkspaceEdit, writeWorkspaceEdits, type WorkspaceReplacement } from "../workspace-write";
 import { openBackupDir } from "../write";
 import { sqlite, storeOf } from "./workspace-db";
 import { createWritableWorkspace, putPresentation } from "./workspace-writable";
@@ -102,6 +103,18 @@ describe.skipIf(!sqlite)("structural changes in a workspace", () => {
     expect(ids(doc)).toEqual(ids(old));
     doc.free();
     old.free();
+  });
+
+  it("rehearses a change on the stored snapshot at plan time, refusing a document not shaped as its JSON reads", async () => {
+    const edit = await plan("Song", [{ kind: "renameGroup", groupIndex: 1, name: "Refrain" }]);
+    expect(() => rehearseWorkspaceEdit(snapshotOf("Song"), [], edit.changes!)).not.toThrow();
+    // The same JSON with every message a plain value rather than a map of its own: nothing to set a value in.
+    const flat = new LoroDoc();
+    for (const [key, value] of Object.entries(songRoot())) flat.getMap("root").set(key, value as never);
+    flat.commit();
+    const bytes = flat.export({ mode: "snapshot" });
+    flat.free();
+    expect(() => rehearseWorkspaceEdit(bytes, [], edit.changes!)).toThrow(new FixError("lossy"));
   });
 
   it("refuses at the lock a change the document no longer holds, and writes nothing", async () => {

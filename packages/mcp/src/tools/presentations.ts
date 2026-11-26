@@ -10,7 +10,7 @@ import {
   type SlideMacro,
 } from "@presenter-garage/core/lib/presentation";
 import { fold } from "@presenter-garage/core/lib/search";
-import { readStructure } from "@presenter-garage/core/lib/structure";
+import { groupSlides, readStructure } from "@presenter-garage/core/lib/structure";
 import {
   findPresentations,
   LibraryError,
@@ -259,7 +259,7 @@ export async function readPresentationFile(root: string, file: string): Promise<
     groups: structure.groups.map((group, groupIndex) => ({
       groupIndex,
       name: group.name,
-      slides: structure.slides.flatMap((slide, i) => (slide.groupIndex === groupIndex ? [i] : [])),
+      slides: groupSlides(structure, groupIndex),
     })),
     slides,
   };

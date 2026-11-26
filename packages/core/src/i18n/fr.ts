@@ -446,6 +446,10 @@ export const fr: Dictionary = {
         noMacroList: "les macros configurées dans ProPresenter n’ont pas pu être lues : aucune macro ne peut donc être mise sur une diapositive",
         unknownMacro: "aucune macro configurée n’a ce nom ou cet uuid",
         macroCollection: "la diapositive indique dans quelle collection se trouve sa macro, et la nouvelle macro n’est dans aucune collection",
+        noGroupList: "les groupes configurés dans ProPresenter n’ont pas pu être lus : on ne peut donc pas savoir si le nouveau nom apporte une couleur ou un lien à un groupe configuré",
+        ambiguousGroup: "deux groupes configurés portent ce nom",
+        groupTie: "le groupe est lié à un groupe configuré, et le groupe configuré de ce nom n’a pas d’uuid auquel le lier",
+        noIdentification: "la macro de la diapositive n’enregistre ni uuid ni nom à remplacer",
       },
     },
     mediaBin: {

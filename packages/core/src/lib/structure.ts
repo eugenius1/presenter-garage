@@ -183,7 +183,11 @@ export type StructureRequest =
  * - `badName`: an empty name, or one holding a line break or another control character.
  * - `noSuchMacro`: the slide triggers no macro by that name or uuid.
  * - `ambiguousMacro`: the slide triggers it twice, or two configured macros go by that name.
+ * - `noGroupList`: ProPresenter's configured groups could not be read, so whether the new name brings a colour or a tie cannot be told.
+ * - `ambiguousGroup`: two configured groups go by the new name.
+ * - `groupTie`: the group is tied to a configured group, and the configured group of the new name has no uuid to tie it to.
  * - `noMacroList`: ProPresenter's configured macros could not be read, so no macro can be put on a slide.
+ * - `noIdentification`: the slide's macro records no uuid or name of its own to replace.
  * - `unknownMacro`: no configured macro has that name or uuid.
  * - `macroCollection`: the slide records which collection its macro is in, and the new macro is in none that has a uuid.
  */
@@ -196,6 +200,10 @@ export type StructureRefusal =
   | "noSuchMacro"
   | "ambiguousMacro"
   | "noMacroList"
+  | "noGroupList"
+  | "ambiguousGroup"
+  | "groupTie"
+  | "noIdentification"
   | "unknownMacro"
   | "macroCollection";
 
@@ -266,8 +274,13 @@ export function planStructure(
       if (!group || !doc.cue_groups?.[request.groupIndex]?.group) throw new StructureError("noSuchGroup", request);
       once(`group:${request.groupIndex}`, request);
       if (request.name.trim() === "" || hasLineControl(request.name)) throw new StructureError("badName", request);
-      const configured = config.groups?.find((g) => g.name === request.name);
+      // Without the list, a rename cannot know whether the name brings a colour or a tie, and would cut a tie it should move.
+      if (!config.groups?.length) throw new StructureError("noGroupList", request);
+      const named = config.groups.filter((g) => g.name === request.name);
+      if (named.length > 1) throw new StructureError("ambiguousGroup", request);
+      const configured = named[0];
       const before: GroupLook = lookOf(doc.cue_groups[request.groupIndex].group);
+      if (before.link && configured && !configured.uuid) throw new StructureError("groupTie", request);
       const color = configured?.rgba ?? before.color;
       const link = before.link && configured?.uuid ? { uuid: caseLike(before.link.uuid, configured.uuid), name: configured.name } : undefined;
       const after: GroupLook = { name: request.name, ...(color && { color }), ...(link && { link }) };
@@ -276,7 +289,7 @@ export function planStructure(
         kind: "renameGroup",
         groupIndex: request.groupIndex,
         groupUuid: group.uuid,
-        slides: structure.slides.flatMap((slide, i) => (slide.groupIndex === request.groupIndex ? [i] : [])),
+        slides: groupSlides(structure, request.groupIndex),
         before,
         after,
       };
@@ -284,10 +297,13 @@ export function planStructure(
 
     const slide = structure.slides[request.slideIndex];
     if (!slide?.cueUuid) throw new StructureError("noSuchSlide", request);
-    const matching = slide.macros.filter((m) => m.name === request.from || sameUuid(m.uuid, request.from));
+    // By the name a slide's macros are listed under, which falls back to the action's own as `readPresentation` does.
+    const matching = slide.macros.filter((m) => (m.name || m.actionName) === request.from || sameUuid(m.uuid, request.from));
     if (matching.length === 0) throw new StructureError("noSuchMacro", request);
     if (matching.length > 1) throw new StructureError("ambiguousMacro", request);
     const old = matching[0];
+    const cue = doc.cues?.find((c: any) => uuidOf(c?.uuid) === slide.cueUuid);
+    if (!cue?.actions?.[old.actionIndex]?.macro?.identification) throw new StructureError("noIdentification", request);
     once(`macro:${request.slideIndex}:${old.actionIndex}`, request);
     if (!config.macros?.length) throw new StructureError("noMacroList", request);
     const targets = config.macros.filter((m) => m.name === request.to || sameUuid(m.uuid, request.to));
@@ -322,6 +338,10 @@ export function planStructure(
     };
   });
 }
+
+/** The slides a group holds, by their place in ProPresenter's order. */
+export const groupSlides = (structure: PresentationStructure, groupIndex: number) =>
+  structure.slides.flatMap((slide, i) => (slide.groupIndex === groupIndex ? [i] : []));
 
 /** Whether the change still describes the presentation as it reads now. */
 export function isCurrent(structure: PresentationStructure, change: StructureChange): boolean {
@@ -359,7 +379,11 @@ export function sameStructure(a: PresentationStructure, b: PresentationStructure
   return canonical(a) === canonical(b);
 }
 
-/** One spelling of a value, keys in order and unset fields left out, to compare two by. */
+/**
+ * One spelling of a value, keys in order and unset fields left out, to
+ * compare two by. Not `stableJson()` in `workspace-edit.ts`, which spells
+ * bytes too: that file imports this one, and a structure holds no bytes.
+ */
 export function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, v) =>
     v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v

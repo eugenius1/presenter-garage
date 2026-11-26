@@ -383,6 +383,15 @@ plan read.
   (`parent_collection`), it records one the new macro is in. A uuid is
   written in the case of the one it replaces, upper-case in a workspace.
 
+That the groups are a `LoroTree`, and each message a map of its own, is
+inferred from the JSON a snapshot gives. So a plan with structural changes
+is rehearsed on the stored snapshot itself at plan time
+(`rehearseWorkspaceEdit()`): made in memory as applying will make it and
+checked as applying will check it, so a document shaped otherwise is
+refused before anybody is asked. Renaming needs ProPresenter's configured
+groups to be readable, or whether the new name brings a colour or a tie
+cannot be told, and is refused without them.
+
 What is compared afterwards is the whole document, as for text: the new
 snapshot must be the old one with exactly these values and nothing else,
 and the structure read through the conversion must be the planned one,

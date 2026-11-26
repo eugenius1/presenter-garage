@@ -8,6 +8,7 @@ import { decodePresentation, readPresentation } from "@presenter-garage/core/lib
 import { readStructure } from "@presenter-garage/core/lib/structure";
 import { syntheticGroupsFile, syntheticMacroSong, syntheticMacrosFile } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { connect } from "./connect";
+import { describeChange } from "../edits";
 
 /**
  * Renaming a group and swapping a macro through the MCP server, end to end:
@@ -117,7 +118,9 @@ describe("changing a song's structure through the MCP server", () => {
         "Arrangements name groups by uuid, which does not change, so each keeps the group where it was."
     );
     expect(change3.title).toBe("3. Macro Song (slide 3, Chorus)");
-    expect(change3.description.split("\n\n")[0]).toBe("Macro swapped: “Louange” → “Bienvenue”.");
+    expect(change3.description.split("\n\n")[0]).toBe(
+      "Macro swapped: “Louange” → “Bienvenue”. Its action is renamed to match: “Louange” → “Bienvenue”."
+    );
     // Every change shares the one run of context, the line change's, which marks the rest where they fall.
     const context = requestedSchema.properties.line1.description.split("\n\n").slice(1).join("\n\n");
     expect(context).toContain("> 3 [⟦2: Chorus⟧] (⟦3: Louange⟧)");
@@ -132,6 +135,30 @@ describe("changing a song's structure through the MCP server", () => {
     expect(now.slides[3].macros.map((m) => m.name)).toEqual(["Bienvenue", "Lumières"]);
     expect(readPresentation(decodePresentation(new Uint8Array(fs.readFileSync(file)))).textBoxes[0].lines[0].text).toBe("A tidier line");
     expect(fs.readFileSync(result.files[0].backup)).toEqual(Buffer.from(syntheticMacroSong()));
+  });
+
+  it("says every difference it writes, a colour too close to show and a macro known by one name included", () => {
+    const grey = { red: 0.5, green: 0.5, blue: 0.5, alpha: 1 };
+    expect(
+      describeChange({
+        kind: "renameGroup",
+        groupIndex: 0,
+        slides: [],
+        before: { name: "A", color: grey },
+        after: { name: "A", color: { ...grey, red: 0.5000001 } },
+      })
+    ).toContain("Colour: rgb(128,128,128) → rgb(128,128,128), as the configured group has it (the same to the eye, set exactly).");
+    expect(
+      describeChange({
+        kind: "swapMacro",
+        slideIndex: 0,
+        cueUuid: "c",
+        actionIndex: 0,
+        macroIndex: 0,
+        before: { name: "Louange", uuid: "1", actionName: "Louange" },
+        after: { name: "Louange", uuid: "2", actionName: "Louange" },
+      })
+    ).toBe("Macro swapped: “Louange” (1) → “Louange” (2).");
   });
 
   it("refuses at plan time what it cannot plan, saying which", async () => {
