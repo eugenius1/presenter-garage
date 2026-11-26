@@ -1,21 +1,32 @@
 /**
- * The command line: library folders, and two options.
+ * The command line: at most one library folder, and two options.
+ *
+ * One folder, because the server serves one library at a time: a song is
+ * checked against its own library's configured groups and macros, and a
+ * second folder's songs would be checked against the wrong lists. Another
+ * library is opened with `use_library`, or by the client's roots.
  *
  * `--read-only` also takes `=true` or `=false`, because the Claude Desktop
  * extension can only pass a setting's value inside a fixed argument, and an
  * unticked box arrives as `--read-only=false`.
  */
 export interface Args {
-  folders: string[];
+  folder?: string;
   readOnly: boolean;
   backupDir?: string;
 }
 
 export function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { folders: [], readOnly: false };
+  const args: Args = { readOnly: false };
   for (const arg of argv) {
     if (!arg.startsWith("--")) {
-      args.folders.push(arg);
+      if (args.folder !== undefined) {
+        throw new Error(
+          `One library folder at a time: ${args.folder} and ${arg} were both given. ` +
+            "Start the server on one; another can be opened with use_library."
+        );
+      }
+      args.folder = arg;
       continue;
     }
     const eq = arg.indexOf("=");

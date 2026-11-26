@@ -588,18 +588,18 @@ export async function folderWorkspaces(dir: string = folderWorkspacesDir()): Pro
 }
 
 /**
- * What to say about each root that is a folder ProPresenter 22 made a
- * workspace from, unless that workspace is being read too.
+ * What to say about a library that is a folder ProPresenter 22 made a
+ * workspace from.
  *
  * The upgrade copies the folder and never touches it again, so it goes on
  * reading perfectly as the library of the day of the upgrade. Nothing in the
  * folder says so; only the registry does.
  */
-export function staleNotes(roots: readonly string[], registered: readonly RegisteredWorkspace[]): string[] {
+export function staleNotes(root: string, registered: readonly RegisteredWorkspace[]): string[] {
   // A root is read as the ProPresenter folder and as the folder above it.
-  const read = new Set(roots.flatMap((root) => [root, path.join(root, "ProPresenter")]));
+  const read = new Set([root, path.join(root, "ProPresenter")]);
   return registered
-    .filter((w) => w.copiedFrom && read.has(path.resolve(w.copiedFrom)) && !roots.includes(w.root))
+    .filter((w) => w.copiedFrom && read.has(path.resolve(w.copiedFrom)))
     .map(
       (w) =>
         `${w.copiedFrom} is the folder ProPresenter 22 made the workspace "${w.name}" from. ` +

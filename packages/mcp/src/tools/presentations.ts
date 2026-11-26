@@ -133,13 +133,13 @@ async function readDates(files: readonly string[]): Promise<{ dated: Dated[]; un
  * description says so, so the calling model can choose.
  */
 export async function listPresentations(
-  roots: readonly string[],
+  root: string,
   { query, limit = 200, notUsedSince, usedSince, sort = "name" }: ListOptions = {}
 ): Promise<PresentationListing> {
   const before = parseDate(notUsedSince, "notUsedSince");
   const since = parseDate(usedSince, "usedSince");
 
-  const { files, truncated } = await findPresentations(roots);
+  const { files, truncated } = await findPresentations([root]);
   const wanted = query ? fold(query) : undefined;
   const named = files.filter((file) => !wanted || fold(presentationName(file)).includes(wanted));
 
@@ -218,8 +218,8 @@ const macroEntry = ({ name, uuid, enabled }: SlideMacro): SlideMacroEntry => ({
   ...(enabled ? {} : { disabled: true as const }),
 });
 
-export async function readPresentationFile(roots: readonly string[], file: string): Promise<PresentationContent> {
-  const { path: real, bytes, modified, converted } = await readLibraryFile(roots, file);
+export async function readPresentationFile(root: string, file: string): Promise<PresentationContent> {
+  const { path: real, bytes, modified, converted } = await readLibraryFile([root], file);
   const { doc, raw } = open(file, bytes);
 
   // Every slide, not only those with words: a blank or image-only slide is
@@ -278,13 +278,13 @@ export interface SearchResult {
  * so "cene" finds "Cène" here exactly as it does in the browser.
  */
 export async function searchText(
-  roots: readonly string[],
+  root: string,
   { query, folder, limit = 50 }: { query: string; folder?: string; limit?: number }
 ): Promise<SearchResult> {
   const wanted = fold(query.trim());
   if (!wanted) throw new LibraryError("Search for at least one visible character.");
 
-  const dirs = folder ? [await resolveFolder(roots, folder)] : roots;
+  const dirs = folder ? [await resolveFolder([root], folder)] : [root];
   const { files, truncated } = await findPresentations(dirs);
   const matches: TextMatch[] = [];
   const unreadable: string[] = [];

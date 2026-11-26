@@ -110,7 +110,7 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(tmp, "secret.txt"), "not yours");
   if (can.symlink) fs.symlinkSync(path.join(tmp, "secret.txt"), path.join(songs, "escape.pro"));
 
-  ({ client, call } = await connect([library]));
+  ({ client, call } = await connect(library));
 });
 
 afterAll(async () => {
@@ -122,6 +122,7 @@ afterAll(async () => {
 const READING_TOOLS = [
   "audit_media_bin",
   "check_presentations",
+  "current_library",
   "list_presentations",
   "list_themes",
   "preview_style",
@@ -131,6 +132,7 @@ const READING_TOOLS = [
   "read_presentation",
   "read_rules",
   "search_text",
+  "use_library",
 ];
 
 describe("the tools offered", () => {
@@ -144,7 +146,7 @@ describe("the tools offered", () => {
   });
 
   it("are all read-only, with nothing that edits even offered, when started read-only", async () => {
-    const { client: readOnly } = await connect([library], { readOnly: true });
+    const { client: readOnly } = await connect(library, { readOnly: true });
     const { tools } = await readOnly.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(READING_TOOLS);
     for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBe(true);
@@ -192,7 +194,7 @@ describe("read_presentation", () => {
   });
 
   it("gives each slide's group and macros, a non-breaking space escaped where a reader sees it", async () => {
-    const { client: own, call: callOwn } = await connect([church]);
+    const { client: own, call: callOwn } = await connect(church);
     const result = await callOwn("read_presentation", { path: "Libraries/Chants/Macro Song.pro" });
     await own.close();
     // Visible in the text a model reads, and the very character once parsed.
@@ -256,7 +258,7 @@ describe("invisible characters in an answer", () => {
 
 describe("read_groups_and_macros", () => {
   it("reads ProPresenter's configured lists from beside Libraries, names exactly as stored", async () => {
-    const { client: own, call: callOwn } = await connect([church]);
+    const { client: own, call: callOwn } = await connect(church);
     const result = await callOwn("read_groups_and_macros");
     await own.close();
     expect(result.text).toContain('"name":"Couplet\\u00a01"');
@@ -276,7 +278,7 @@ describe("read_groups_and_macros", () => {
     const other = path.join(tmp, "Other");
     fs.mkdirSync(path.join(other, "Configuration"), { recursive: true });
     fs.writeFileSync(path.join(other, "Configuration", "Groups"), "not a protobuf \xff\xff");
-    const { client: one, call: callOne } = await connect([other]);
+    const { client: one, call: callOne } = await connect(other);
     const answer = (await callOne("read_groups_and_macros")).json();
     expect(answer.groups).toEqual([]);
     expect(answer.unreadable.groups).toBeTruthy();
@@ -285,7 +287,7 @@ describe("read_groups_and_macros", () => {
 
     const empty = path.join(tmp, "Empty");
     fs.mkdirSync(empty);
-    const { client: none, call: callNone } = await connect([empty]);
+    const { client: none, call: callNone } = await connect(empty);
     const refused = await callNone("read_groups_and_macros");
     expect(refused.isError).toBe(true);
     expect(refused.text).toMatch(/neither/);
@@ -373,7 +375,7 @@ describe("the media bin", () => {
   });
 
   it("says where to look when there is none", async () => {
-    await expect(auditMediaBin([path.join(library, "Libraries")])).rejects.toThrow(/No media bin found/);
+    await expect(auditMediaBin(path.join(library, "Libraries"))).rejects.toThrow(/No media bin found/);
   });
 
   it("refuses a presentation passed as a media bin", async () => {
@@ -555,7 +557,7 @@ describe("what a presentation records about itself", () => {
     write("Never", {});
     fs.writeFileSync(path.join(dated, "Chords.pro"), "{title: Amazing Grace}\n[G]Amazing grace\n");
 
-    server = await connect([dated]);
+    server = await connect(dated);
   });
 
   afterAll(async () => {
@@ -701,7 +703,7 @@ describe("playlists and themes", () => {
     fs.mkdirSync(path.join(show, "Themes", "Broken"), { recursive: true });
     fs.writeFileSync(path.join(show, "Themes", "Broken", "Theme"), "not a theme");
 
-    server = await connect([show]);
+    server = await connect(show);
   });
 
   afterAll(async () => {
@@ -771,7 +773,7 @@ describe("playlists and themes", () => {
   it("hands out the same file when the server is pointed at the folder above", async () => {
     const above = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-above-")));
     fs.renameSync(show, path.join(above, "ProPresenter"));
-    const outer = await connect([above]);
+    const outer = await connect(above);
     try {
       const entry = (await outer.call("read_playlists", {})).json().playlists[0].items[1];
       expect(entry.file).toBe(path.join(above, "ProPresenter", "Libraries", "Default", "Checked Song.pro"));
@@ -807,7 +809,7 @@ describe("playlists and themes", () => {
   it.skipIf(!can.symlink)("does not list themes a symlinked Themes folder leads out to", async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-linked-")));
     fs.symlinkSync(path.join(show, "Themes"), path.join(root, "Themes"));
-    const linked = await connect([root]);
+    const linked = await connect(root);
     try {
       expect((await linked.call("list_themes", {})).json()).toEqual({ themes: [], unreadable: [] });
     } finally {
@@ -878,7 +880,7 @@ describe("editing slide text", () => {
     backups = path.join(dir, "Backups");
 
     ({ client: editor, call: edit } = await connect(
-      [path.join(dir, "ProPresenter")],
+      path.join(dir, "ProPresenter"),
       { backupDir: backups },
       { elicitation: { form: {} } }
     ));
@@ -1074,7 +1076,7 @@ describe("editing slide text", () => {
     const plan = store.take(planId)!;
     const controller = new AbortController();
     controller.abort();
-    await expect(applyPlan(roots, plan, new Set([1]), backups, controller.signal)).rejects.toThrow(/cancelled/);
+    await expect(applyPlan(roots[0], plan, new Set([1]), backups, controller.signal)).rejects.toThrow(/cancelled/);
     expect(fs.readFileSync(file)).toEqual(before);
     expect(fs.existsSync(backups)).toBe(false);
   });
@@ -1127,10 +1129,16 @@ describe("editing slide text", () => {
 });
 
 describe("the command line", () => {
-  it("takes folders, --read-only and --backup-dir", () => {
-    expect(parseArgs(["/a", "/b"])).toEqual({ folders: ["/a", "/b"], readOnly: false });
-    expect(parseArgs(["--read-only", "/a"])).toMatchObject({ folders: ["/a"], readOnly: true });
+  it("takes one folder, --read-only and --backup-dir", () => {
+    expect(parseArgs(["/a"])).toEqual({ folder: "/a", readOnly: false });
+    expect(parseArgs([])).toEqual({ readOnly: false });
+    expect(parseArgs(["--read-only", "/a"])).toMatchObject({ folder: "/a", readOnly: true });
     expect(parseArgs(["--backup-dir=/x=y", "/a"])).toMatchObject({ backupDir: "/x=y" });
+  });
+
+  it("refuses a second folder rather than reading two libraries", () => {
+    expect(() => parseArgs(["/a", "/b"])).toThrow(/One library folder at a time: \/a and \/b/);
+    expect(() => parseArgs(["/a", "--read-only", "/b"])).toThrow(/use_library/);
   });
 
   it("takes the Claude Desktop extension's --read-only=true|false", () => {

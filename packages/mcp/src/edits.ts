@@ -1,11 +1,24 @@
+import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { createI18n } from "@presenter-garage/core/i18n/core";
-import { applyPlan as applyShared, type AppliedFile, type Plan } from "@presenter-garage/node/edits";
+import {
+  applyPlan as applyShared,
+  MAX_PLAN_LINES,
+  planSlideEdits,
+  PlanStore,
+  type AppliedFile,
+  type Plan,
+} from "@presenter-garage/node/edits";
+import { LibraryError } from "@presenter-garage/node/library";
+import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
+import type { Library, OpenLibrary } from "./library";
 
 export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter-garage/node/edits";
 
 /**
- * The MCP server's half of editing slide text: the confirmation it asks the
- * person through elicitation, and the outcome in a model's words. Planning
+ * The MCP server's half of editing slide text: its two tools, the
+ * confirmation it asks the person through elicitation, and the outcome in a
+ * model's words. Planning
  * and applying are `packages/node/src/edits.ts`, shared with the desktop
  * app, so there is one write path. See AGENTS.md for the four guards and
  * where each is kept on this surface.
@@ -60,19 +73,157 @@ export interface ApplyResult {
   files: Omit<AppliedFile, "rangeReason">[];
 }
 
-/** Apply what the person left ticked, each refusal said in the app's own English sentence. */
+/** Apply what the person left ticked in the one library open, each refusal said in the app's own English sentence. */
 export async function applyPlan(
-  roots: readonly string[],
+  root: string,
   plan: Plan,
   ticked: ReadonlySet<number>,
   backupDir: string,
   signal?: AbortSignal
 ): Promise<Omit<ApplyResult, "answer">> {
-  const run = await applyShared(roots, plan, ticked, backupDir, signal);
+  const run = await applyShared([root], plan, ticked, backupDir, signal);
   return {
     backupFolder: run.backupFolder,
     files: run.files.map((file) =>
       file.reason ? { ...file, detail: [refusals[file.reason], file.detail].filter(Boolean).join(": ") } : file
     ),
   };
+}
+
+/** How many plans' libraries are remembered: more than the plan store keeps. */
+const MAX_REMEMBERED_PLANS = 50;
+
+/**
+ * The two tools that edit, returned so the server can offer them only while
+ * the library open can be backed up. Kept apart so a read-only server never
+ * registers them, and so the person's answer is fetched here -- by the
+ * server, from the client -- where the model cannot supply it.
+ */
+export function registerEditTools(server: McpServer, library: Library): RegisteredTool[] {
+  const plans = new PlanStore();
+  /** The library each plan was made in: applied anywhere else, its paths and backups would be another library's. */
+  const madeIn = new Map<string, OpenLibrary & { backupDir: string }>();
+
+  /** The library open now, if slide text can be edited in it. */
+  const editable = async () => {
+    const open = await library.get();
+    if (!open.backupDir) throw new LibraryError(`Slide text cannot be edited in ${open.root}: ${open.notes.join(" ")}`);
+    return open as OpenLibrary & { backupDir: string };
+  };
+
+  const plan = server.registerTool(
+    "plan_slide_edits",
+    {
+      title: "Plan slide text edits",
+      description:
+        "Work out changes to the text of slides, writing nothing. Each edit names a line by the `path`, " +
+        "`boxIndex` and `lineIndex` read_presentation or search_text gave it, and the whole text the line " +
+        "should read afterwards, or null to remove the line. Only what differs is touched, so formatting " +
+        "elsewhere on the line is kept. With `insert`, the edit adds `text` as a new line after (or before) " +
+        "that line instead, leaving it as it is; the new line takes its All Caps, and several added on one " +
+        "side of one line read in the order given. Line indexes always name lines as they read now, before " +
+        "any edit. Returns a `planId` and every line as it is and as it would read (an added line with " +
+        "`before` null); a line's `styling` says what the change does to formatting ranges on it " +
+        "(All Caps, say), which the person sees too. " +
+        "If any edit cannot be made, nothing is planned and the error says which. " +
+        "Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm.",
+      inputSchema: {
+        edits: z
+          .array(
+            z.object({
+              path: z.string().describe("The .pro file."),
+              boxIndex: z.number().int().min(0),
+              lineIndex: z.number().int().min(0),
+              text: z
+                .string()
+                .nullable()
+                .describe("The line's whole new text, on one line; null removes the line. With `insert`, the added line's text."),
+              insert: z
+                .enum(["after", "before"])
+                .optional()
+                .describe("Add `text` as a new line on this side of the line, instead of changing the line."),
+            })
+          )
+          .min(1)
+          .max(MAX_PLAN_LINES),
+      },
+      annotations: READ_ONLY,
+    },
+    ({ edits }) =>
+      answer(async () => {
+        const open = await editable();
+        const planned = await planSlideEdits([open.root], plans, edits);
+        madeIn.set(planned.planId, open);
+        while (madeIn.size > MAX_REMEMBERED_PLANS) madeIn.delete(madeIn.keys().next().value!);
+        return planned;
+      })
+  );
+
+  const apply = server.registerTool(
+    "apply_slide_edits",
+    {
+      title: "Apply planned slide edits",
+      description:
+        "Apply a plan from plan_slide_edits, once the person confirms it. Their app shows them every line " +
+        "as it is and as it would read, and they can untick any; only ticked lines are written. Each file is " +
+        "backed up outside the library first, checked, and read back once written; a file that changed " +
+        "since the plan was made is left alone. A plan is used once, whatever the answer. Needs an MCP " +
+        "client that can ask its user a question (elicitation); with one that cannot, nothing is written.",
+      inputSchema: { planId: z.string().describe("The planId plan_slide_edits returned.") },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    ({ planId }, { signal }) =>
+      answer(async (): Promise<ApplyResult> => {
+        const plan = plans.take(planId);
+        const made = madeIn.get(planId);
+        madeIn.delete(planId);
+        if (!plan || !made) throw new LibraryError("No such plan, or it was already used or has expired. Plan the edits again.");
+        // A plan is for the library it was made in: its paths, and where its backups go, are that library's.
+        const stillOpen = async () => {
+          const open = await library.get();
+          if (open.root !== made.root || open.backupDir !== made.backupDir) {
+            throw new LibraryError(
+              `This plan was made in ${made.root}, and the library open now is ${open.root}, so nothing was written. ` +
+                "Plan the edits again in the library open now."
+            );
+          }
+        };
+        await stillOpen();
+
+        // A form, specifically: a client offering only URL elicitation cannot show tick boxes.
+        if (!server.server.getClientCapabilities()?.elicitation?.form) {
+          throw new LibraryError(
+            "This MCP client cannot ask its user to confirm a change, so nothing was written. Edit in a client " +
+              "that supports elicitation, or with the Presenter Garage web app."
+          );
+        }
+        let reply;
+        try {
+          // The SDK's default is a minute, which is not long enough to read a song's worth of lines.
+          // The call's own signal too: a client that gives up on the tool call
+          // must not have the file changed behind it by a late answer.
+          reply = await server.server.elicitInput(confirmationRequest(plan, made.backupDir), {
+            timeout: CONFIRM_TIMEOUT_MS,
+            signal,
+          });
+        } catch (e) {
+          throw new LibraryError(
+            `No answer came back from the confirmation (${(e as Error).message}), so nothing was written. Plan the edits again.`
+          );
+        }
+        if (reply.action !== "accept") return { answer: reply.action, files: [] };
+        if (signal.aborted) throw new LibraryError("The call was cancelled before the answer came back, so nothing was written.");
+        // Asked again: another library can have been opened while the person read the lines.
+        await stillOpen();
+
+        // Only a line the person left ticked counts; one their client did not send back does not.
+        const ticked = new Set(
+          Object.entries(reply.content ?? {})
+            .filter(([, value]) => value === true)
+            .map(([key]) => Number(key.replace(/^line/, "")))
+        );
+        return { answer: "accept", ...(await applyPlan(made.root, plan, ticked, made.backupDir, signal)) };
+      })
+  );
+  return [plan, apply];
 }

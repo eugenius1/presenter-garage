@@ -29,16 +29,16 @@ import { fidelityOf } from "./fidelity";
  * file as it was read, and `target`, the path before symlinks were resolved.
  */
 async function loadPlaylistFile<T>(
-  roots: readonly string[],
+  root: string,
   file: string | undefined,
   find: (roots: readonly string[]) => Promise<string | undefined>,
   missing: string,
   what: string,
   decode: (name: string, bytes: Uint8Array) => T
 ) {
-  const target = file ?? (await find(roots));
+  const target = file ?? (await find([root]));
   if (!target) throw new LibraryError(missing);
-  const { path: real, bytes, converted } = await readLibraryFile(roots, target);
+  const { path: real, bytes, converted } = await readLibraryFile([root], target);
   try {
     return { path: real, target, bytes, converted, decoded: decode(path.basename(real), bytes) };
   } catch (e) {
@@ -49,9 +49,9 @@ async function loadPlaylistFile<T>(
   }
 }
 
-async function loadMediaBin(roots: readonly string[], file: string | undefined) {
+async function loadMediaBin(root: string, file: string | undefined) {
   const { path: real, converted, decoded } = await loadPlaylistFile(
-    roots,
+    root,
     file,
     findMediaBin,
     "No media bin found. Pass the path of the `Media` file inside ProPresenter's `Playlists` folder.",
@@ -71,8 +71,8 @@ function compactItem(item: MediaItem) {
   };
 }
 
-export async function readMediaBin(roots: readonly string[], file?: string) {
-  const { path: real, converted, loaded } = await loadMediaBin(roots, file);
+export async function readMediaBin(root: string, file?: string) {
+  const { path: real, converted, loaded } = await loadMediaBin(root, file);
   const { library } = loaded;
   return {
     path: real,
@@ -93,8 +93,8 @@ export async function readMediaBin(roots: readonly string[], file?: string) {
  * The full `MediaItem` carries playback settings, fingerprints and both paths;
  * a model asking "what is duplicated" needs the name, the file and where it is.
  */
-export async function auditMediaBin(roots: readonly string[], file?: string) {
-  const { path: real, loaded } = await loadMediaBin(roots, file);
+export async function auditMediaBin(root: string, file?: string) {
+  const { path: real, loaded } = await loadMediaBin(root, file);
   const audit = auditLibrary(loaded.library);
   const located = (item: MediaItem) => ({ ...compactItem(item), playlist: item.playlistPath });
 
@@ -215,9 +215,9 @@ function playlistTree(
  * anywhere else says nothing about where the show folder is, and its entries
  * give the absolute paths ProPresenter recorded instead.
  */
-export async function readPlaylists(roots: readonly string[], file?: string) {
+export async function readPlaylists(root: string, file?: string) {
   const { path: real, target, bytes, converted, decoded } = await loadPlaylistFile(
-    roots,
+    root,
     file,
     findPlaylists,
     "No presentation playlists found. Pass the path of the `Library` file inside ProPresenter's `Playlists` folder.",

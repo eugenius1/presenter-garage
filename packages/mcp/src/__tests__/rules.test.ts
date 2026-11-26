@@ -41,7 +41,7 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 describe("the team's rules", () => {
   it("are pointed out in the instructions, read in the team's words, compiled, saved and run", async () => {
-    const { client, call } = await connect([church], { rulesDirs: [team], rules: { markdown: path.join(team, "RULES.md") } });
+    const { client, call } = await connect(church, { rulesDirs: [team], rules: { markdown: path.join(team, "RULES.md") } });
     expect(client.getInstructions()).toContain(`The team's rules are in ${path.join(team, "RULES.md")}: read them with read_rules`);
     expect(client.getInstructions()).toContain("It has not been compiled yet");
 
@@ -74,7 +74,7 @@ describe("the team's rules", () => {
   });
 
   it("can be tried inline before they are saved", async () => {
-    const { client, call } = await connect([church], { rulesDirs: [team] });
+    const { client, call } = await connect(church, { rulesDirs: [team] });
     const check = (await call("check_presentations", { rules: { version: 1, rules: [{ id: "ends", check: "last-group", tier: 2, group: "Pause" }], exceptions: [] } })).json();
     expect(check.rules).toMatchObject({ inline: true });
     expect(check.totals).toEqual({ ends: 1 });
@@ -89,7 +89,7 @@ describe("the team's rules", () => {
     fs.mkdirSync(broken);
     fs.writeFileSync(path.join(broken, "RULES.md"), "# Nos règles\n");
     fs.writeFileSync(path.join(broken, "rules.json"), JSON.stringify({ version: 1, rules: [{ id: "a", check: "last-group", tier: 2 }] }));
-    const { client, call } = await connect([church], { rulesDirs: [broken] });
+    const { client, call } = await connect(church, { rulesDirs: [broken] });
     const read = (await call("read_rules")).json();
     expect(read.markdown.text).toContain("Nos règles");
     expect(read.json).toBeUndefined();
@@ -97,17 +97,8 @@ describe("the team's rules", () => {
     await client.close();
   });
 
-  it("check each song against the lists of the deepest folder holding it", async () => {
-    // The folder above the church comes first and has no lists of its own; the church's songs still get the church's.
-    const { client, call } = await connect([tmp, church], { rulesDirs: [] });
-    const rules = { version: 1, rules: [{ id: "groupes", check: "group-names", tier: 2 }], exceptions: [] };
-    const check = (await call("check_presentations", { path: church, rules })).json();
-    expect(check.totals).toEqual({ groupes: 1 });
-    await client.close();
-  });
-
   it("ask for a rule's macros only where it runs, and only of the songs checked", async () => {
-    const { client, call } = await connect([church], { rulesDirs: [] });
+    const { client, call } = await connect(church, { rulesDirs: [] });
     const rule = { id: "x", check: "macro-alone", tier: 2, macro: "Absent", libraries: ["Elsewhere"] };
     const kept = (await call("check_presentations", { rules: { version: 1, rules: [rule], exceptions: [] } })).json();
     expect(kept.totals).toEqual({});
@@ -118,7 +109,7 @@ describe("the team's rules", () => {
   });
 
   it("cannot be saved by a read-only server", async () => {
-    const { client } = await connect([church], { readOnly: true, rulesDirs: [team] });
+    const { client } = await connect(church, { readOnly: true, rulesDirs: [team] });
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toContain("read_rules");
     expect(tools.map((t) => t.name)).not.toContain("save_rules");

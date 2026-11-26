@@ -425,16 +425,15 @@ describe("the library read when none is named", () => {
     expect(path.dirname(workspacesDir()).endsWith(path.join("RenewedVision", "ProPresenter"))).toBe(true);
   });
 
-  it("says which folder is a copy ProPresenter no longer updates, unless its workspace is read too", () => {
+  it("says which folder is a copy ProPresenter no longer updates", () => {
     const upgraded: RegisteredWorkspace = { ...registered(true), copiedFrom: DOCUMENTS };
-    const [note] = staleNotes([DOCUMENTS], [upgraded]);
+    const [note] = staleNotes(DOCUMENTS, [upgraded]);
     expect(note).toContain(DOCUMENTS);
     expect(note).toContain("/ws/v22");
     // The folder above is read as holding it, so it is the same stale library.
-    expect(staleNotes([path.dirname(DOCUMENTS)], [upgraded])).toHaveLength(1);
-    expect(staleNotes([DOCUMENTS, "/ws/v22"], [upgraded])).toEqual([]);
-    expect(staleNotes(["/somewhere/else"], [upgraded])).toEqual([]);
-    expect(staleNotes([DOCUMENTS], [registered(true)])).toEqual([]);
+    expect(staleNotes(path.dirname(DOCUMENTS), [upgraded])).toHaveLength(1);
+    expect(staleNotes("/somewhere/else", [upgraded])).toEqual([]);
+    expect(staleNotes(DOCUMENTS, [registered(true)])).toEqual([]);
   });
 
   it("is the workspace ProPresenter 22 has open, whatever else exists", () => {

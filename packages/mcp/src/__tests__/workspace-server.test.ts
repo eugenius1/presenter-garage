@@ -23,7 +23,7 @@ import {
 } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
 import { createWorkspace, putDocument, sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
 import { openRoots } from "@presenter-garage/node/library";
-import { applyPlan, planSlideEdits, PlanStore } from "../edits";
+import { applyPlan as applyAcross, planSlideEdits, PlanStore } from "@presenter-garage/node/edits";
 import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
 import { CLOUD_REFUSED } from "@presenter-garage/node/workspace-write";
 import { callTool, connect } from "./connect";
@@ -77,7 +77,7 @@ beforeAll(async () => {
   putDocument(workspace, "PlaylistLibrary", null, PLAYLISTS);
   putDocument(workspace, "Groups", null, workspaceDocument("rv.data.ProGroupsDocument", decodeGroupsDocument(syntheticGroupsFile())));
   putDocument(workspace, "Macros", null, workspaceDocument("rv.data.MacrosDocument", decodeMacrosDocument(syntheticMacrosFile())));
-  ({ client } = await connect([workspace]));
+  ({ client } = await connect(workspace));
 });
 
 afterAll(async () => {
@@ -176,11 +176,13 @@ suite("a ProPresenter 22 workspace through the server", () => {
   });
 
   it("passes on what it was told about the folder it reads", async () => {
-    const { client: noted } = await connect([workspace], {
-      readOnly: true,
-      notes: ["This folder is a copy ProPresenter no longer updates."],
-    });
-    expect(noted.getInstructions()).toContain("Important: This folder is a copy ProPresenter no longer updates.");
+    // The registry says ProPresenter 22 made another workspace from this one.
+    const registered = async () => [
+      { root: "/elsewhere/v22", name: "Church", active: true, cloud: false, schemaVersion: "22.9.0", copiedFrom: workspace },
+    ];
+    const { client: noted, call: ask } = await connect(workspace, { readOnly: true, registered });
+    expect(noted.getInstructions()).toMatch(/Important: .* no longer reads or updates it/);
+    expect((await ask("current_library")).json().notes[0]).toContain("/elsewhere/v22");
     await noted.close();
   });
 });
@@ -206,7 +208,7 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     // And All Caps on "ton" alone.
     putPresentation(root, "Partial", presentationRoot((lines) => (opening(lines) ? [{ start: 4, end: 7 }] : [])));
     asked = [];
-    ({ client: editor, call: edit } = await connect([root], { backupDir: path.join(dir, "Backups") }, { elicitation: { form: {} } }));
+    ({ client: editor, call: edit } = await connect(root, { backupDir: path.join(dir, "Backups") }, { elicitation: { form: {} } }));
     editor.setRequestHandler(ElicitRequestSchema, (request) => {
       asked.push(request);
       const { properties } = (request.params as { requestedSchema: { properties: Record<string, unknown> } }).requestedSchema;
@@ -301,7 +303,7 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     const cloudDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-workspace-cloud-")));
     const cloud = createWritableWorkspace(cloudDir, { cloud: true });
     putPresentation(cloud, "Song", presentationRoot());
-    const { client, call: cloudCall } = await connect([cloud], { backupDir: path.join(cloudDir, "Backups") });
+    const { client, call: cloudCall } = await connect(cloud, { backupDir: path.join(cloudDir, "Backups") });
     const refused = await cloudCall("plan_slide_edits", {
       edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 6, lineIndex: 0, text: "Que ton nom" }],
     });
@@ -320,6 +322,8 @@ function snapshots(root: string): Uint8Array[] {
   return all.map((row) => row.snapshot);
 }
 
+// The server opens one library at a time, but the apply it shares with the
+// desktop app still takes a plan across several, and keeps its guards there.
 suite("a plan across two workspaces", () => {
   it("refuses the whole call, writing in neither, when ProPresenter has a later workspace open", async () => {
     const dirs = [0, 1].map(() => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-two-workspaces-"))));
@@ -340,7 +344,7 @@ suite("a plan across two workspaces", () => {
     try {
       // Every workspace is taken before any is written, so the first is
       // not written either, and the call is refused while nothing has been.
-      await expect(applyPlan(roots, plan, new Set([1, 2]), path.join(dirs[0], "Backups"))).rejects.toThrow(/Quit ProPresenter/);
+      await expect(applyAcross(roots, plan, new Set([1, 2]), path.join(dirs[0], "Backups"))).rejects.toThrow(/Quit ProPresenter/);
       expect(roots.map(snapshots)).toEqual(before);
       // And the first workspace was let go: ProPresenter can take it again.
       const after = new sqlite!.DatabaseSync(storeOf(roots[0]));

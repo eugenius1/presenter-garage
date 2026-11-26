@@ -1,9 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { RootsListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { version } from "../package.json";
-import { LibraryError } from "@presenter-garage/node/library";
-import { defaultBackupDir } from "@presenter-garage/node/write";
-import { applyPlan, confirmationRequest, MAX_PLAN_LINES, planSlideEdits, PlanStore, type ApplyResult } from "./edits";
+import { answer, READ_ONLY } from "./answer";
+import { registerEditTools } from "./edits";
+import { Library, type LibraryOptions, type OpenLibrary } from "./library";
+import { registerLibraryTools } from "./library-tools";
+export { toJson } from "./answer";
+
 import {
   auditMediaBin,
   checkPresentations,
@@ -20,32 +24,25 @@ import {
 } from "./tools";
 
 /**
- * An MCP server that reads, and edits the slide text of, a ProPresenter 7
- * library on disk. Started by `main.ts`; built separately so tests can drive
- * it over an in-memory pipe.
+ * An MCP server that reads, and edits the slide text of, one ProPresenter
+ * library on disk at a time. Started by `main.ts`; built separately so tests
+ * can drive it over an in-memory pipe.
  *
  * ProPresenter's own network API can show and trigger slides but cannot edit
  * them; this works on the files instead, through the same decoding, checks
- * and write path the browser app uses. Started with `readOnly`, the two
- * editing tools are not offered at all, so a model never sees them.
+ * and write path the browser app uses. Started with `readOnly`, the editing
+ * tools are not offered at all, so a model never sees them; nor are they
+ * while the library open has no usable backup folder.
+ *
+ * Which library is open is `library.ts`: the folder it was started on, the
+ * client's roots when it has any, or one the person approved through
+ * `use_library`.
  */
 
-const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
+/** How long the client has to say what its roots are; every tool waits for the answer. */
+const ROOTS_TIMEOUT_MS = 10 * 1000;
 
-/** How long a person has to read and answer the confirmation: as long as a plan lives. */
-const CONFIRM_TIMEOUT_MS = 60 * 60 * 1000;
-
-export interface ServerOptions {
-  /** Offer no tool that writes. */
-  readOnly?: boolean;
-  /** Where backups go before a file is changed. Defaults to `defaultBackupDir()`. */
-  backupDir?: string;
-  /**
-   * Things a model must know before trusting what it reads, added to the
-   * server's instructions: that a folder is a copy ProPresenter no longer
-   * updates, say.
-   */
-  notes?: readonly string[];
+export interface ServerOptions extends LibraryOptions {
   /** Where the team's `RULES.md` and `rules.json` are looked for. Defaults to nowhere: a test names its own. */
   rulesDirs?: readonly string[];
   /** The team's rules as found at start-up, for the instructions to point a model at. */
@@ -66,44 +63,6 @@ const MEDIA_BIN_INPUT = {
 };
 
 /**
- * Characters that show as nothing, or as an ordinary space: non-breaking and
- * other Unicode spaces, zero-width characters, bidirectional marks,
- * embeddings and isolates (U+2066-U+2069), the other invisible format
- * controls up to U+206F, the soft hyphen and the byte-order mark.
- */
-const INVISIBLE = /[\u00a0\u00ad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff]/g;
-
-/**
- * JSON with every invisible character written as its `\uXXXX` escape.
- *
- * A reader of the text sees `Couplet\u00a01` where a raw non-breaking space
- * would look exactly like `Couplet 1`, and ProPresenter treats the two as
- * different group names. Parsed, the escape is the character itself, so
- * nothing is lost: a name or a line handed back reads exactly as stored.
- * Safe to do to the whole text because those characters can only be inside
- * a JSON string, where an escape means the same thing.
- */
-export function toJson(value: unknown): string {
-  return JSON.stringify(value).replace(INVISIBLE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
-}
-
-/**
- * Wrap a tool's answer for the wire.
- *
- * A `LibraryError` is something the model can act on -- a wrong path, a file
- * that is a chord chart -- so it goes back as a tool error rather than a
- * protocol failure, which a client may show to nobody.
- */
-async function answer(run: () => Promise<unknown>) {
-  try {
-    return { content: [{ type: "text" as const, text: toJson(await run()) }] };
-  } catch (e) {
-    if (!(e instanceof LibraryError)) throw e;
-    return { isError: true, content: [{ type: "text" as const, text: e.message }] };
-  }
-}
-
-/**
  * What a model is told about the team's rules before it does anything: where
  * they are, and that they are to be read before checking or proposing edits.
  * A team writes them for a person or a model to read, not for the tools, so
@@ -116,28 +75,54 @@ function rulesInstruction({ rules, readOnly }: ServerOptions): string {
   return ` The team's rules are in ${rules.markdown}: read them with read_rules before checking songs or proposing edits.${compile}`;
 }
 
-export function createServer(roots: readonly string[], options: ServerOptions = {}): McpServer {
+/** Which library the server starts on, and that it can change. */
+function libraryInstruction(start: OpenLibrary | { problem: string }): string {
+  return (
+    "Reads one ProPresenter library at a time: a folder of ProPresenter 7 files or a ProPresenter 22 workspace. " +
+    ("root" in start ? `It starts on ${start.root}` : `No library is open yet (${start.problem})`) +
+    "; the client's roots, or use_library once the person approves, can open another, and current_library says " +
+    "which is open and what to know before trusting it. Paths may be absolute or relative to the library folder. "
+  );
+}
+
+/**
+ * The server, starting on `start`: the library opened from the command line
+ * or by default, or why none could be. See `Library` for what can change it.
+ */
+export function createServer(start: OpenLibrary | { problem: string }, options: ServerOptions = {}): McpServer {
+  const library = new Library(start, options);
   const server = new McpServer(
     { name: "presenter-garage", version },
     {
       instructions:
-        `Reads ProPresenter 7 files under: ${roots.join(", ")}. ` +
-        "Paths may be absolute or relative to those folders. " +
+        libraryInstruction(start) +
         (options.readOnly
           ? "Nothing is written."
           : "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
             "confirm every line before anything is written, and each file is backed up first.") +
         rulesInstruction(options) +
-        (options.notes?.length ? ` Important: ${options.notes.join(" ")}` : ""),
+        ("root" in start && start.notes.length ? ` Important: ${start.notes.join(" ")}` : ""),
     }
   );
+  /** A tool's answer, from the library open once any change under way is made. */
+  const inLibrary = (run: (root: string) => Promise<unknown>) => answer(async () => run((await library.get()).root));
+
+  // The client's roots, when it has them, name the library; read again whenever they change.
+  const readClientRoots = () => {
+    if (!server.server.getClientCapabilities()?.roots) return;
+    library
+      .useClientRoots(async () => (await server.server.listRoots(undefined, { timeout: ROOTS_TIMEOUT_MS })).roots)
+      .catch((e) => console.error(`The client's roots could not be used: ${e instanceof Error ? e.message : e}`));
+  };
+  server.server.oninitialized = readClientRoots;
+  server.server.setNotificationHandler(RootsListChangedNotificationSchema, readClientRoots);
 
   server.registerTool(
     "list_presentations",
     {
       title: "List presentations",
       description:
-        "List ProPresenter presentation (.pro) files in the library folders, optionally filtered by a " +
+        "List ProPresenter presentation (.pro) files in the library, optionally filtered by a " +
         "case- and accent-insensitive substring of the file name. Each entry has the file's size and " +
         "`fileModified` (the file system's time). " +
         "Filtering or sorting by when a presentation was last shown (`notUsedSince`, `usedSince`, " +
@@ -168,7 +153,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       },
       annotations: READ_ONLY,
     },
-    (args) => answer(() => listPresentations(roots, args))
+    (args) => inLibrary((root) => listPresentations(root, args))
   );
 
   server.registerTool(
@@ -190,7 +175,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       inputSchema: { path: z.string().describe("Path of the .pro file.") },
       annotations: READ_ONLY,
     },
-    ({ path: file }) => answer(() => readPresentationFile(roots, file))
+    ({ path: file }) => inLibrary((root) => readPresentationFile(root, file))
   );
 
   server.registerTool(
@@ -207,7 +192,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       inputSchema: {},
       annotations: READ_ONLY,
     },
-    () => answer(() => readConfiguration(roots))
+    () => inLibrary((root) => readConfiguration(root))
   );
 
   server.registerTool(
@@ -219,12 +204,12 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
         "file, slide, group and line of each match.",
       inputSchema: {
         query: z.string().describe("Text to find, e.g. a lyric."),
-        folder: z.string().optional().describe("Search only this folder, e.g. one library."),
+        folder: z.string().optional().describe("Search only this folder, e.g. one library inside `Libraries`."),
         limit: z.number().int().min(1).max(500).optional().describe("Maximum matches (default 50)."),
       },
       annotations: READ_ONLY,
     },
-    (args) => answer(() => searchText(roots, args))
+    (args) => inLibrary((root) => searchText(root, args))
   );
 
   server.registerTool(
@@ -233,7 +218,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       title: "Check presentation text",
       description:
         "Run the team's rules (their rules.json, compiled from RULES.md) on one .pro file or a folder; with neither, " +
-        "on every library. With no rules.json, runs the default text checks: leading/trailing/repeated spaces, blank " +
+        "on the whole library. With no rules.json, runs the default text checks: leading/trailing/repeated spaces, blank " +
         "lines inside a slide, and lines ending in a comma, semicolon or full stop. Each finding gives its rule, tier, " +
         "slide, group and line, and a message. Lists only files with findings; `notes` says what to know before trusting them.",
       inputSchema: {
@@ -247,7 +232,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       },
       annotations: READ_ONLY,
     },
-    (args) => answer(() => checkPresentations(roots, args, options.rulesDirs))
+    (args) => inLibrary((root) => checkPresentations(root, args, options.rulesDirs))
   );
 
   server.registerTool(
@@ -278,7 +263,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       inputSchema: MEDIA_BIN_INPUT,
       annotations: READ_ONLY,
     },
-    ({ path: file }) => answer(() => readMediaBin(roots, file))
+    ({ path: file }) => inLibrary((root) => readMediaBin(root, file))
   );
 
   server.registerTool(
@@ -291,7 +276,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       inputSchema: MEDIA_BIN_INPUT,
       annotations: READ_ONLY,
     },
-    ({ path: file }) => answer(() => auditMediaBin(roots, file))
+    ({ path: file }) => inLibrary((root) => auditMediaBin(root, file))
   );
 
   server.registerTool(
@@ -311,7 +296,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       },
       annotations: READ_ONLY,
     },
-    ({ path: file }) => answer(() => readPlaylists(roots, file))
+    ({ path: file }) => inLibrary((root) => readPlaylists(root, file))
   );
 
   server.registerTool(
@@ -324,7 +309,7 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       inputSchema: {},
       annotations: READ_ONLY,
     },
-    () => answer(() => listThemes(roots))
+    () => inLibrary((root) => listThemes(root))
   );
 
   server.registerTool(
@@ -364,132 +349,43 @@ export function createServer(roots: readonly string[], options: ServerOptions = 
       },
       annotations: READ_ONLY,
     },
-    (args) => answer(() => previewStyle(roots, args))
+    (args) => inLibrary((root) => previewStyle(root, args))
   );
 
+  registerLibraryTools(server, library);
+
   if (!options.readOnly) {
-    registerEditTools(server, roots, options.backupDir ?? defaultBackupDir());
-    server.registerTool(
-      "save_rules",
-      {
-        title: "Save the team's compiled rules",
-        description:
-          "Write rules.json beside the team's RULES.md, compiled from it as read_rules describes, after checking " +
-          "it: every problem is listed and nothing is written until there are none. Stamps RULES.md's current hash, " +
-          "so a later change to it shows as stale. Writes no ProPresenter file. Show the person the rules first.",
-        inputSchema: {
-          rules: z.record(z.string(), z.unknown()).describe("The whole rules.json: { version: 1, rules: [...], exceptions: [...] }."),
-          compiledFrom: z
-            .string()
-            .describe("The sha256 read_rules gave with RULES.md: the rules are refused if the file has changed since."),
+    const editing = [
+      ...registerEditTools(server, library),
+      server.registerTool(
+        "save_rules",
+        {
+          title: "Save the team's compiled rules",
+          description:
+            "Write rules.json beside the team's RULES.md, compiled from it as read_rules describes, after checking " +
+            "it: every problem is listed and nothing is written until there are none. Stamps RULES.md's current hash, " +
+            "so a later change to it shows as stale. Writes no ProPresenter file. Show the person the rules first.",
+          inputSchema: {
+            rules: z.record(z.string(), z.unknown()).describe("The whole rules.json: { version: 1, rules: [...], exceptions: [...] }."),
+            compiledFrom: z
+              .string()
+              .describe("The sha256 read_rules gave with RULES.md: the rules are refused if the file has changed since."),
+          },
+          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      },
-      ({ rules, compiledFrom }) => answer(() => saveRulesFile(options.rulesDirs ?? [], rules, roots, compiledFrom))
-    );
+        ({ rules, compiledFrom }) => inLibrary((root) => saveRulesFile(options.rulesDirs ?? [], rules, root, compiledFrom))
+      ),
+    ];
+    // Offered only while the library open can be backed up: no backup, no write.
+    const offer = (open: OpenLibrary | undefined) => {
+      for (const tool of editing) {
+        if (open?.backupDir) tool.enable();
+        else tool.disable();
+      }
+    };
+    offer(library.peek());
+    library.onChange(offer);
   }
 
   return server;
-}
-
-/**
- * The two tools that edit. Kept apart so a read-only server never registers
- * them, and so the person's answer is fetched here -- by the server, from the
- * client -- where the model cannot supply it.
- */
-function registerEditTools(server: McpServer, roots: readonly string[], backupDir: string): void {
-  const plans = new PlanStore();
-
-  server.registerTool(
-    "plan_slide_edits",
-    {
-      title: "Plan slide text edits",
-      description:
-        "Work out changes to the text of slides, writing nothing. Each edit names a line by the `path`, " +
-        "`boxIndex` and `lineIndex` read_presentation or search_text gave it, and the whole text the line " +
-        "should read afterwards, or null to remove the line. Only what differs is touched, so formatting " +
-        "elsewhere on the line is kept. With `insert`, the edit adds `text` as a new line after (or before) " +
-        "that line instead, leaving it as it is; the new line takes its All Caps, and several added on one " +
-        "side of one line read in the order given. Line indexes always name lines as they read now, before " +
-        "any edit. Returns a `planId` and every line as it is and as it would read (an added line with " +
-        "`before` null); a line's `styling` says what the change does to formatting ranges on it " +
-        "(All Caps, say), which the person sees too. " +
-        "If any edit cannot be made, nothing is planned and the error says which. " +
-        "Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm.",
-      inputSchema: {
-        edits: z
-          .array(
-            z.object({
-              path: z.string().describe("The .pro file."),
-              boxIndex: z.number().int().min(0),
-              lineIndex: z.number().int().min(0),
-              text: z
-                .string()
-                .nullable()
-                .describe("The line's whole new text, on one line; null removes the line. With `insert`, the added line's text."),
-              insert: z
-                .enum(["after", "before"])
-                .optional()
-                .describe("Add `text` as a new line on this side of the line, instead of changing the line."),
-            })
-          )
-          .min(1)
-          .max(MAX_PLAN_LINES),
-      },
-      annotations: READ_ONLY,
-    },
-    ({ edits }) => answer(() => planSlideEdits(roots, plans, edits))
-  );
-
-  server.registerTool(
-    "apply_slide_edits",
-    {
-      title: "Apply planned slide edits",
-      description:
-        "Apply a plan from plan_slide_edits, once the person confirms it. Their app shows them every line " +
-        "as it is and as it would read, and they can untick any; only ticked lines are written. Each file is " +
-        "backed up outside the library first, checked, and read back once written; a file that changed " +
-        "since the plan was made is left alone. A plan is used once, whatever the answer. Needs an MCP " +
-        "client that can ask its user a question (elicitation); with one that cannot, nothing is written.",
-      inputSchema: { planId: z.string().describe("The planId plan_slide_edits returned.") },
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    },
-    ({ planId }, { signal }) =>
-      answer(async (): Promise<ApplyResult> => {
-        const plan = plans.take(planId);
-        if (!plan) throw new LibraryError("No such plan, or it was already used or has expired. Plan the edits again.");
-
-        // A form, specifically: a client offering only URL elicitation cannot show tick boxes.
-        if (!server.server.getClientCapabilities()?.elicitation?.form) {
-          throw new LibraryError(
-            "This MCP client cannot ask its user to confirm a change, so nothing was written. Edit in a client " +
-              "that supports elicitation, or with the Presenter Garage web app."
-          );
-        }
-        let reply;
-        try {
-          // The SDK's default is a minute, which is not long enough to read a song's worth of lines.
-          // The call's own signal too: a client that gives up on the tool call
-          // must not have the file changed behind it by a late answer.
-          reply = await server.server.elicitInput(confirmationRequest(plan, backupDir), {
-            timeout: CONFIRM_TIMEOUT_MS,
-            signal,
-          });
-        } catch (e) {
-          throw new LibraryError(
-            `No answer came back from the confirmation (${(e as Error).message}), so nothing was written. Plan the edits again.`
-          );
-        }
-        if (reply.action !== "accept") return { answer: reply.action, files: [] };
-        if (signal.aborted) throw new LibraryError("The call was cancelled before the answer came back, so nothing was written.");
-
-        // Only a line the person left ticked counts; one their client did not send back does not.
-        const ticked = new Set(
-          Object.entries(reply.content ?? {})
-            .filter(([, value]) => value === true)
-            .map(([key]) => Number(key.replace(/^line/, "")))
-        );
-        return { answer: "accept", ...(await applyPlan(roots, plan, ticked, backupDir, signal)) };
-      })
-  );
 }
