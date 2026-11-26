@@ -136,9 +136,13 @@ async function placed(dir: string, relative: string, isFolder = false): Promise<
   const file = path.resolve(dir, relative);
   if (!isInside(dir, file) || file === dir) throw new LibraryError(`Refusing to write outside ${dir}: ${relative}`);
   const parent = isFolder ? file : path.dirname(file);
-  await fs.mkdir(parent, { recursive: true });
-  if (!isInside(await fs.realpath(dir), await fs.realpath(parent))) {
-    throw new LibraryError(`Refusing to write outside ${dir}: ${relative} is reached through a link`);
+  const real = await fs.realpath(dir);
+  // Asked before the folder is made, so a link in the way has nothing made through it, and again after.
+  for (const when of ["before", "after"] as const) {
+    if (when === "after") await fs.mkdir(parent, { recursive: true });
+    if (!isInside(real, await realPath(parent))) {
+      throw new LibraryError(`Refusing to write outside ${dir}: ${relative} is reached through a link`);
+    }
   }
   return file;
 }

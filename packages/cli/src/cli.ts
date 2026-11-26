@@ -5,7 +5,7 @@ import { findRules, loadRules, type LoadedRules } from "@presenter-garage/node/r
 import { checkJson, checkText, rulesMeta, rulesText } from "@presenter-garage/node/commands/check";
 import { summaryText } from "@presenter-garage/node/commands/compare";
 import { discover, foundText } from "@presenter-garage/node/commands/discover";
-import { labelKey, writeCheck, writeCompare, writeDump, writeRulesCheck, writeSources } from "@presenter-garage/node/commands/output";
+import { knownLibraries, labelKey, writeCheck, writeCompare, writeDump, writeRulesCheck, writeSources } from "@presenter-garage/node/commands/output";
 import { songText } from "@presenter-garage/node/commands/song";
 import {
   failuresText,
@@ -125,7 +125,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
         if (args[0] !== "check" || args.length > 2) throw new UsageError("rules takes check, and a file if it is not the one found.");
         const loaded = await loadRules(await findRules(args[1] ?? values.rules));
         if (values.out) {
-          const written = await writeRulesCheck(values.out, loaded);
+          // No library is read here, so the ones on this computer are what the folder is kept out of.
+          const written = await writeRulesCheck(values.out, loaded, knownLibraries(await discover()));
           io.out(values.json ? JSON.stringify(written, null, 2) : [rulesText(loaded), `Written to ${written.out}`].join("\n"));
         } else io.out(values.json ? JSON.stringify(rulesMeta(loaded), null, 2) : rulesText(loaded));
         return 0;

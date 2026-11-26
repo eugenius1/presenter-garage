@@ -204,6 +204,14 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(index).not.toContain("Nouvelle");
     });
 
+    it("never writes into the .pro folder a workspace was made from, which it reads too", async () => {
+      const before = fs.readdirSync(legacy, { recursive: true });
+      const io = capture();
+      expect(await run(["dump", `haut=${haut}`, "--out", path.join(legacy, "results")], io)).toBe(1);
+      expect(io.stderr).toContain("is inside the library");
+      expect(fs.readdirSync(legacy, { recursive: true })).toEqual(before);
+    });
+
     it("prints the songs only when asked", async () => {
       const text = capture();
       expect(await run(["dump", `bas=${bas}`, "--lyrics"], text)).toBe(0);

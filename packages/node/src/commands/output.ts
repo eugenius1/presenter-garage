@@ -39,6 +39,9 @@ function claimer(): (wanted: string) => string {
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
+/** Every library a source was read from: a workspace's `.pro` folder, read for its older edit dates, is one too. */
+const readFrom = (...sources: Source[]) => sources.flatMap((s) => [s.root, ...(s.legacy ? [s.legacy] : [])]);
+
 export interface DumpWritten {
   out: string;
   files: { index: string; songs: string };
@@ -47,7 +50,7 @@ export interface DumpWritten {
 
 /** One JSON and one text file per song, laid out as the library is, and an index without lyrics. */
 export async function writeDump(out: string, source: Source, libraries: readonly string[] = []): Promise<DumpWritten> {
-  const folder = await openOut(out, "dump", [source.root, ...libraries]);
+  const folder = await openOut(out, "dump", [...readFrom(source), ...libraries]);
   const claim = claimer();
   const entries = [];
   for (const song of source.songs) {
@@ -97,7 +100,7 @@ export async function writeCompare(
   const pairs = compareSongs(a.songs, b.songs, { labels: { a: a.label, b: b.label }, prefer: options.prefer });
   const count = (s: Source) => ({ label: s.label, songs: s.songs.length, failures: s.failures.length });
   const summary = summarise(pairs, count(a), count(b));
-  const folder = await openOut(out, "compare", [a.root, b.root, ...libraries]);
+  const folder = await openOut(out, "compare", [...readFrom(a, b), ...libraries]);
   const claim = claimer();
   const textOf = new Map<Pair, { a?: string; b?: string }>();
   for (const pair of pairs) {
@@ -172,7 +175,7 @@ export async function writeCheck(
   i18n: I18n,
   libraries: readonly string[] = []
 ): Promise<CheckWritten> {
-  const folder = await openOut(out, "check", [source.root, ...libraries]);
+  const folder = await openOut(out, "check", [...readFrom(source), ...libraries]);
   const written = await folder.put("check.json", json(checkJson(source, rules, i18n, true)));
   const text = await folder.put("check.txt", `${checkText(source, rules, i18n)}${failuresText(source)}\n`);
   const byTier: [number, number, number] = [0, 0, 0];
@@ -206,10 +209,16 @@ export interface SourcesWritten {
   active: boolean;
 }
 
+/** Every library found on this computer, whose folders a run that reads none of them is still kept out of. */
+export const knownLibraries = (found: Found) => [
+  ...found.workspaces.filter((w) => w.present).map((w) => w.root),
+  ...found.folders,
+  ...(found.documents ? [found.documents] : []),
+];
+
 /** The libraries on this computer: `sources.json`, and `sources.txt` as the command line prints it. */
 export async function writeSources(out: string, found: Found, libraries: readonly string[] = []): Promise<SourcesWritten> {
-  const known = [...found.workspaces.filter((w) => w.present).map((w) => w.root), ...found.folders, ...(found.documents ? [found.documents] : [])];
-  const folder = await openOut(out, "sources", [...known, ...libraries]);
+  const folder = await openOut(out, "sources", [...knownLibraries(found), ...libraries]);
   return {
     out: folder.dir,
     files: { json: await folder.put("sources.json", json(found)), text: await folder.put("sources.txt", `${foundText(found)}\n`) },
