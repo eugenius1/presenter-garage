@@ -6,6 +6,7 @@ import { answer, READ_ONLY } from "./answer";
 import { registerEditTools } from "./edits";
 import { Library, type LibraryOptions, type OpenLibrary } from "./library";
 import { registerLibraryTools } from "./library-tools";
+import { checkToOut, OUT, registerOutTools, type SourcesDirs } from "./out-tools";
 export { toJson } from "./answer";
 
 import {
@@ -47,6 +48,8 @@ export interface ServerOptions extends LibraryOptions {
   rulesDirs?: readonly string[];
   /** The team's rules as found at start-up, for the instructions to point a model at. */
   rules?: { markdown?: string; json?: string };
+  /** Where find_libraries looks. Defaults to where ProPresenter keeps them on this computer. */
+  sources?: SourcesDirs;
 }
 
 /**
@@ -100,10 +103,15 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
         libraryInstruction(start) +
         (options.readOnly
           ? "Nothing is written."
+          : "For a whole library, prefer the tools that write to a folder (dump_library, compare_libraries, " +
+            "check_presentations with `out`): they answer with counts and paths, and leave the lyrics on disk " +
+            "until the person asks for one to be read. ") +
+        (options.readOnly
+          ? ""
           : editing
             ? "Slide text can be edited with plan_slide_edits then apply_slide_edits; the person is asked to " +
               "confirm every line before anything is written, and each file is backed up first."
-            : "Nothing can be written in this library, since it cannot be backed up; the notes say why.") +
+            : "Slide text cannot be edited in this library, since it cannot be backed up; the notes say why.") +
         rulesInstruction({ ...options, readOnly: !editing }) +
         ("root" in start && start.notes.length ? ` Important: ${start.notes.join(" ")}` : ""),
     }
@@ -224,7 +232,11 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
         "Run the team's rules (their rules.json, compiled from RULES.md) on one .pro file or a folder; with neither, " +
         "on the whole library. With no rules.json, runs the default text checks: leading/trailing/repeated spaces, blank " +
         "lines inside a slide, and lines ending in a comma, semicolon or full stop. Each finding gives its rule, tier, " +
-        "slide, group and line, and a message. Lists only files with findings; `notes` says what to know before trusting them.",
+        "slide, group and line, and a message. Lists only files with findings; `notes` says what to know before trusting them." +
+        (options.readOnly
+          ? ""
+          : " With `out`, nothing of the songs is answered: every break, with its line and two slides either side, is " +
+            "written to check.json and check.txt there, and the answer is counts and paths. Prefer it for a whole library."),
       inputSchema: {
         path: z.string().optional().describe("A .pro file or a folder."),
         limit: z.number().int().min(1).max(1000).optional().describe("Maximum files listed (default 100)."),
@@ -233,10 +245,13 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
           .optional()
           .describe("Rules to run instead of the team's rules.json, in the same shape: to try a rule before saving it."),
         lang: z.enum(["en", "fr"]).optional().describe("The language of each finding's message (default en)."),
+        // Read only writes nothing, so it is not even offered.
+        ...(options.readOnly ? {} : { out: OUT.optional() }),
       },
-      annotations: READ_ONLY,
+      annotations: options.readOnly ? READ_ONLY : { ...READ_ONLY, readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    (args) => inLibrary((root) => checkPresentations(root, args, options.rulesDirs))
+    ({ out, ...args }: { out?: string } & Parameters<typeof checkPresentations>[1]) =>
+      inLibrary((root) => (out === undefined ? checkPresentations(root, args, options.rulesDirs) : checkToOut(root, { ...args, out }, options.rulesDirs)))
   );
 
   server.registerTool(
@@ -359,6 +374,7 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
   registerLibraryTools(server, library);
 
   if (!options.readOnly) {
+    registerOutTools(server, library, options);
     const editing = [
       ...registerEditTools(server, library),
       server.registerTool(

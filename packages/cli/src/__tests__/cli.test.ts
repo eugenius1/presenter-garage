@@ -4,9 +4,10 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { putDocument } from "@presenter-garage/node/__tests__/workspace-db";
 import { run, type Io } from "../cli";
-import { discover, foundText } from "../discover";
-import { activeWorkspace } from "../source";
-import { sqlite, writeLibrary, writeRegistry, writeWorkspace, type SongSpec } from "./fixtures";
+import { discover, foundText } from "@presenter-garage/node/commands/discover";
+import { writeSources } from "@presenter-garage/node/commands/output";
+import { activeWorkspace } from "@presenter-garage/node/commands/source";
+import { sqlite, writeLibrary, writeRegistry, writeWorkspace, type SongSpec } from "@presenter-garage/node/__tests__/songs";
 
 /**
  * The command end to end, over a folder of `.pro` files ("bas") and a
@@ -241,6 +242,15 @@ describe.skipIf(!sqlite)("presenter-garage", () => {
       expect(text).toContain(`* ProPresenter: ${haut} (Cloud, schema 22.9.0, active)`);
       expect(text).toContain(`made from ${legacy}`);
       expect(await activeWorkspace(registry)).toBe(haut);
+
+      // With --out, the same list is written, and the terminal gets counts and the folder.
+      const out = path.join(tmp, "sources");
+      const written = await writeSources(out, found);
+      expect(written).toMatchObject({ workspaces: 1, folderWorkspaces: 1, documents: false, active: true });
+      expect(fs.readFileSync(path.join(out, "sources.txt"), "utf8")).toBe(`${text}\n`);
+      expect(JSON.parse(fs.readFileSync(path.join(out, "sources.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(found)));
+      // Not into a folder inside a library it found.
+      await expect(writeSources(path.join(haut, "results"), found)).rejects.toThrow("is inside the library");
       await expect(activeWorkspace(path.join(tmp, "nowhere"))).rejects.toThrow("no active workspace");
     });
   });

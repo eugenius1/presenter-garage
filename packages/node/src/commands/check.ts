@@ -1,6 +1,6 @@
 import type { I18n } from "@presenter-garage/core/i18n/core";
 import { describeFinding, findingTags } from "@presenter-garage/core/i18n/rules";
-import type { LoadedRules } from "@presenter-garage/node/rules";
+import type { LoadedRules } from "../rules";
 import type { Song, SongFinding } from "./song";
 import { sourceMeta, type Source } from "./source";
 

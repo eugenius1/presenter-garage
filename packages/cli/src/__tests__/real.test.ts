@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import { REAL_LIBRARY, hasRealLibrary } from "@presenter-garage/core/lib/__tests__/corpus";
 import { findPresentations, openRoots } from "@presenter-garage/node/library";
 import { run } from "../cli";
-import { compareSongs } from "../compare";
-import { readSource } from "../source";
+import { compareSongs } from "@presenter-garage/node/commands/compare";
+import { readSource } from "@presenter-garage/node/commands/source";
 
 /**
  * The command over real libraries, where there are any; see *Testing against

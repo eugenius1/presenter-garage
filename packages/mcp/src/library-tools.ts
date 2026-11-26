@@ -49,29 +49,15 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
         const current = await library.get().catch(() => undefined);
         if (current?.root === root) return { answer: "accept", unchanged: true, library: await library.describe() };
 
-        if (!server.server.getClientCapabilities()?.elicitation?.form) {
-          throw new LibraryError(
+        const reply = await approve(server, signal, {
+          message:
+            `Open ${root} in place of ${current?.root ?? "no library"}? Presenter Garage would then work ` +
+            `in that library alone.${await doubtAbout(root)}`,
+          cannotAsk:
             "This MCP client cannot ask its user to approve opening another library, so the library was not " +
-              `changed${current ? `: it is still ${current.root}` : ""}. Start the server on the library instead.`
-          );
-        }
-        const doubt = (await isProPresenterLibrary(root))
-          ? ""
-          : " It does not look like a ProPresenter library: it is no ProPresenter 22 workspace and holds no Libraries or Playlists folder.";
-        let reply;
-        try {
-          reply = await server.server.elicitInput(
-            {
-              message:
-                `Open ${root} in place of ${current?.root ?? "no library"}? Presenter Garage would then work ` +
-                `in that library alone.${doubt}`,
-              requestedSchema: { type: "object", properties: {} },
-            },
-            { timeout: CONFIRM_TIMEOUT_MS, signal }
-          );
-        } catch (e) {
-          throw new LibraryError(`No answer came back (${(e as Error).message}), so the library was not changed.`);
-        }
+            `changed${current ? `: it is still ${current.root}` : ""}. Start the server on the library instead.`,
+          unchanged: "the library was not changed",
+        });
         // The library left as it was, which may be none at all.
         if (reply.action !== "accept") return { answer: reply.action, library: await library.describe().catch(() => undefined) };
         if (signal.aborted) throw new LibraryError("The call was cancelled before the answer came back, so the library was not changed.");
@@ -79,4 +65,32 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
         return { answer: "accept", library: await library.describe() };
       })
   );
+}
+
+/**
+ * Ask the person, through their client, to approve something only they may:
+ * never the model's to answer. A client that cannot ask gets `cannotAsk` as
+ * a refusal, and one whose answer never comes says that `unchanged`.
+ */
+export async function approve(
+  server: McpServer,
+  signal: AbortSignal,
+  ask: { message: string; cannotAsk: string; unchanged: string }
+): Promise<{ action: "accept" | "decline" | "cancel" }> {
+  if (!server.server.getClientCapabilities()?.elicitation?.form) throw new LibraryError(ask.cannotAsk);
+  try {
+    return await server.server.elicitInput(
+      { message: ask.message, requestedSchema: { type: "object", properties: {} } },
+      { timeout: CONFIRM_TIMEOUT_MS, signal }
+    );
+  } catch (e) {
+    throw new LibraryError(`No answer came back (${(e as Error).message}), so ${ask.unchanged}.`);
+  }
+}
+
+/** What to tell the person about a folder that does not look like a library, or nothing. */
+export async function doubtAbout(root: string): Promise<string> {
+  return (await isProPresenterLibrary(root))
+    ? ""
+    : " It does not look like a ProPresenter library: it is no ProPresenter 22 workspace and holds no Libraries or Playlists folder.";
 }

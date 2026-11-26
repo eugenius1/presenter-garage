@@ -3,8 +3,8 @@ import path from "node:path";
 import { LoroDoc } from "loro-crdt/base64";
 import { messageType } from "@presenter-garage/core/lib/decode";
 import { workspacePresentation } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
-import { createWorkspace, putDocument, sqlite } from "@presenter-garage/node/__tests__/workspace-db";
-import { REGISTRY_SCHEMA } from "@presenter-garage/node/__tests__/workspace-writable";
+import { createWorkspace, putDocument, sqlite } from "./workspace-db";
+import { REGISTRY_SCHEMA } from "./workspace-writable";
 
 /**
  * Songs built for the tests: a `.pro` file from a few lines of description,

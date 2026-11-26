@@ -74,7 +74,7 @@ export interface RulesInUse {
 }
 
 /** The rules a call names, or the team's as found, or the default text checks. */
-async function rulesFor(inline: unknown, rulesDirs: readonly string[]): Promise<LoadedRules & { inline?: true }> {
+export async function rulesFor(inline: unknown, rulesDirs: readonly string[]): Promise<LoadedRules & { inline?: true }> {
   if (inline === undefined) return loadRules(await findRules(undefined, rulesDirs));
   try {
     return { set: parseRules(inline), stale: false, defaulted: false, inline: true };

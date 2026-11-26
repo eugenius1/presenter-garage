@@ -7,7 +7,7 @@ import {
   registeredWorkspaces,
   workspacesDir,
   type RegisteredWorkspace,
-} from "@presenter-garage/node/workspace";
+} from "../workspace";
 
 /**
  * The ProPresenter libraries on this computer, found where ProPresenter keeps

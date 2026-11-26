@@ -168,24 +168,27 @@ export async function saveRules(markdown: string, value: unknown, compiledFrom?:
  * are matched by the names the slides record.
  */
 export async function rulesConfiguration(roots: readonly string[]): Promise<RuleConfiguration & { problems: string[] }> {
-  const problems: string[] = [];
-  const read = async <T>(find: (roots: readonly string[]) => Promise<string | undefined>, decode: (bytes: Uint8Array) => T[], what: string) => {
+  // Each list's problem kept with it, and the two said in one order: read side by side, they finish in either.
+  const read = async <T>(
+    find: (roots: readonly string[]) => Promise<string | undefined>,
+    decode: (bytes: Uint8Array) => T[],
+    what: string
+  ): Promise<{ list?: T[]; problem?: string }> => {
     const file = await find(roots);
-    if (!file) {
-      problems.push(`No configured ${what} found.`);
-      return undefined;
-    }
+    if (!file) return { problem: `No configured ${what} found.` };
     try {
-      return decode((await readLibraryFile(roots, file)).bytes);
+      return { list: decode((await readLibraryFile(roots, file)).bytes) };
     } catch (e) {
-      problems.push(`The configured ${what} could not be read: ${(e as Error).message}`);
-      return undefined;
+      return { problem: `The configured ${what} could not be read: ${(e as Error).message}` };
     }
   };
-  const [groups, macros] = await Promise.all([
+  const [readGroupsList, readMacrosList] = await Promise.all([
     read(findGroups, (bytes) => readGroups(decodeGroupsDocument(bytes)), "groups"),
     read(findMacros, (bytes) => readMacros(decodeMacrosDocument(bytes)), "macros"),
   ]);
+  const { list: groups } = readGroupsList;
+  const { list: macros } = readMacrosList;
+  const problems = [readGroupsList.problem, readMacrosList.problem].filter((p): p is string => p !== undefined);
   // An empty list is no list to check names against, and the check then says nothing: said here, so that is not mistaken for a clean library.
   if (groups?.length === 0) problems.push("The configured group list is empty, so group names were not checked against it.");
   if (macros?.length === 0) problems.push("The configured macro list is empty, so macro names were matched as slides recorded them and not checked against it.");

@@ -124,6 +124,17 @@ file names, media-bin entries — goes into the conversation with your
 assistant, and an assistant that runs on a hosted model, such as Claude, sends
 the conversation to that model's provider like anything else you type.
 
+So for a whole library the server writes to a folder instead of answering:
+`dump_library` writes out every song, `compare_libraries` sets the library
+beside another (once you approve reading that one), `check_presentations`
+given an `out` folder writes every rule break with its line, and
+`find_libraries` and `check_rules` list the libraries on your computer and
+the rules as loaded. Each answers with counts and the paths it wrote, so the
+lyrics stay on your computer until you ask the assistant to read one. They
+are the command line's files (below), written by the same code, into a new or
+empty folder or one the same tool wrote before, never inside a library; in
+read-only mode none of them is offered.
+
 #### Claude Desktop
 
 The server is packaged as a desktop extension, so Claude Desktop installs it in
@@ -215,6 +226,10 @@ or the other, and download your picks as `decisions.json`. It also writes
 `compare.json` and a text view of every song, so
 `git diff --no-index --word-diff text/bas text/haut` works in a terminal.
 `dump <source> --out <dir>` writes every song of one library as JSON and text.
+`sources`, `check` and `rules check` take `--out` too, and then write what they
+would print there. `--out` is a new or empty folder, or one the same command
+wrote before, which it marks with a `.presenter-garage.json`; never one inside
+a library.
 
 ProPresenter 22 records no edit dates from before the upgrade, so a workspace
 song nobody has edited since is dated from the `.pro` file it was made from,
@@ -236,7 +251,7 @@ has changed since. [docs/rules/](docs/rules/) has a sample to start from.
 Keep the two files in the folder you run the assistant or the command from,
 or in `Documents/ProPresenter`, never inside a ProPresenter workspace folder.
 Through the MCP server, the assistant finds them there (`read_rules`,
-`save_rules`, `check_presentations`). On the command line:
+`save_rules`, `check_presentations`, `check_rules`). On the command line:
 
 ```bash
 npm run cli -- check haut=active --rules path/to/rules.json

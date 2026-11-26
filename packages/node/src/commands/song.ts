@@ -1,5 +1,5 @@
 import type { RawDoc } from "@presenter-garage/core/lib/decode";
-import { presentationName } from "@presenter-garage/node/presentations";
+import { presentationName } from "../presentations";
 import { hasText, readDetails, shownBounds, type PresentationDoc } from "@presenter-garage/core/lib/presentation";
 import { checkRules, countByTier, DEFAULT_RULES, type Finding, type RuleConfiguration, type RuleSet } from "@presenter-garage/core/lib/rules";
 

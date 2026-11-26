@@ -135,12 +135,16 @@ const READING_TOOLS = [
   "use_library",
 ];
 
+/** The tools that write their results to an `out` folder, offered only when the server may write. */
+const OUT_TOOLS = ["check_rules", "compare_libraries", "dump_library", "find_libraries"];
+
 describe("the tools offered", () => {
-  it("read, except the one that applies a confirmed edit", async () => {
+  it("read, except the ones that apply a confirmed edit, save the rules, or write results to a folder", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...READING_TOOLS, "apply_slide_edits", "plan_slide_edits", "save_rules"].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...READING_TOOLS, ...OUT_TOOLS, "apply_slide_edits", "plan_slide_edits", "save_rules"].sort());
+    const writing = new Set(["apply_slide_edits", "save_rules", "check_presentations", ...OUT_TOOLS]);
     for (const tool of tools) {
-      expect(tool.annotations?.readOnlyHint, tool.name).toBe(tool.name !== "apply_slide_edits" && tool.name !== "save_rules");
+      expect(tool.annotations?.readOnlyHint, tool.name).toBe(!writing.has(tool.name));
     }
     expect(tools.find((t) => t.name === "apply_slide_edits")?.annotations?.destructiveHint).toBe(true);
   });
@@ -150,6 +154,8 @@ describe("the tools offered", () => {
     const { tools } = await readOnly.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(READING_TOOLS);
     for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBe(true);
+    // Nor is the folder check_presentations would write to.
+    expect(tools.find((t) => t.name === "check_presentations")?.inputSchema.properties).not.toHaveProperty("out");
     await readOnly.close();
   });
 
