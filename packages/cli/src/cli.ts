@@ -49,13 +49,17 @@ Commands:
 With --out, sources, check and rules check write what they would print to
 files there too, and print only counts and paths.
 
+Each run makes a new folder of its own inside the --out folder, such as
+dump-2026-11-26T10-12-02Z, and writes only there: nothing already in the
+--out folder is ever replaced or removed.
+
 A source is a folder of .pro files, a ProPresenter 22 workspace folder, or
 "active" (the workspace ProPresenter has open), with a label in front:
   bas=private/machines/bas   haut=active
 
 Options:
-  --out <dir>             Where files go: a new or empty folder, or one this command wrote,
-                          never one inside a library
+  --out <dir>             Where each run makes a new folder for its files, never inside a
+                          library
   --json                  Print JSON instead of text, for scripts and agents
   --prefer <label>        The main library, kept when nothing else decides (default: haut)
   --legacy <label>=<dir>  The .pro folder a workspace was made from, for edit dates before
@@ -237,6 +241,7 @@ async function compare(
       [
         summaryText(written.summary) + failuresText(a) + failuresText(b),
         ...written.notes,
+        `Folder: ${written.out}`,
         `Report: ${written.files.report}`,
         `Data:   ${written.files.json}`,
         `Text:   git diff --no-index --word-diff ${shellQuote(written.files.text.a)} ${shellQuote(written.files.text.b)}`,
@@ -263,6 +268,7 @@ async function check(
               (breaks.excepted ? `, ${breaks.excepted} more excepted` : "") +
               failuresText(source),
             ...written.notes,
+            `Folder: ${written.out}`,
             `Text: ${written.files.text}`,
             `Data: ${written.files.json}`,
           ].join("\n")

@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ElicitRequestSchema, type ElicitRequest } from "@modelcontextprotocol/sdk/types.js";
-import { MARKER } from "@presenter-garage/node/commands/out-folder";
 import { writeLibrary } from "@presenter-garage/node/__tests__/songs";
 import { connect } from "./connect";
 
@@ -37,6 +36,13 @@ function listing(dir: string): string[] {
 }
 
 const text = (file: string) => fs.readFileSync(file, "utf8");
+
+/** The folder a call made inside `out`, from its answer, after checking that is where it is. */
+function made(out: string, answer: { out: string }, tool: string): string {
+  expect(path.dirname(answer.out)).toBe(out);
+  expect(path.basename(answer.out)).toMatch(new RegExp(`^${tool}-\\d{4}-\\d\\d-\\d\\dT\\d\\d-\\d\\d-\\d\\dZ(-\\d+)?$`));
+  return answer.out;
+}
 
 beforeAll(async () => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pg-out-")));
@@ -76,16 +82,15 @@ afterAll(async () => {
 describe("dump_library", () => {
   it("writes every song as JSON and text, and answers with counts and paths alone", async () => {
     const before = listing(church);
-    const out = path.join(tmp, "dump");
-    const result = await session.call("dump_library", { out });
+    const result = await session.call("dump_library", { out: path.join(tmp, "dump") });
     expect(result.isError).toBe(false);
     expect(result.text).not.toContain("Holy holy");
+    const out = made(path.join(tmp, "dump"), result.json(), "dump");
     expect(result.json()).toMatchObject({
-      out,
       files: { index: path.join(out, "index.json"), songs: path.join(out, "songs") },
       source: { label: "church", root: church, kind: "folder", songs: 2, notRead: 0, truncated: false },
     });
-    expect(listing(out)).toEqual([MARKER, "index.json", "songs", "songs/Songs", "songs/Songs/Clean.json", "songs/Songs/Clean.txt", "songs/Songs/Holy.json", "songs/Songs/Holy.txt"]);
+    expect(listing(out)).toEqual(["index.json", "songs", "songs/Songs", "songs/Songs/Clean.json", "songs/Songs/Clean.txt", "songs/Songs/Holy.json", "songs/Songs/Holy.txt"]);
     expect(text(path.join(out, "songs", "Songs", "Holy.txt"))).toBe(`[Verse]\nOne\n\n${LYRIC}\n\nThree\n`);
     expect(text(path.join(out, "index.json"))).not.toContain("Holy holy");
     expect(listing(church)).toEqual(before);
@@ -94,10 +99,10 @@ describe("dump_library", () => {
 
 describe("check_presentations with out", () => {
   it("writes every break with its line, and answers with counts and paths alone", async () => {
-    const out = path.join(tmp, "check");
-    const result = await session.call("check_presentations", { out, lang: "en" });
+    const result = await session.call("check_presentations", { out: path.join(tmp, "check"), lang: "en" });
     expect(result.isError).toBe(false);
     expect(result.text).not.toContain(LYRIC);
+    const out = made(path.join(tmp, "check"), result.json(), "check");
     expect(result.json()).toMatchObject({
       files: { json: path.join(out, "check.json"), text: path.join(out, "check.txt") },
       source: { songs: 2 },
@@ -115,8 +120,7 @@ describe("check_presentations with out", () => {
   });
 
   it("checks only the file or folder it is given, against the whole library's lists", async () => {
-    const out = path.join(tmp, "check-one");
-    const result = (await session.call("check_presentations", { out, path: "Libraries/Songs/Clean.pro" })).json();
+    const result = (await session.call("check_presentations", { out: path.join(tmp, "check-one"), path: "Libraries/Songs/Clean.pro" })).json();
     expect(result).toMatchObject({ source: { songs: 1 }, breaks: { total: 0 } });
     expect((await session.call("check_presentations", { out: path.join(tmp, "check-two"), path: "Playlists" })).isError).toBe(true);
   });
@@ -126,9 +130,9 @@ describe("compare_libraries", () => {
   it("reads the other library only once the person approves, and writes the comparison", async () => {
     asked.length = 0;
     reply = "accept";
-    const out = path.join(tmp, "compare");
-    const result = await session.call("compare_libraries", { other, out });
+    const result = await session.call("compare_libraries", { other, out: path.join(tmp, "compare") });
     expect(result.isError).toBe(false);
+    const out = made(path.join(tmp, "compare"), result.json(), "compare");
     expect(asked).toHaveLength(1);
     expect(asked[0].message).toContain(`Read ${other} to compare it with ${church}?`);
     expect(result.text).not.toMatch(/Holy holy|Only there/);
@@ -165,8 +169,9 @@ describe("compare_libraries", () => {
 
 describe("find_libraries and check_rules", () => {
   it("write the libraries found and the rules loaded, answering with counts", async () => {
-    const sources = path.join(tmp, "sources");
-    expect((await session.call("find_libraries", { out: sources })).json()).toMatchObject({
+    const found = (await session.call("find_libraries", { out: path.join(tmp, "sources") })).json();
+    const sources = made(path.join(tmp, "sources"), found, "sources");
+    expect(found).toMatchObject({
       workspaces: 0,
       folderWorkspaces: 0,
       documents: true,
@@ -175,56 +180,53 @@ describe("find_libraries and check_rules", () => {
     });
     expect(JSON.parse(text(path.join(sources, "sources.json")))).toMatchObject({ documents: church });
 
-    const rules = path.join(tmp, "rules");
-    expect((await session.call("check_rules", { out: rules })).json()).toMatchObject({ rules: { rules: 1, defaulted: false } });
+    const checked = (await session.call("check_rules", { out: path.join(tmp, "rules") })).json();
+    const rules = made(path.join(tmp, "rules"), checked, "rules-check");
+    expect(checked).toMatchObject({ rules: { rules: 1, defaulted: false } });
     expect(JSON.parse(text(path.join(rules, "rules-check.json"))).set.rules[0].id).toBe("repeats");
   });
 });
 
 describe("the out folder", () => {
-  it("is refused inside the library, or holding it, and nothing is made there", async () => {
+  it("is refused inside the library, and nothing is made there", async () => {
     const before = listing(church);
-    for (const out of [path.join(church, "results"), church, tmp]) {
+    for (const out of [path.join(church, "results"), church]) {
       const result = await session.call("dump_library", { out });
       expect(result.isError, out).toBe(true);
+      expect(result.text).toContain("is inside the library");
     }
-    expect((await session.call("dump_library", { out: path.join(church, "results") })).text).toContain("is inside the library");
     expect(listing(church)).toEqual(before);
   });
 
-  it("is refused when it holds anything this tool did not write, which is left as it was", async () => {
-    const foreign = path.join(tmp, "foreign");
-    fs.mkdirSync(foreign);
-    fs.writeFileSync(path.join(foreign, "notes.txt"), "mine");
-    const result = await session.call("check_rules", { out: foreign });
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain("is not empty and is not a folder this command wrote");
-    expect(listing(foreign)).toEqual(["notes.txt"]);
+  it("may hold the library, since the call's own folder is new and beside it", async () => {
+    const result = await session.call("dump_library", { out: tmp });
+    expect(result.isError).toBe(false);
+    fs.rmSync(made(tmp, result.json(), "dump"), { recursive: true });
   });
 
-  it("is refused when another tool wrote it, and written again by the one that did, keeping what a person added", async () => {
-    const out = path.join(tmp, "dump-again");
-    expect((await session.call("dump_library", { out })).isError).toBe(false);
-    const other = await session.call("check_presentations", { out });
-    expect(other.text).toContain("holds what dump wrote");
-    fs.writeFileSync(path.join(out, "README.txt"), "beside the results");
-    expect((await session.call("dump_library", { out })).isError).toBe(false);
-    expect(text(path.join(out, "README.txt"))).toBe("beside the results");
-
-    fs.writeFileSync(path.join(out, "songs", "Songs", "Holy notes.txt"), "among the results");
-    const refused = await session.call("dump_library", { out });
-    expect(refused.isError).toBe(true);
-    expect(refused.text).toContain("was not written by dump");
-    expect(text(path.join(out, "songs", "Songs", "Holy notes.txt"))).toBe("among the results");
-    expect(listing(out)).toContain("songs/Songs/Holy.txt");
+  it("gets a new folder for every call, and what is already in it is left as it was", async () => {
+    const out = path.join(tmp, "shared");
+    fs.mkdirSync(out);
+    fs.writeFileSync(path.join(out, "notes.txt"), "mine");
+    const first = made(out, (await session.call("dump_library", { out })).json(), "dump");
+    fs.writeFileSync(path.join(first, "songs", "Songs", "Holy notes.txt"), "among the results");
+    const second = made(out, (await session.call("dump_library", { out })).json(), "dump");
+    const rules = made(out, (await session.call("check_rules", { out })).json(), "rules-check");
+    expect(new Set([first, second, rules]).size).toBe(3);
+    expect(text(path.join(out, "notes.txt"))).toBe("mine");
+    expect(text(path.join(first, "songs", "Songs", "Holy notes.txt"))).toBe("among the results");
+    expect(listing(second)).not.toContain("songs/Songs/Holy notes.txt");
+    expect(listing(second)).toContain("songs/Songs/Holy.txt");
   });
 
-  it("is written by one call at a time", async () => {
+  it("gets a folder of its own for each of several calls at once", async () => {
     const out = path.join(tmp, "together");
     const results = await Promise.all([1, 2, 3].map(() => session.call("check_presentations", { out })));
     expect(results.map((r) => r.isError)).toEqual([false, false, false]);
-    expect(listing(out)).toEqual([MARKER, "check.json", "check.txt"]);
-    expect(JSON.parse(text(path.join(out, MARKER))).files.map((f: { path: string }) => f.path)).toEqual(["check.json", "check.txt"]);
+    const folders = results.map((r) => made(out, r.json(), "check"));
+    expect(new Set(folders).size).toBe(3);
+    expect(fs.readdirSync(out)).toHaveLength(3);
+    for (const folder of folders) expect(listing(folder)).toEqual(["check.json", "check.txt"]);
   });
 
   it("is refused when it is not an absolute path", async () => {

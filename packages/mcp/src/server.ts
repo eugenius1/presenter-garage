@@ -236,7 +236,7 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
         (options.readOnly
           ? ""
           : " With `out`, nothing of the songs is answered: every break, with its line and two slides either side, is " +
-            "written to check.json and check.txt there, and the answer is counts and paths. Prefer it for a whole library."),
+            "written to check.json and check.txt in a new folder inside it, and the answer is counts and paths. Prefer it for a whole library."),
       inputSchema: {
         path: z.string().optional().describe("A .pro file or a folder."),
         limit: z.number().int().min(1).max(1000).optional().describe("Maximum files listed (default 100)."),
@@ -248,7 +248,7 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
         // Read only writes nothing, so it is not even offered.
         ...(options.readOnly ? {} : { out: OUT.optional() }),
       },
-      annotations: options.readOnly ? READ_ONLY : { ...READ_ONLY, readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: options.readOnly ? READ_ONLY : { ...READ_ONLY, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     ({ out, ...args }: { out?: string } & Parameters<typeof checkPresentations>[1]) =>
       inLibrary((root) => (out === undefined ? checkPresentations(root, args, options.rulesDirs) : checkToOut(root, { ...args, out }, options.rulesDirs)))

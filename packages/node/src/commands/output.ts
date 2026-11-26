@@ -13,8 +13,8 @@ import { failuresText, sourceCounts, sourceMeta, type Source, type SourceCounts 
 /**
  * What each read-only command leaves on disk, for the command line and the
  * MCP server alike, and the short answer each gives: counts and the paths it
- * wrote, never a lyric. Everything goes through `writeOut()`, which decides
- * which folders may be written at all.
+ * wrote, never a lyric. Everything goes through `writeOut()`, which makes
+ * each run a new folder of its own inside the one it is given.
  *
  * `libraries` is every library the run read or knows of, beyond the sources
  * it is handed: a folder inside one is refused.

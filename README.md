@@ -131,9 +131,10 @@ given an `out` folder writes every rule break with its line, and
 `find_libraries` and `check_rules` list the libraries on your computer and
 the rules as loaded. Each answers with counts and the paths it wrote, so the
 lyrics stay on your computer until you ask the assistant to read one. They
-are the command line's files (below), written by the same code, into a new or
-empty folder or one the same tool wrote before, never inside a library; in
-read-only mode none of them is offered.
+are the command line's files (below), written by the same code: each call
+makes a new folder of its own inside the folder you give, never inside a
+library, and nothing already there is touched. In read-only mode none of them
+is offered.
 
 #### Claude Desktop
 
@@ -227,10 +228,11 @@ or the other, and download your picks as `decisions.json`. It also writes
 `git diff --no-index --word-diff text/bas text/haut` works in a terminal.
 `dump <source> --out <dir>` writes every song of one library as JSON and text.
 `sources`, `check` and `rules check` take `--out` too, and then write what they
-would print there. `--out` is a new or empty folder, or one the same command
-wrote before, which it marks with a `.presenter-garage.json` listing every file
-it wrote; never one inside a library. Writing again removes only those files:
-a file you add among them stops the run instead of being deleted.
+would print there. Each run makes a new folder of its own inside `--out`,
+named for the command and the time (`compare-2026-11-26T10-12-02Z`), and
+prints where; never inside a library. Nothing already in `--out` is replaced
+or removed, so earlier runs, and any a failure stopped part way, stay
+beside the new one until you delete them.
 
 ProPresenter 22 records no edit dates from before the upgrade, so a workspace
 song nobody has edited since is dated from the `.pro` file it was made from,

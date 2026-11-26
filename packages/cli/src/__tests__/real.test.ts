@@ -21,9 +21,11 @@ const quiet = { out: () => {}, err: () => {} };
 
 describe.skipIf(!hasRealLibrary)("dumping a real library", () => {
   it("writes a JSON and a text file for every song it can read, and names the rest", async () => {
-    const out = fs.mkdtempSync(path.join(os.tmpdir(), "pg-dump-"));
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "pg-dump-"));
     try {
-      expect(await run(["dump", `real=${REAL_LIBRARY}`, "--out", out], quiet)).toBe(0);
+      expect(await run(["dump", `real=${REAL_LIBRARY}`, "--out", parent], quiet)).toBe(0);
+      // The one folder the run made inside it.
+      const out = path.join(parent, fs.readdirSync(parent)[0]);
       const index = JSON.parse(fs.readFileSync(path.join(out, "index.json"), "utf8"));
       const { files } = await findPresentations(await openRoots([REAL_LIBRARY]));
       expect(index.songs.length + index.source.failures.length).toBe(files.length);
@@ -32,7 +34,7 @@ describe.skipIf(!hasRealLibrary)("dumping a real library", () => {
         expect(fs.existsSync(path.join(out, song.text)), song.text).toBe(true);
       }
     } finally {
-      fs.rmSync(out, { recursive: true, force: true });
+      fs.rmSync(parent, { recursive: true, force: true });
     }
   }, 300_000);
 });

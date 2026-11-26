@@ -23,7 +23,10 @@ read a ProPresenter 7 library from disk, and edit its slide text. Part of
   your library first
 
 It reads one library at a time and nothing outside it, and writes outside it
-only the backups it makes before changing a file. It opens another library only
+only the backups it makes before changing a file, and the results of the
+tools that write to a folder you name (`dump_library`, `compare_libraries`,
+`check_presentations` with `out`), each call into a new folder of its own
+inside it, never over a file. It opens another library only
 once you approve the switch in your app (`use_library`), and in a client that
 declares roots, reads the first of them that is itself a ProPresenter folder
 or workspace. Editing needs a

@@ -22,8 +22,8 @@ import { rulesFor } from "./tools/rules";
  * lyrics have no reason to go there, so they stay in the folder until the
  * person asks for one to be read. The files are the ones the command line
  * writes with `--out`, written by the same code in `packages/node`, which
- * also decides which folders may be written: an empty or new one, or one the
- * same tool wrote before, and never one inside a library.
+ * makes each call a new folder of its own inside `out`, never inside a
+ * library, and never writes over or removes a file.
  *
  * Offered only when the server may write: Read only means no file at all.
  */
@@ -35,13 +35,15 @@ export interface SourcesDirs {
   documents?: string;
 }
 
-const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+/** Each call makes a folder of its own, so calling again adds one: not idempotent, though it changes nothing already there. */
+const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 
 export const OUT = z
   .string()
   .describe(
-    "An absolute folder for the results, outside the library: a new or empty one, or one this tool wrote before " +
-      "(its earlier results are replaced, and a file added among them stops the call). Anything else is refused."
+    "An absolute folder, outside the library, to put the results in. Each call makes a new folder inside it, " +
+      "named for the tool and the time, and writes only there; nothing already in `out` is touched. The answer's " +
+      "`out` is that new folder."
   );
 
 /** The folder a model named, as an absolute path. */
@@ -104,7 +106,7 @@ export function registerOutTools(
       description:
         "Find the ProPresenter libraries on this computer, where ProPresenter keeps them: the ProPresenter 22 " +
         "workspaces in its registry, the folder workspaces ProPresenter 20 and 21 made, and Documents/ProPresenter. " +
-        "Writes sources.json and sources.txt to `out` and answers with how many of each were found; read " +
+        "Writes sources.json and sources.txt to a new folder in `out` and answers with how many of each were found; read " +
         "sources.json for their paths, to hand to use_library or compare_libraries.",
       inputSchema: { out: OUT },
       annotations: WRITES,
@@ -121,7 +123,7 @@ export function registerOutTools(
     {
       title: "Write out every song",
       description:
-        "Write every song in the library to `out`: under songs/, one JSON file (groups, slides, lines, macros, " +
+        "Write every song in the library to a new folder in `out`: under songs/, one JSON file (groups, slides, lines, macros, " +
         "edit date) and one text file per song, laid out as the library is, and index.json listing them without " +
         "their words. Answers with how many songs were written and how many could not be read, and the paths: " +
         "no lyrics. Read a song's file only when the person asks for it.",
@@ -145,7 +147,7 @@ export function registerOutTools(
         "Match the songs of the library open now with another library's, by uuid then by name, and for each " +
         "place two versions differ propose one by the team's rules, then by which was edited later, then by the " +
         "preferred library. The person is asked, by their app, to let the other library be read; nothing is read " +
-        "unless they do. Writes to `out` compare.json (every pair, where they differ and what is proposed, " +
+        "unless they do. Writes to a new folder in `out` compare.json (every pair, where they differ and what is proposed, " +
         "without the words), report.html (both versions side by side, every differing word marked) and " +
         "text/<label>/ (a text file per song, for `git diff --no-index --word-diff`). Answers with counts and " +
         "paths: no lyrics.",
@@ -208,7 +210,7 @@ export function registerOutTools(
       title: "Check the team's rules file",
       description:
         "Load the team's rules as check_presentations would run them, and say whether rules.json is older than " +
-        "RULES.md. Writes rules-check.json (every rule and exception) and rules-check.txt to `out`; answers with " +
+        "RULES.md. Writes rules-check.json (every rule and exception) and rules-check.txt to a new folder in `out`; answers with " +
         "where the rules are, how many there are, and whether they are stale.",
       inputSchema: { out: OUT },
       annotations: WRITES,
