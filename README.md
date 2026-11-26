@@ -136,7 +136,8 @@ lyrics stay on your computer until you ask the assistant to read one. They
 are the command line's files (below), written by the same code: each call
 makes a new folder of its own inside the folder you give, never inside a
 library, and nothing already there is touched. In read-only mode none of them
-is offered.
+writes: `check_presentations` is offered without `out`, answering with its
+findings, and the others are not offered at all.
 
 #### Claude Desktop
 

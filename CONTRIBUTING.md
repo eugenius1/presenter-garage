@@ -689,7 +689,8 @@ is in `src/tools/`, one file per group of tools, and what writes is in
 `check_presentations` given `out`), which write to a folder through
 `packages/node/src/commands/` and answer with counts and paths: an answer
 goes to the model's provider, and a library's lyrics have no business
-there. They are not offered read-only, and `compare_libraries` reads its
+there. Read-only offers none of them (`check_presentations` only without
+`out`), and `compare_libraries` reads its
 second library only once the person approves, as `use_library` asks. It serves one library at a time, held by `Library` in
 `library.ts`: the folder it was started on (or the default), the first of the
 client's roots that is itself a ProPresenter folder or workspace (never a
