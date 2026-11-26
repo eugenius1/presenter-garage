@@ -174,7 +174,12 @@ And these in particular documents:
 
 - **A presentation's slides.** `cues` is a map keyed by uuid, in no order.
   The order, and the groups, are in `cue_group_placements`: a tree of group
-  nodes whose children are cue nodes. `cue_groups` is gone.
+  nodes whose children are cue nodes. `cue_groups` is gone. The shape
+  `toJSON()` gives it -- each node an `id` like `12@3456`, `parent`,
+  `index`, `fractional_index`, `meta` and `children` -- is exactly what Loro
+  gives for a `LoroTree`, so that is what it is: `meta` is the node's own
+  map (`LoroTreeNode.data`), and a group's name and colour are in
+  `meta.Kind.group`. A playlist tree is the same kind of tree.
 - **Playlists.** One tree of nodes whose `meta.Kind` is `group`, `playlist`
   or `item`, with `meta.name` and `meta.uuid`; the one top node is the old
   root. Children are in display order.
@@ -214,8 +219,9 @@ The comparison is a test, skipped without a library to run it on: see
 
 - **A Cloud document that is not downloaded.** Handled as the schema
   suggests, never met.
-- **Writing anything but slide text.** Slide text is written into a local
-  workspace while ProPresenter is closed, as
+- **Writing anything but a presentation.** Slide text, a group's name,
+  colour and tie to a configured group, and which macro a slide triggers are
+  written into a local workspace while ProPresenter is closed, as
   [propresenter-22-writing.md](propresenter-22-writing.md) describes.
   Nothing else is: playlists, the media bin and restyling stay read-only.
 - **Writing to a Cloud workspace.** Refused until it has been tried

@@ -94,7 +94,10 @@ describe("a slide missing what a macro usually records", () => {
 
 describe("the configured groups", () => {
   it("reads each group's exact name, uuid and colour, in order", () => {
-    expect(readGroups(decodeGroupsDocument(syntheticGroupsFile()))).toEqual([
+    const read = readGroups(decodeGroupsDocument(syntheticGroupsFile()));
+    // And the colour as stored, a float32 each channel, for a rename to copy exactly.
+    expect(read[0].rgba).toEqual({ red: 0, green: Math.fround(0.4), blue: Math.fround(0.8), alpha: 1 });
+    expect(read).toMatchObject([
       { name: "Couplet 1", uuid: CONFIGURED_GROUPS[0].uuid.string, color: "rgb(0,102,204)" },
       { name: "Couplet 4", uuid: CONFIGURED_GROUPS[1].uuid.string, color: "rgb(0,51,77)" },
       { name: "Refrain", uuid: CONFIGURED_GROUPS[2].uuid.string, color: "rgba(255,69,0,0.5)" },
@@ -129,8 +132,15 @@ describe("the configured groups", () => {
 describe("the configured macros", () => {
   it("reads a Configuration/Macros file, with the collections listing each", () => {
     expect(readMacros(decodeMacrosDocument(syntheticMacrosFile()))).toEqual([
-      { ...MACROS.bienvenue, collections: ["Default Collection"] },
-      { ...MACROS.louange, collections: ["Default Collection", "Louange"] },
+      { ...MACROS.bienvenue, collections: ["Default Collection"], collectionRefs: [{ name: "Default Collection", uuid: "00000000-0000-4000-8000-000000006978" }] },
+      {
+        ...MACROS.louange,
+        collections: ["Default Collection", "Louange"],
+        collectionRefs: [
+          { name: "Default Collection", uuid: "00000000-0000-4000-8000-000000006978" },
+          { name: "Louange", uuid: "00000000-0000-4000-8000-000000006979" },
+        ],
+      },
       { ...MACROS.lumieres, collections: [] },
     ]);
   });
@@ -173,7 +183,7 @@ describe("the configured macros", () => {
     };
     const { message, unmapped } = macrosFromWorkspace(root);
     expect(unmapped).toEqual([]);
-    expect(readMacros(message)).toEqual([
+    expect(readMacros(message)).toMatchObject([
       { name: "Louange", uuid: MACROS.louange.uuid.toUpperCase(), collections: ["Default Collection"] },
       { name: "Intro Louange", uuid: "5A179008-AF4A-4ECC-AD0F-8D4B964301D8", collections: ["Default Collection"] },
     ]);
@@ -189,7 +199,7 @@ describe("the configured macros", () => {
       macros: [louange],
       macro_collections: [{ name: "A", macros: [{ ...louange, uuid: { string: MACROS.louange.uuid.toUpperCase() } }] }],
     });
-    expect(readMacros(doc as any)).toEqual([{ ...MACROS.louange, collections: ["A"] }]);
+    expect(readMacros(doc as any)).toMatchObject([{ ...MACROS.louange, collections: ["A"] }]);
   });
 
   it("reads nothing from an empty document", () => {
@@ -214,7 +224,7 @@ describe("the configured macros", () => {
         },
       ],
     };
-    expect(readMacros(doc as any)).toEqual([{ name: "", uuid: MACROS.louange.uuid, collections: [""] }]);
+    expect(readMacros(doc as any)).toMatchObject([{ name: "", uuid: MACROS.louange.uuid, collections: [""] }]);
   });
 
   it("lists a collection's item naming a macro held in a later collection", () => {
@@ -225,7 +235,7 @@ describe("the configured macros", () => {
         { name: "Second", macros: [{ uuid: { string: MACROS.bienvenue.uuid }, name: "Bienvenue" }] },
       ],
     });
-    expect(readMacros(doc as any)).toEqual([{ ...MACROS.bienvenue, collections: ["Second", "First"] }]);
+    expect(readMacros(doc as any)).toMatchObject([{ ...MACROS.bienvenue, collections: ["Second", "First"] }]);
   });
 
   it("keeps macros with no uuid apart", () => {

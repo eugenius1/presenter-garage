@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { LoroDoc, LoroMap, LoroMovableList } from "loro-crdt/base64";
+import { LoroDoc, LoroMap, LoroMovableList, LoroTree, type LoroTreeNode } from "loro-crdt/base64";
 import { decodeRtf, extractLines } from "@presenter-garage/core/lib/rtf";
 import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
 import { workspacePresentation } from "@presenter-garage/core/lib/__tests__/workspace-fixtures";
@@ -41,13 +41,27 @@ type Json = any;
 
 /**
  * Fill a Loro map as ProPresenter does: every message and list a container
- * of its own, except an attribute's `range`, which it keeps as one value.
+ * of its own, except an attribute's `range`, which it keeps as one value,
+ * and a presentation's groups and slides a tree, as its JSON shows them to be.
  */
 function fill(map: LoroMap, value: Record<string, Json>): void {
   for (const [key, v] of Object.entries(value)) {
-    if (Array.isArray(v)) fillList(map.setContainer(key, new LoroMovableList()), v);
+    if (key === "cue_group_placements" && Array.isArray(v)) {
+      const tree = map.setContainer(key, new LoroTree());
+      tree.enableFractionalIndex(0);
+      fillTree(tree, v);
+    } else if (Array.isArray(v)) fillList(map.setContainer(key, new LoroMovableList()), v);
     else if (v && typeof v === "object" && !ArrayBuffer.isView(v) && key !== "range") fill(map.setContainer(key, new LoroMap()), v);
     else map.set(key, v);
+  }
+}
+
+/** Tree nodes as `toJSON()` gives them, each node's `meta` its own map. */
+function fillTree(tree: LoroTree, nodes: Json[], parent?: LoroTreeNode): void {
+  for (const node of nodes) {
+    const created = parent ? parent.createNode() : tree.createNode();
+    fill(created.data, node.meta ?? {});
+    fillTree(tree, node.children ?? [], created);
   }
 }
 

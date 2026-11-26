@@ -2,6 +2,15 @@ import { FixError, spliceBoxes, verifyLines, type LineFix } from "./fixes";
 import { readPresentation, textBoxAddresses, type PresentationDoc, type TextBoxAddress } from "./presentation";
 import { isAllCaps, rangesAfter, type LineStyling } from "./ranges";
 import { decodeRtf, encodeRtf } from "./rtf";
+import {
+  canonical,
+  expectStructure,
+  isCurrent,
+  readStructure,
+  sameStructure,
+  type PresentationStructure,
+  type StructureChange,
+} from "./structure";
 import { isObject, presentationFromWorkspace } from "./workspace";
 
 /**
@@ -24,8 +33,12 @@ import { isObject, presentationFromWorkspace } from "./workspace";
 /** A value as `LoroDoc.toJSON()` gives it. */
 type Json = any;
 
-/** A key into a Loro map, or a position in a Loro list. */
-export type LoroKey = string | number;
+/**
+ * A key into a Loro map, a position in a Loro list, or a node of a Loro
+ * tree by its id: the node's own map, which `toJSON()` gives as its `meta`.
+ * A presentation's groups and slides are such a tree (`cue_group_placements`).
+ */
+export type LoroKey = string | number | { node: string };
 
 /** One attribute range as it should be once the text moves. */
 interface RangeMove {
@@ -47,12 +60,27 @@ export interface BoxEdit {
   cutBack: number[];
 }
 
+/**
+ * One value set in a map that is already there, for a structural change: a
+ * group's name, a macro's uuid. Never a container, and never over one.
+ */
+export interface ValueEdit {
+  /** From the document's `root` to the map. */
+  path: LoroKey[];
+  key: string;
+  value: string | number | null;
+}
+
 export interface WorkspaceEdit {
   boxes: BoxEdit[];
+  /** The structural changes, as values to set; in the order of the changes. */
+  values: ValueEdit[];
   /** One per fix, in the order of the fixes. */
   styling: LineStyling[];
   /** The presentation as read from the document the edit was planned on, for `checkWorkspaceEdit`. */
   before: PresentationDoc;
+  /** Its whole structure as it should read once the edit is in. */
+  structure: PresentationStructure;
 }
 
 // Where a box's ranges go is the rule a `.pro` file's move by too, in `ranges.ts`.
@@ -63,7 +91,7 @@ export { AttributeRangeError, type LineStyling, type RangeRefusal } from "./rang
  * is either a key of its own, or the chosen member of a oneof, which the
  * snapshot keeps under the oneof's name as `{ __tag, [tag]: value }`.
  */
-function locate(json: Json, fields: readonly string[]): LoroKey[] | undefined {
+export function locate(json: Json, fields: readonly string[]): LoroKey[] | undefined {
   const keys: LoroKey[] = [];
   let at = json;
   for (const field of fields) {
@@ -87,13 +115,8 @@ function locate(json: Json, fields: readonly string[]): LoroKey[] | undefined {
  * slide's element, its text.
  */
 export function loroPathOf(root: Json, address: TextBoxAddress | undefined): LoroKey[] | undefined {
-  if (!address?.cueUuid || !isObject(root?.cues)) return undefined;
-  // Keyed by the cue's uuid. Looked for by the uuid it carries as well,
-  // should the two ever be spelled differently.
-  const key =
-    address.cueUuid in root.cues
-      ? address.cueUuid
-      : Object.keys(root.cues).find((k) => root.cues[k]?.uuid === address.cueUuid);
+  if (!address?.cueUuid) return undefined;
+  const key = cueKey(root, address.cueUuid);
   if (key === undefined) return undefined;
   const action = root.cues[key]?.actions?.[address.actionIndex];
   const toElements = locate(action, ["slide", "presentation", "base_slide", "elements"]);
@@ -103,12 +126,32 @@ export function loroPathOf(root: Json, address: TextBoxAddress | undefined): Lor
   return ["cues", key, "actions", address.actionIndex, ...toElements, address.elementIndex, ...toText];
 }
 
+/**
+ * A cue's key in the document's `cues` map: its uuid, or failing that the
+ * key whose cue carries that uuid, should the two ever be spelled differently.
+ */
+function cueKey(root: Json, cueUuid: string): string | undefined {
+  if (!isObject(root?.cues)) return undefined;
+  return cueUuid in root.cues ? cueUuid : Object.keys(root.cues).find((k) => root.cues[k]?.uuid === cueUuid);
+}
+
+/** A node of a tree as `toJSON()` gives one, found by id at any depth. */
+function treeNode(nodes: Json, id: string): Json {
+  if (!Array.isArray(nodes)) return undefined;
+  for (const node of nodes) {
+    if (node?.id === id) return node;
+    const found = treeNode(node?.children, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** The value at a path of keys, or undefined where there is none. */
 export function valueAt(json: Json, path: readonly LoroKey[]): Json {
   let at = json;
   for (const key of path) {
     if (at === null || typeof at !== "object") return undefined;
-    at = at[key];
+    at = typeof key === "object" ? treeNode(at, key.node)?.meta : at[key];
   }
   return at;
 }
@@ -144,12 +187,16 @@ function rangeOf(attribute: Json): { start: number; end: number } | undefined {
  * found in the document holding exactly the RTF the plan read, and
  * `AttributeRangeError` when a box's ranges cannot be moved with its text,
  * or whether a line added to it takes one would be a guess (`rangesAfter`,
- * the rule a `.pro` file's ranges move by too).
+ * the rule a `.pro` file's ranges move by too). `changes`, the structural
+ * ones, are said as values to set (`valueEdits`); one that no longer
+ * describes the document is `stale` too.
  */
-export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): WorkspaceEdit {
-  if (fixes.length === 0) throw new FixError("unchanged");
+export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[], changes: readonly StructureChange[] = []): WorkspaceEdit {
+  if (fixes.length === 0 && changes.length === 0) throw new FixError("unchanged");
   const { message } = presentationFromWorkspace(root);
   const before = readPresentation(message);
+  const structure = readStructure(message);
+  if (changes.some((change) => !isCurrent(structure, change))) throw new FixError("stale");
   const replacements = spliceBoxes(before, fixes);
   const addresses = new Map(textBoxAddresses(message).map((a) => [a.boxIndex, a]));
 
@@ -186,14 +233,77 @@ export function planWorkspaceEdit(root: Json, fixes: readonly LineFix[]): Worksp
   }
   return {
     boxes: boxes.sort((a, b) => a.boxIndex - b.boxIndex),
+    values: changes.flatMap((change) => valueEdits(root, change)),
     styling: fixes.map((fix) => styling.get(fix)!),
     before,
+    structure: expectStructure(structure, changes),
   };
 }
 
+/**
+ * A structural change in the document's own terms: the values to set, each
+ * in a map the document already has, holding exactly what the change was
+ * planned against. Throws `FixError("lossy")` when the document is not
+ * shaped as the conversion read it, and `FixError("newContainer")` when the
+ * change would need a map it does not have, such as a colour for a group
+ * that stores none.
+ */
+function valueEdits(root: Json, change: StructureChange): ValueEdit[] {
+  const edits: ValueEdit[] = [];
+  /** Set `key` at `path`, which must be a map holding `was` there (or nothing, where `was` is undefined). */
+  const set = (path: LoroKey[], key: string, was: unknown, value: ValueEdit["value"]) => {
+    const map = valueAt(root, path);
+    if (!isObject(map)) throw new FixError("lossy");
+    const now = map[key];
+    const empty = (v: unknown) => v === null || v === undefined || v === "";
+    if ((now !== was && !(was === undefined && empty(now))) || isObject(now) || Array.isArray(now)) throw new FixError("lossy");
+    if (now !== value && !(empty(now) && empty(value))) edits.push({ path, key, value });
+  };
+
+  if (change.kind === "renameGroup") {
+    // The conversion numbers groups as the tree holds them, leaving out anything else at its top.
+    const groups = Array.isArray(root?.cue_group_placements) ? root.cue_group_placements.filter((n: Json) => n?.meta?.Kind?.__tag === "group") : [];
+    const node = groups[change.groupIndex];
+    if (typeof node?.id !== "string" || (node.meta.uuid || undefined) !== change.groupUuid) throw new FixError("lossy");
+    const meta: LoroKey[] = ["cue_group_placements", { node: node.id }];
+    const group = [...meta, "Kind", "group"];
+    set(group, "name", change.before.name, change.after.name);
+    // A name kept beside the kind as well, as a playlist's node keeps one, follows it.
+    if (typeof node.meta.name === "string") set(meta, "name", change.before.name, change.after.name);
+    if (change.after.color && canonical(change.after.color) !== canonical(change.before.color)) {
+      if (!change.before.color || !isObject(valueAt(root, [...group, "color"]))) throw new FixError("newContainer");
+      for (const channel of ["red", "green", "blue", "alpha"] as const) {
+        set([...group, "color"], channel, valueAt(root, [...group, "color", channel]), change.after.color[channel]);
+      }
+    }
+    if (change.before.link || change.after.link) {
+      set(group, "application_group_identifier", change.before.link?.uuid, change.after.link?.uuid ?? null);
+      set(group, "application_group_name", change.before.link?.name, change.after.link?.name ?? "");
+    }
+    return edits;
+  }
+
+  const key = cueKey(root, change.cueUuid);
+  const actionPath: LoroKey[] = ["cues", key ?? "", "actions", change.actionIndex];
+  const action = valueAt(root, actionPath);
+  const toId = key !== undefined && locate(action, ["macro", "identification"]);
+  if (!toId) throw new FixError("lossy");
+  const id = [...actionPath, ...toId];
+  set(id, "parameter_uuid", change.before.uuid, change.after.uuid ?? null);
+  set(id, "parameter_name", change.before.name, change.after.name);
+  if (change.after.collection) {
+    const parent = [...id, "parent_collection"];
+    set(parent, "parameter_uuid", change.before.collection?.uuid, change.after.collection.uuid ?? null);
+    set(parent, "parameter_name", change.before.collection?.name, change.after.collection.name);
+  }
+  set(actionPath, "name", change.before.actionName, change.after.actionName);
+  return edits;
+}
+
 /** The document's `root` with an edit made, as plain JSON: what the Loro document should read afterwards. */
-export function editedRoot(root: Json, boxes: readonly BoxEdit[]): Json {
+export function editedRoot(root: Json, boxes: readonly BoxEdit[], values: readonly ValueEdit[] = []): Json {
   const copy = structuredClone(root);
+  for (const { path, key, value } of values) valueAt(copy, path)[key] = value;
   for (const box of boxes) {
     const text = valueAt(copy, box.path);
     text.rtf_data = box.rtf;
@@ -229,14 +339,19 @@ export function stableJson(value: Json): string {
  * box reads as promised through the same conversion the plan was read with.
  */
 export function checkWorkspaceEdit(before: Json, after: Json, edit: WorkspaceEdit, fixes: readonly LineFix[]): void {
-  if (stableJson(editedRoot(before, edit.boxes)) !== stableJson(after)) throw new FixError("verifyFailed");
+  if (stableJson(editedRoot(before, edit.boxes, edit.values)) !== stableJson(after)) throw new FixError("verifyFailed");
   let read: PresentationDoc;
+  let structure: PresentationStructure;
   try {
-    read = readPresentation(presentationFromWorkspace(after).message);
+    const { message } = presentationFromWorkspace(after);
+    read = readPresentation(message);
+    structure = readStructure(message);
   } catch {
     throw new FixError("verifyFailed");
   }
   verifyLines(read, edit.before, fixes);
+  // The whole structure through the conversion too, every group, slide, arrangement and macro.
+  if (!sameStructure(structure, edit.structure)) throw new FixError("verifyFailed");
   // Every range of every edited box within its text and the right way round,
   // whatever the plan said: a backwards range matches a plan that has one.
   for (const box of edit.boxes) {

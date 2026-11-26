@@ -72,11 +72,11 @@ export function contextWindows(slides: Iterable<number>, slideCount: number, rad
   return windows;
 }
 
-/** Where a change sits, as fixes, findings and planned lines all name it. */
+/** Where a change sits, as fixes, findings and planned lines all name it; a structural change names only its slide. */
 export interface ChangeSite {
   slideIndex: number;
-  boxIndex: number;
-  lineIndex: number;
+  boxIndex?: number;
+  lineIndex?: number;
 }
 
 /**
@@ -85,7 +85,7 @@ export interface ChangeSite {
  * a change, or the neighbours would come back empty.
  */
 export function contextSlides(doc: PresentationDoc, changes: readonly ChangeSite[], radius = CONTEXT_SLIDES): ContextSlide[] {
-  const named = new Set(changes.map(({ boxIndex, lineIndex }) => `${boxIndex}:${lineIndex}`));
+  const named = new Set(changes.filter((c) => c.boxIndex !== undefined).map(({ boxIndex, lineIndex }) => `${boxIndex}:${lineIndex}`));
   const windows = contextWindows(
     changes.map((c) => c.slideIndex),
     doc.slides.length,

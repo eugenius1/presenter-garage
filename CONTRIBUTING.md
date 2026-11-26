@@ -183,7 +183,9 @@ The Media Bin's exports emit a differently named file rather than overwriting.
 Presentation text is written in place — by the web app's fixer, the MCP
 server's edit tools and the desktop app, all through `applyFixes()`, and into
 a ProPresenter 22 workspace by the MCP server and the desktop app through
-`stageWorkspaceEdits()` — under four
+`stageWorkspaceEdits()` — and so is a presentation's structure, a group
+renamed or a macro swapped (`packages/core/src/lib/structure.ts`), by the
+MCP server through the same two, under four
 guards listed in [AGENTS.md](AGENTS.md), with where each surface keeps each
 one. Read those before adding anything that writes.
 
@@ -571,10 +573,10 @@ that exists, which is why 0.1.0 was published by hand.
 - **Never write over an original ProPresenter file unguarded.** Media Bin
   exports are always a differently named copy the reader moves into place
   themselves, via `exportFilename()` in `packages/core/src/lib/operations.ts`. Presentation
-  text is written in place only through `applyFixes()`, by the web app's
-  fixer, the MCP server's edit tools and the desktop app, and into a
-  ProPresenter 22 workspace only through `stageWorkspaceEdits()`, under the
-  four guards set out in [AGENTS.md](AGENTS.md).
+  text and structure are written in place only through `applyFixes()`, by
+  the web app's fixer, the MCP server's edit tools and the desktop app, and
+  into a ProPresenter 22 workspace only through `stageWorkspaceEdits()`,
+  under the four guards set out in [AGENTS.md](AGENTS.md).
 - **Never commit a real ProPresenter library.** Real `.pro` files, media-bin
   playlists and media folders are somebody's personal data. `private/` at
   the root is gitignored for exactly this; development copies go there, in

@@ -395,6 +395,8 @@ export const en = {
         attributeRanges:
           "a text box has formatting that cannot be moved with its text without guessing, so nothing was written",
         rolledBack: "another presentation in the same workspace could not be written, so none in it were",
+        newContainer:
+          "the change would have to add something new inside a ProPresenter 22 document, such as a colour for a group that has none, which is not done",
       },
       // Why a box's formatting cannot be moved with its text, said after `refusals.attributeRanges`.
       rangeRefusals: {
@@ -418,6 +420,19 @@ export const en = {
         emptyLine: "an added line needs some text: a blank line between two others is what the blank-line check reports",
         besideRemoved: "a line cannot be added beside a line the same plan removes, since it would take that line's formatting",
         unsupported: "the change would not read back as asked once written, so it is not offered",
+      },
+      // Why a structural change (a group renamed, a macro swapped) could not be planned.
+      structureRefusals: {
+        noSuchGroup: "there is no such group",
+        noSuchSlide: "there is no such slide",
+        duplicate: "two changes name the same group, or the same macro on one slide",
+        unchanged: "it is already that",
+        badName: "a group name needs some text, on one line",
+        noSuchMacro: "the slide triggers no macro by that name or uuid",
+        ambiguousMacro: "that names more than one macro",
+        noMacroList: "ProPresenter's configured macros could not be read, so no macro can be put on a slide",
+        unknownMacro: "no configured macro has that name or uuid",
+        macroCollection: "the slide records which collection its macro is in, and the new macro is in no collection",
       },
     },
     mediaBin: {

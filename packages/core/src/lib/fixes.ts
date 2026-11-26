@@ -40,6 +40,7 @@ import { contextSlides, type ContextSlide } from "./slide-context";
 import type { RawDoc } from "./decode";
 import type { Finding } from "./rules";
 import { AttributeRangeError, rangesAfter, type LineStyling } from "./ranges";
+import { applyStructure, expectStructure, isCurrent, readStructure, sameStructure, type StructureChange } from "./structure";
 
 /**
  * Turning findings into edits.
@@ -386,6 +387,8 @@ export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange
  * Why a file was not written. Carries a code; the interface supplies the words.
  * `attributeRanges` is an `AttributeRangeError`: a box's ranges cannot be
  * moved with its text, or a line added to it, without a guess.
+ * `newContainer`: a change to a ProPresenter 22 document would have to create
+ * a container in it, which nothing here does (docs/propresenter-22-writing.md).
  */
 export type FixRefusal =
   | "lossy"
@@ -393,7 +396,8 @@ export type FixRefusal =
   | "verifyFailed"
   | "unreadable"
   | "stale"
-  | "attributeRanges";
+  | "attributeRanges"
+  | "newContainer";
 
 export class FixError extends Error {
   readonly reason: FixRefusal;
@@ -418,14 +422,20 @@ export class FixError extends Error {
  *   the offsets a fix is built from describe the file as it was scanned and
  *   mean nothing against a file somebody has edited since;
  * - re-reading the result gives exactly the lines that were promised, every
- *   other line included.
+ *   other line included, and exactly the structure promised -- every group,
+ *   the order of the slides, every arrangement and every macro on every
+ *   slide -- whether or not a change was meant to touch it.
  *
  * The last is the one that matters most. Everything upstream is tested, but a
  * file nobody has seen is still a file nobody has seen, and a wrong splice is
  * only cheap to discover here.
+ *
+ * `changes` are the structural ones (`structure.ts`): a group renamed, a
+ * macro swapped. Each must still describe the file as it reads now, as a
+ * text fix must, or the file is refused as `stale`.
  */
-export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8Array {
-  if (fixes.length === 0) throw new FixError("unchanged");
+export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[], changes: readonly StructureChange[] = []): Uint8Array {
+  if (fixes.length === 0 && changes.length === 0) throw new FixError("unchanged");
 
   let doc;
   let before;
@@ -447,8 +457,11 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
     if (e instanceof AttributeRangeError) throw new FixError("attributeRanges");
     throw e;
   }
+  const structure = readStructure(doc);
+  if (changes.some((change) => !isCurrent(structure, change))) throw new FixError("stale");
 
   writeTextBoxes(doc, replacements, planned.moved);
+  applyStructure(doc, changes);
   const written = encodePresentation(doc);
 
   // The gate again, on the bytes handed back rather than the ones read.
@@ -456,6 +469,7 @@ export function applyFixes(bytes: Uint8Array, fixes: readonly LineFix[]): Uint8A
   const reread = decodePresentation(written);
   verifyLines(readPresentation(reread), before, fixes);
   verifyRanges(textBoxRanges(reread), planned);
+  if (!sameStructure(readStructure(reread), expectStructure(structure, changes))) throw new FixError("verifyFailed");
   return written;
 }
 
@@ -589,11 +603,13 @@ export function verifyLines(after: PresentationDoc, before: PresentationDoc, fix
 export interface FileFixPlan {
   path: string;
   fixes: LineFix[];
+  /** Structural changes chosen for it too, if any. */
+  changes?: StructureChange[];
 }
 
 export interface FixOutcome {
   path: string;
-  /** How many lines this file's fixes settle. */
+  /** How many changes this file's plan makes: lines, and structural changes. */
   lines: number;
   /** The fixed file, when one could be produced. */
   bytes?: Uint8Array;
@@ -637,13 +653,13 @@ export async function fixFiles(
   const outcomes: FixOutcome[] = [];
 
   for (const [index, plan] of plans.entries()) {
-    const lines = plan.fixes.length;
+    const lines = plan.fixes.length + (plan.changes?.length ?? 0);
     let bytes: Uint8Array;
 
     await onFile?.(plan.path, index, plans.length);
 
     try {
-      bytes = applyFixes(await read(plan.path), plan.fixes);
+      bytes = applyFixes(await read(plan.path), plan.fixes, plan.changes);
     } catch (e) {
       outcomes.push({
         path: plan.path,

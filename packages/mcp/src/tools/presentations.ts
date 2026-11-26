@@ -10,6 +10,7 @@ import {
   type SlideMacro,
 } from "@presenter-garage/core/lib/presentation";
 import { fold } from "@presenter-garage/core/lib/search";
+import { readStructure } from "@presenter-garage/core/lib/structure";
 import {
   findPresentations,
   LibraryError,
@@ -194,6 +195,11 @@ export interface PresentationContent extends PresentationDetails {
   fidelity: Fidelity;
   /** Theme placeholders with no text in them, left out of their slides' `textBoxes`. */
   emptyTextBoxes: number;
+  /**
+   * Every group, in the stored group order: the `groupIndex` a rename names
+   * it by, its exact name, and the slides it holds.
+   */
+  groups: { groupIndex: number; name: string; slides: number[] }[];
   /** Every slide, in ProPresenter's order; one with no text has empty `textBoxes`. */
   slides: {
     slideIndex: number;
@@ -241,6 +247,7 @@ export async function readPresentationFile(root: string, file: string): Promise<
     slides[box.slideIndex].textBoxes.push({ boxIndex: box.boxIndex, lines: box.lines.map((line) => line.text) });
   }
 
+  const structure = readStructure(raw);
   return {
     path: real,
     name: doc.name || presentationName(real),
@@ -249,6 +256,11 @@ export async function readPresentationFile(root: string, file: string): Promise<
     slideCount: doc.slideCount,
     fidelity: fidelityOf(converted, checkPresentationFidelity(bytes).fidelity),
     emptyTextBoxes,
+    groups: structure.groups.map((group, groupIndex) => ({
+      groupIndex,
+      name: group.name,
+      slides: structure.slides.flatMap((slide, i) => (slide.groupIndex === groupIndex ? [i] : [])),
+    })),
     slides,
   };
 }

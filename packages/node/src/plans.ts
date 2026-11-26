@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LineFix } from "@presenter-garage/core/lib/fixes";
+import type { StructureChange } from "@presenter-garage/core/lib/structure";
 import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
 
 /**
@@ -7,7 +8,7 @@ import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
  * each surface hands from `planning.ts` to `apply.ts`, and keeps in between.
  */
 
-/** Enough lines for a whole song's worth of corrections; a stop for a model asking to rewrite a library at once. */
+/** Enough changes for a whole song's worth of corrections; a stop for a model asking to rewrite a library at once. */
 export const MAX_PLAN_LINES = 200;
 
 /** A plan nobody applied within this long is forgotten: the files have probably moved on. */
@@ -28,6 +29,11 @@ export interface PlannedFile {
    * in words.
    */
   lines: { n: number; fix: LineFix; styling?: string[] }[];
+  /**
+   * Each structural change -- a group renamed, a macro swapped -- with its
+   * number in the whole plan, numbered after the file's lines.
+   */
+  changes: { n: number; change: StructureChange }[];
   /**
    * The slides around the changes as the file read when planned, for a
    * surface that shows them to the person approving; display only, never
@@ -66,5 +72,5 @@ export class PlanStore {
 
 export const newPlan = (files: PlannedFile[], now = Date.now()): Plan => ({ id: randomUUID(), created: now, files });
 
-/** Every line of a plan, for a surface where the person ticked them before it was made. */
-export const everyLine = (plan: Plan) => new Set(plan.files.flatMap((file) => file.lines.map(({ n }) => n)));
+/** Every change of a plan, for a surface where the person ticked them before it was made. */
+export const everyLine = (plan: Plan) => new Set(plan.files.flatMap((file) => [...file.lines, ...file.changes].map(({ n }) => n)));

@@ -26,7 +26,25 @@ export interface ConfiguredGroup {
   uuid?: string;
   /** As `rgb(r,g,b)`, or `rgba(...)` when not opaque. */
   color?: string;
+  /** The colour as stored, each channel 0 to 1, for a writer to copy exactly. */
+  rgba?: Rgba;
 }
+
+/** A colour as `rv.data.Color` stores it, each channel 0 to 1. */
+export interface Rgba {
+  red: number;
+  green: number;
+  blue: number;
+  alpha: number;
+}
+
+/** A colour message's channels, an unset one 0 as protobuf reads it. */
+export const rgbaOf = (color: any): Rgba => ({
+  red: color.red ?? 0,
+  green: color.green ?? 0,
+  blue: color.blue ?? 0,
+  alpha: color.alpha ?? 0,
+});
 
 export interface ConfiguredMacro {
   name: string;
@@ -37,6 +55,11 @@ export interface ConfiguredMacro {
   uuid?: string;
   /** The macro collections it is listed in, by name. */
   collections: string[];
+  /**
+   * The same collections, each with its uuid where it has one: what a slide
+   * records as the macro's `parent_collection`.
+   */
+  collectionRefs?: { name: string; uuid?: string }[];
 }
 
 export function decodeGroupsDocument(bytes: Uint8Array): RawDoc {
@@ -55,6 +78,7 @@ export function readGroups(doc: RawDoc): ConfiguredGroup[] {
     name: group.name ?? "",
     uuid: uuidOf(group),
     color: group.color ? formatColor(group.color) : undefined,
+    ...(group.color && { rgba: rgbaOf(group.color) }),
   }));
 }
 
@@ -83,22 +107,23 @@ export function readMacros(doc: RawDoc): ConfiguredMacro[] {
     ordered.push(entry);
     return entry;
   };
-  const listIn = (entry: ConfiguredMacro | undefined, collection: string) => {
-    if (entry && !entry.collections.includes(collection)) entry.collections.push(collection);
+  const listIn = (entry: ConfiguredMacro | undefined, collection: any) => {
+    const name: string = collection.name ?? "";
+    if (!entry || entry.collections.includes(name)) return;
+    entry.collections.push(name);
+    (entry.collectionRefs ??= []).push({ name, uuid: uuidOf(collection) });
   };
 
   const collections: any[] = raw.macro_collections ?? [];
   for (const macro of raw.macros ?? []) add(macro);
   for (const collection of collections) {
-    const name: string = collection.name ?? "";
-    for (const macro of collection.macros ?? []) listIn(add(macro), name);
+    for (const macro of collection.macros ?? []) listIn(add(macro), collection);
   }
   // A second pass, so an item may name a macro held in a later collection.
   for (const collection of collections) {
-    const name: string = collection.name ?? "";
     for (const item of collection.items ?? []) {
       const id: string | undefined = item?.macro_id?.string;
-      if (id) listIn(byKey.get(id.toLowerCase()), name);
+      if (id) listIn(byKey.get(id.toLowerCase()), collection);
     }
   }
   return ordered;

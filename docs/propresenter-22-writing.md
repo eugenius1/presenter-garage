@@ -1,6 +1,7 @@
 # Writing to a ProPresenter 22 workspace
 
-The MCP server writes slide text into a **local** ProPresenter 22 workspace,
+The MCP server writes slide text, and a few structural changes (*A group
+renamed, a macro swapped* below), into a **local** ProPresenter 22 workspace,
 while **ProPresenter is closed**. This is what was found out about doing that
 and how it is done ([#52](https://github.com/eugenius1/presenter-garage/issues/52)).
 The format itself is in [propresenter-22-workspaces.md](propresenter-22-workspaces.md),
@@ -349,14 +350,57 @@ placeholder box, which would then read as no line at all, so the plan
 refuses it -- such a box is filled by writing its line 0, not by adding to
 it -- and a few that would read back only beside another line.
 
+### A group renamed, a macro swapped
+
+A presentation's structure -- its groups, the order of its slides, its
+arrangements and the macros on each slide -- is changed the same way as its
+text: as values set in maps the document already has, by a new peer, in one
+commit, under the same lock, backup and checks. `structure.ts` in core plans
+each change from the converted message, as a text fix is planned, and
+`valueEdits()` in `workspace-edit.ts` says it again in the document's own
+terms, refusing (`lossy`) where the document does not hold exactly what the
+plan read.
+
+- **A group renamed.** The group is a node of `cue_group_placements`, a
+  `LoroTree`, reached by its node id; its name is `meta.Kind.group.name`. A
+  name kept on the node itself, `meta.name`, as a playlist's node keeps one,
+  is set too where there is one; whether ProPresenter keeps one on a group
+  has not been looked for, and one that disagrees with the group's name is
+  refused. When the new name is a configured group's, its
+  colour (the four channels of `Kind.group.color`) is copied from the
+  configured list. A group that stores no colour would need a new map for
+  one, so that rename is refused (`newContainer`) rather than made. Where the
+  group is tied to a configured group (`application_group_identifier` and
+  `application_group_name`, a bare uuid and a name), it is tied to the new
+  one, or the tie is cut (`null` and `""`) for a name no configured group
+  has. The group's uuid never changes, and arrangements name groups by
+  uuid, so nothing else moves. `.pro` files are renamed the same way, a
+  colour there simply set on the message.
+- **A macro swapped.** The action's `ActionTypeData.macro.identification`
+  gets the configured macro's uuid and name, and the action its name, as
+  ProPresenter names a macro's action after the macro (one renamed by hand
+  keeps its own). Where the slide records the macro's collection
+  (`parent_collection`), it records one the new macro is in. A uuid is
+  written in the case of the one it replaces, upper-case in a workspace.
+
+What is compared afterwards is the whole document, as for text: the new
+snapshot must be the old one with exactly these values and nothing else,
+and the structure read through the conversion must be the planned one,
+every group, slide, arrangement and macro included.
+
+None of this has been opened in ProPresenter yet: that it shows the
+renamed group and the swapped macro, keeps a colour copied as a
+double, honours a tie changed or cut, and keeps them through its own edits
+and a restart.
+
 ### The four guards
 
 | Guard | How it is kept |
 | --- | --- |
-| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess. Anything else refuses that document |
+| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
 | 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made, here or in any other root of the call, the run is rolled back and nothing is written in any of them |
-| 3. A person saw every line and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
-| 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data` and ranges and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), and every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
+| 3. A person saw every change and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line and per structural change, each structural change as it is and as it would be: a group's name, colour and tie, a macro and its collection. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
+| 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data`, ranges and structural values and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), the whole structure -- every group, the order of the slides, every arrangement, the macros on every slide -- what was promised (`sameStructure()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
 
 One place this differs from the design the experiments led to: that design
 had a mismatch found after `COMMIT` put the backed-up rows back. It is
@@ -428,7 +472,8 @@ edit waiting to go up. What has to be seen on the Windows computer first:
 
 - Write with ProPresenter open, on any system.
 - Write to a Cloud workspace.
-- Anything but slide text: playlists, the media bin, restyling.
+- Anything but a presentation's text, its groups' names, colours and ties,
+  and the macros on its slides: playlists, the media bin, restyling.
 - Restore from a backup on request. Putting a row back is a write, and wants
   the same lock and the same person choosing it.
 - Write from the web app, which cannot read a workspace yet
