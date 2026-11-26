@@ -17,14 +17,15 @@ export async function callTool(client: Client, name: string, args: Record<string
  * test says so, so nothing on the machine running the tests can change them.
  */
 export async function connect(
-  folder: string,
+  /** The library to start on, or why there is none. */
+  folder: string | { problem: string },
   options: ServerOptions = {},
   capabilities: ClientCapabilities = {},
   /** Handlers the client needs before it connects: the server asks for its roots as soon as it has. */
   setUp?: (client: Client) => void
 ) {
   const opts: ServerOptions = { registered: async () => [], ...options };
-  const server = createServer(await openLibrary(folder, "configured", opts), opts);
+  const server = createServer(typeof folder === "string" ? await openLibrary(folder, "configured", opts) : folder, opts);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test", version: "0" }, { capabilities });
   setUp?.(client);

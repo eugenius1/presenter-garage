@@ -261,11 +261,13 @@ export async function saveRulesFile(rulesDirs: readonly string[], rules: unknown
     throw e;
   }
   // Refused before writing: a name the library's list does not have would
-  // make its rule find nothing, or everything. Which library a scoped rule's
-  // macros must be in is not known until a song is checked, so a check asks
-  // that per song.
+  // make its rule find nothing, or everything. Only the rules that run
+  // everywhere are held to the list of the library open now. A rule kept to
+  // some libraries may be for another ProPresenter folder's, whose list is
+  // not this one, so its macros are asked of each song it runs on, when it
+  // is checked.
   const { macros } = await rulesConfiguration([root]);
-  const unknown = unknownMacros(set, { macros: macros ?? [] });
+  const unknown = unknownMacros(set, { macros: macros ?? [] }, { library: undefined });
   if (unknown.length) throw new LibraryError(`These macros are not in ProPresenter's list: ${unknown.join(", ")}. Nothing was written.`);
   const saved = await saveRules(found.markdown, set, compiledFrom);
   return { path: saved.path, rules: saved.set.rules.length, exceptions: saved.set.exceptions.length };

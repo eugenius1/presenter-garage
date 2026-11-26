@@ -155,6 +155,22 @@ export class Library {
     return this.current;
   }
 
+  /**
+   * Run `write` with `expected` open, holding off any change until it is
+   * done: refused, writing nothing, if another library was opened first.
+   *
+   * Checked once this run's turn comes, not when it was asked for, so an
+   * apply that waited behind another, or behind a switch, is checked against
+   * the library open as it starts; and nothing can open another library while
+   * it writes.
+   */
+  whileOpen<T>(expected: Pick<OpenLibrary, "root" | "backupDir">, write: () => Promise<T>): Promise<T> {
+    return this.queue(async () => {
+      refuseUnlessOpen(expected, this.current);
+      return write();
+    });
+  }
+
   /** The library open now, without waiting for a change under way. */
   peek(): OpenLibrary | undefined {
     return this.current;
@@ -273,14 +289,25 @@ export class Library {
   /** What to say about the library open now. */
   async describe(): Promise<LibraryAnswer> {
     const library = await this.get();
+    // Taken with the library, before anything else is awaited: a change in between would pair one library with another's note.
+    const rootsNote = this.rootsNote;
     let rules: FoundRules | undefined;
     try {
       rules = await findRules(undefined, this.options.rulesDirs ?? []);
     } catch {
       rules = undefined;
     }
-    return describeLibrary(library, [...library.notes, ...(this.rootsNote ? [this.rootsNote] : [])], rules);
+    return describeLibrary(library, [...library.notes, ...(rootsNote ? [rootsNote] : [])], rules);
   }
+}
+
+/** A plan made in `expected` is refused in any other library: its paths, and where its backups go, are that library's. */
+export function refuseUnlessOpen(expected: Pick<OpenLibrary, "root" | "backupDir">, open: OpenLibrary | undefined): void {
+  if (open?.root === expected.root && open.backupDir === expected.backupDir) return;
+  throw new LibraryError(
+    `This plan was made in ${expected.root}, and the library open now is ${open?.root ?? "none"}, so nothing was written. ` +
+      "Plan the edits again in the library open now."
+  );
 }
 
 export function describeLibrary(library: OpenLibrary, notes: string[], rules?: FoundRules): LibraryAnswer {

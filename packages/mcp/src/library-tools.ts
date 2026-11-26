@@ -41,7 +41,7 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     ({ path: given }, { signal }) =>
-      answer(async (): Promise<{ answer: "accept" | "decline" | "cancel"; unchanged?: true; library: LibraryAnswer }> => {
+      answer(async (): Promise<{ answer: "accept" | "decline" | "cancel"; unchanged?: true; library?: LibraryAnswer }> => {
         const dir = given.startsWith("file:") ? fileURLToPath(given) : given;
         if (!path.isAbsolute(dir)) throw new LibraryError(`Give the library's absolute path, not ${given}.`);
         const [root] = await openRoots([dir]);
@@ -72,7 +72,8 @@ export function registerLibraryTools(server: McpServer, library: Library): void 
         } catch (e) {
           throw new LibraryError(`No answer came back (${(e as Error).message}), so the library was not changed.`);
         }
-        if (reply.action !== "accept") return { answer: reply.action, library: await library.describe() };
+        // The library left as it was, which may be none at all.
+        if (reply.action !== "accept") return { answer: reply.action, library: await library.describe().catch(() => undefined) };
         if (signal.aborted) throw new LibraryError("The call was cancelled before the answer came back, so the library was not changed.");
         await library.switchTo(root);
         return { answer: "accept", library: await library.describe() };

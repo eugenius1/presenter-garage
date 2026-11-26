@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ElicitRequestSchema, ListRootsRequestSchema, type ElicitRequest, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { syntheticTextPresentation } from "@presenter-garage/core/lib/__tests__/synthetic";
-import { isProPresenterLibrary } from "../library";
+import { isProPresenterLibrary, Library, openLibrary } from "../library";
 import { connect } from "./connect";
 
 /**
@@ -220,6 +220,20 @@ describe("use_library", () => {
     await client.close();
   });
 
+  it("returns the person's answer when they decline opening a library while none is open", async () => {
+    const { client, call } = await connect({ problem: "No ProPresenter folder here." }, { backupDir: backups }, { elicitation: { form: {} } });
+    client.setRequestHandler(ElicitRequestSchema, (request) => {
+      asked.push(request);
+      return { action: "decline" };
+    });
+    const declined = await call("use_library", { path: second });
+    expect(declined.isError).toBe(false);
+    expect(declined.json()).toEqual({ answer: "decline" });
+    expect((asked[0].params as { message: string }).message).toContain("in place of no library");
+    expect((await call("current_library")).text).toContain("No ProPresenter folder here.");
+    await client.close();
+  });
+
   it("refuses a plan made before the switch, without asking or writing", async () => {
     const { client, call } = await asking();
     const before = fs.readFileSync(songFile(first));
@@ -300,5 +314,40 @@ describe("use_library", () => {
     expect((await call("use_library", { path: second })).json().library).toMatchObject({ path: second, editing: false });
     expect((await client.listTools()).tools.map((t) => t.name)).not.toContain("plan_slide_edits");
     await client.close();
+  });
+});
+
+describe("a write held to its library", () => {
+  /** A promise and the function that settles it, for holding a run part way. */
+  const gate = () => {
+    let open!: () => void;
+    return { wait: new Promise<void>((resolve) => (open = resolve)), open: () => open() };
+  };
+
+  it("holds off a switch until it has written, and refuses a write queued behind a switch", async () => {
+    const options = { backupDir: backups, registered: async () => [] };
+    const start = await openLibrary(first, "configured", options);
+    const library = new Library(start, options);
+
+    // An apply under way: the switch asked meanwhile waits for it.
+    const writing = gate();
+    const written: string[] = [];
+    const firstWrite = library.whileOpen(start, async () => {
+      await writing.wait;
+      written.push("first");
+    });
+    const switched = library.switchTo(second);
+    // A second apply, confirmed in the first library, waits behind the switch.
+    const queued = library.whileOpen(start, async () => {
+      written.push("queued");
+    });
+    await Promise.resolve();
+    expect(library.peek()?.root).toBe(first);
+
+    writing.open();
+    await firstWrite;
+    expect((await switched).root).toBe(second);
+    await expect(queued).rejects.toThrow(`This plan was made in ${first}, and the library open now is ${second}`);
+    expect(written).toEqual(["first"]);
   });
 });

@@ -97,6 +97,35 @@ describe("the team's rules", () => {
     await client.close();
   });
 
+  it("save a rule kept to other libraries whose macro this library lacks, and hold it to that macro where it runs", async () => {
+    const elsewhere = path.join(tmp, "team-elsewhere");
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.writeFileSync(path.join(elsewhere, "RULES.md"), "# Rules\n");
+    const { client, call } = await connect(church, { rulesDirs: [elsewhere] });
+    const { sha256 } = (await call("read_rules")).json().markdown;
+    const rule = { id: "x", check: "macro-alone", tier: 2, macro: "Only Elsewhere" };
+
+    // Kept to a library of another ProPresenter folder: its macro is that folder's, so this one's list has no say.
+    const scoped = { version: 1, rules: [{ ...rule, libraries: ["Elsewhere"] }], exceptions: [] };
+    expect((await call("save_rules", { rules: scoped, compiledFrom: sha256 })).json()).toMatchObject({ rules: 1 });
+    expect((await call("check_presentations")).json().totals).toEqual({});
+
+    // Kept to a library here, it is saved too, and the check of a song there names the missing macro.
+    const here = { version: 1, rules: [{ ...rule, libraries: ["Chants"] }], exceptions: [] };
+    expect((await call("save_rules", { rules: here, compiledFrom: sha256 })).isError).toBe(false);
+    const checked = await call("check_presentations");
+    expect(checked.isError).toBe(true);
+    expect(checked.text).toContain("Only Elsewhere");
+
+    // A rule that runs everywhere is still refused before anything is written.
+    const everywhere = { version: 1, rules: [rule], exceptions: [] };
+    const refused = await call("save_rules", { rules: everywhere, compiledFrom: sha256 });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("Only Elsewhere");
+    expect(JSON.parse(fs.readFileSync(path.join(elsewhere, "rules.json"), "utf8")).rules[0].libraries).toEqual(["Chants"]);
+    await client.close();
+  });
+
   it("ask for a rule's macros only where it runs, and only of the songs checked", async () => {
     const { client, call } = await connect(church, { rulesDirs: [] });
     const rule = { id: "x", check: "macro-alone", tier: 2, macro: "Absent", libraries: ["Elsewhere"] };

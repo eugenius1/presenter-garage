@@ -11,7 +11,7 @@ import {
 } from "@presenter-garage/node/edits";
 import { LibraryError } from "@presenter-garage/node/library";
 import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
-import type { Library, OpenLibrary } from "./library";
+import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
 
 export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter-garage/node/edits";
 
@@ -178,17 +178,8 @@ export function registerEditTools(server: McpServer, library: Library): Register
         const made = madeIn.get(planId);
         madeIn.delete(planId);
         if (!plan || !made) throw new LibraryError("No such plan, or it was already used or has expired. Plan the edits again.");
-        // A plan is for the library it was made in: its paths, and where its backups go, are that library's.
-        const stillOpen = async () => {
-          const open = await library.get();
-          if (open.root !== made.root || open.backupDir !== made.backupDir) {
-            throw new LibraryError(
-              `This plan was made in ${made.root}, and the library open now is ${open.root}, so nothing was written. ` +
-                "Plan the edits again in the library open now."
-            );
-          }
-        };
-        await stillOpen();
+        // Refused before the person is asked anything when another library is open already.
+        refuseUnlessOpen(made, await library.get().catch(() => undefined));
 
         // A form, specifically: a client offering only URL elicitation cannot show tick boxes.
         if (!server.server.getClientCapabilities()?.elicitation?.form) {
@@ -213,8 +204,6 @@ export function registerEditTools(server: McpServer, library: Library): Register
         }
         if (reply.action !== "accept") return { answer: reply.action, files: [] };
         if (signal.aborted) throw new LibraryError("The call was cancelled before the answer came back, so nothing was written.");
-        // Asked again: another library can have been opened while the person read the lines.
-        await stillOpen();
 
         // Only a line the person left ticked counts; one their client did not send back does not.
         const ticked = new Set(
@@ -222,7 +211,12 @@ export function registerEditTools(server: McpServer, library: Library): Register
             .filter(([, value]) => value === true)
             .map(([key]) => Number(key.replace(/^line/, "")))
         );
-        return { answer: "accept", ...(await applyPlan(made.root, plan, ticked, made.backupDir, signal)) };
+        // Asked again once this apply's turn comes -- another library can have been opened while the person
+        // read the lines, or while this waited behind another apply -- and no switch lands while it writes.
+        return {
+          answer: "accept",
+          ...(await library.whileOpen(made, () => applyPlan(made.root, plan, ticked, made.backupDir, signal))),
+        };
       })
   );
   return [plan, apply];
