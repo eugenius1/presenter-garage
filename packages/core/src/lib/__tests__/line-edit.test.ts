@@ -14,7 +14,7 @@ import {
   type SourceEdit,
 } from "../rtf-edit";
 import { hasRealLibrary, libraryFiles, readLibraryFile } from "./corpus";
-import { rtfWithHeader as rtf, syntheticTextPresentation, textLines } from "./synthetic";
+import { insidePair, rtfWithHeader as rtf, syntheticTextPresentation, textLines } from "./synthetic";
 
 /**
  * Writing new text into a line, rather than only cutting characters out.
@@ -112,9 +112,6 @@ describe("the \\uc in force", () => {
   });
 });
 
-/** Whether index `i` of `s` falls between the two halves of a surrogate pair. */
-const insidePair = (s: string, i: number) => /[\uD800-\uDBFF]$/.test(s.slice(0, i)) && /^[\uDC00-\uDFFF]/.test(s.slice(i));
-
 describe("the splice a line's change is", () => {
   it("keeps a pair whole after a lone high half, rather than stepping into it", () => {
     // The shared tail is the whole pair; stepping back over the lone half
@@ -129,6 +126,12 @@ describe("the splice a line's change is", () => {
   it("takes a pair whole when only one of its halves changes", () => {
     expect(lineSplice("😀x", "😁x")).toEqual({ start: 0, end: 2, inserted: "😁" });
     expect(lineSplice("😀", "🈀")).toEqual({ start: 0, end: 2, inserted: "🈀" });
+  });
+
+  it("adds just the new character before a pair the two share at the end", () => {
+    // The start steps back before the tail is trimmed, so the tail can take
+    // the whole shared pair; a range over the old "😀" is then not widened.
+    expect(lineSplice("a😀b", "a😁😀b")).toEqual({ start: 1, end: 1, inserted: "😁" });
   });
 
   it("takes a pair whole when it is a pair only in the new text", () => {
@@ -148,6 +151,7 @@ describe("the splice a line's change is", () => {
         const { start, end, inserted } = lineSplice(before, after);
         const afterEnd = start + inserted.length;
         if (
+          start > end ||
           before.slice(0, start) + inserted + before.slice(end) !== after ||
           insidePair(before, start) || insidePair(after, start) ||
           insidePair(before, end) || insidePair(after, afterEnd)
@@ -203,8 +207,9 @@ describe("replacing a line's text", () => {
   });
 
   it("leaves a pair's escapes alone when only the lone half before it changes", () => {
-    // Under any \uc, and with the pair's halves in different groups, the
-    // edit is the lone half's escape alone: no new escape for half a pair.
+    // Under \uc0, \uc1 and \uc2, and with the pair's halves in different
+    // groups, the edit takes out the lone half's escape alone and writes "A"
+    // for it: no new escape for half a pair, and the pair's two untouched.
     const cases = [
       ["{\\rtf1\\ansi\\uc1 \\u-10240 ?\\u-10179 ?\\u-8704 ?}", "{\\rtf1\\ansi\\uc1 A\\u-10179 ?\\u-8704 ?}"],
       ["{\\rtf1\\ansi\\uc0 \\u-10240 \\u-10179 \\u-8704 }", "{\\rtf1\\ansi\\uc0 A\\u-10179 \\u-8704 }"],
@@ -213,7 +218,12 @@ describe("replacing a line's text", () => {
     ];
     for (const [source, written] of cases) {
       expect(extractLines(source)[0].text).toBe("\uD800😀");
-      const fixed = applyEdits(source, replaceLineText(source, extractLines(source)[0], "A😀")!);
+      const edits = replaceLineText(source, extractLines(source)[0], "A😀")!;
+      expect(edits.filter((e) => e.end > e.start).map((e) => source.slice(e.start, e.end).trim())).toEqual([
+        source.match(/\\u-10240 \?*/)![0].trim(),
+      ]);
+      expect(edits.filter((e) => e.insert).map((e) => e.insert)).toEqual(["A"]);
+      const fixed = applyEdits(source, edits);
       expect(fixed).toBe(written);
       expect(extractLines(fixed)[0].text).toBe("A😀");
     }
