@@ -83,7 +83,8 @@ function libraryInstruction(start: OpenLibrary | { problem: string }): string {
   return (
     "Reads one ProPresenter library at a time: a folder of ProPresenter 7 files or a ProPresenter 22 workspace. " +
     ("root" in start ? `It starts on ${start.root}` : `No library is open yet (${start.problem})`) +
-    "; the client's roots, or use_library once the person approves, can open another, and current_library says " +
+    "; the client's roots, or use_library once the person approves, can open another (compare_libraries reads a " +
+    "second beside it, once the person approves, without opening it), and current_library says " +
     "which is open and what to know before trusting it. Paths may be absolute or relative to the library folder. "
   );
 }

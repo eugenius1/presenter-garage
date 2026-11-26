@@ -65,8 +65,8 @@ it to fix a typo, reword a line, or add one, and before anything is written your
 shows you every line as it is and as it would read, with a tick box for each.
 Every file is backed up outside your library first, and the result is read
 back before it is kept. Started with `--read-only` (or the extension's *Read
-only* setting), it never changes a file and does not even offer the editing
-tools.
+only* setting), it never writes a file and does not even offer the tools
+that would.
 
 Editing needs a client that can ask you a question mid-task (MCP
 *elicitation*); with one that cannot, no slide is changed. The tools that
@@ -90,7 +90,7 @@ ProPresenter's own network API can show and trigger slides, and there are MCP
 servers for that, but it cannot read a presentation's file or edit its text.
 This works on the files instead, through the same code as the app.
 
-It reads one library at a time, and nothing outside it. The usual one is
+It works in one library at a time. The usual one is
 `Documents/ProPresenter`, which holds `Libraries` and `Playlists` on both macOS
 and Windows. The assistant can ask to open another with `use_library`, but
 only you can say yes: your app shows you the library open now and the one
@@ -99,7 +99,10 @@ you, such as one without MCP elicitation, cannot switch at all. In a client
 that tells its servers which folders you are working in (its *roots*), the
 first of them that is itself a ProPresenter library (a ProPresenter folder or
 a ProPresenter 22 workspace) is the one read; the others are ignored, and so is
-a folder that only holds one, such as `Documents`.
+a folder that only holds one, such as `Documents`. Outside the library open it
+reads only what a tool needs: a second library that `compare_libraries` sets
+beside it once you approve, the places ProPresenter keeps its libraries for
+`find_libraries`, and your team's rules (below).
 
 The folder has moved twice since. **ProPresenter 20** introduced workspaces,
 and one made there is a folder of the same files somewhere else: under
@@ -175,7 +178,7 @@ command `npx`, arguments `-y presenter-garage-mcp` followed by your folder.
 Pass one folder; with none, it reads the workspace ProPresenter 22
 has open, else `~/Documents/ProPresenter`, else the one workspace ProPresenter
 20 or 21 made elsewhere. Add
-`--read-only` to turn editing off. Reading a ProPresenter 22 workspace needs
+`--read-only` to turn off everything that writes. Reading a ProPresenter 22 workspace needs
 Node 22.13 or later.
 
 Claude Code can also install it as a plugin from this repository's marketplace,
