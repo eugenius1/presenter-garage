@@ -573,6 +573,20 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect(report.issues.filter((issue) => KINDS.includes(issue.kind))).toEqual([]);
   });
 
+  it("refuses as stale a workspace that has turned Cloud since the page showed it without the warning", async () => {
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
+    const folder = await bridge.openWorkspace(root);
+    expect(folder.workspace?.cloud).toBe(false);
+    const choice = await chosen(folder.files.find((f) => f.name === "Song.pro")!.path);
+    fs.writeFileSync(path.join(root, "imprint.cloud"), "");
+    const before = store();
+
+    const run = await bridge.applyFixes([choice]);
+
+    expect(run.files).toEqual([expect.objectContaining({ written: false, reason: "stale" })]);
+    expect(store()).toEqual(before);
+  });
+
   it("refuses a Cloud document with changes ProPresenter has not sent, saying why", async () => {
     fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
     root = createWritableWorkspace(tmp, { cloud: true });

@@ -66,7 +66,7 @@ async function plan(name: string, changes: (doc: ReturnType<typeof readPresentat
   const opened = openPresentation(planned.bytes);
   if (opened.problem) throw new Error(opened.problem);
   const fixes: LineFix[] = planLineEdits(opened.doc, changes(opened.doc));
-  return { path: document.path, documentId: document.id, sha256: planned.sha256, fixes };
+  return { path: document.path, documentId: document.id, sha256: planned.sha256, cloud: planned.cloud, fixes };
 }
 
 const threeLines = (doc: ReturnType<typeof readPresentation>) => doc.textBoxes.find((b) => b.lines[0]?.text === "Que ton nom,")!;
@@ -261,7 +261,7 @@ suite("writing slide text into a workspace", () => {
     const fixes = planLineEdits(openPresentation(planned.bytes).doc!, [
       { boxIndex: 0, lineIndex: 0, text: `${box.lines[0].text} !` },
     ]);
-    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
+    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, cloud: planned.cloud, fixes }]);
     expect(run.outcomes[0]).toMatchObject({ written: true });
     const after = await readForPlanning(ws, await documentNamed("Tabbed"));
     const text = valueAt(after.root, planWorkspaceEdit(planned.root, fixes).boxes[0].path);
@@ -283,7 +283,7 @@ suite("writing slide text into a workspace", () => {
     expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(/cannot be moved with its text \(replacedAcrossEdge, line 0\)/);
 
     const before = rows();
-    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
+    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, cloud: planned.cloud, fixes }]);
     expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges", detail: "box 0 line 0, replacedAcrossEdge" });
     expect(rows()).toEqual(before);
   });
@@ -298,7 +298,7 @@ suite("writing slide text into a workspace", () => {
     expect(() => planWorkspaceEdit(planned.root, fixes)).toThrow(expect.objectContaining({ reason: "addedLine", lineIndex: 0 }));
 
     const before = rows();
-    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, fixes }]);
+    const run = await write([{ path: document.path, documentId: id, sha256: planned.sha256, cloud: planned.cloud, fixes }]);
     expect(run.outcomes[0]).toMatchObject({ written: false, reason: "attributeRanges", detail: "box 0 line 0, addedLine" });
     expect(rows()).toEqual(before);
   });
@@ -368,7 +368,7 @@ suite("which workspaces are written to", () => {
       (e: Error) => e.message
     );
     // Refused before any line is looked at, so a stand-in line will do.
-    const applying = await write([{ path: document.path, documentId: document.id, sha256: "", fixes: [{} as LineFix] }]).then(
+    const applying = await write([{ path: document.path, documentId: document.id, sha256: "", cloud: false, fixes: [{} as LineFix] }]).then(
       () => "",
       (e: Error) => e.message
     );
@@ -430,7 +430,7 @@ describe.skipIf(!REAL_WORKSPACE || !sqlite?.backup)("writing into a copy of a re
       const box = doc?.textBoxes.find((b) => b.lines.length > 1 && b.lines[1].text.length > 0);
       if (!box) continue;
       const fixes = planLineEdits(doc!, [{ boxIndex: box.boxIndex, lineIndex: 1, text: `${box.lines[1].text} (garage)` }]);
-      const run = await write([{ path: file, documentId: document.id, sha256: planned.sha256, fixes }]);
+      const run = await write([{ path: file, documentId: document.id, sha256: planned.sha256, cloud: planned.cloud, fixes }]);
       if (run.outcomes[0].reason === "attributeRanges") continue;
       expect([run.outcomes[0].written, run.outcomes[0].reason]).toEqual([true, undefined]);
       const again = openPresentation((await readForPlanning(ws, (await ws.find(file))!)).bytes).doc!;
@@ -449,7 +449,7 @@ describe.skipIf(!REAL_WORKSPACE || !sqlite?.backup)("writing into a copy of a re
       const box = doc?.textBoxes.find((b) => b.lines.length > 1 && b.lines[0].text.length > 0);
       if (!box) continue;
       const fixes = planLineEdits(doc!, [{ boxIndex: box.boxIndex, lineIndex: 0, text: `${box.lines[0].text} (garage)`, insert: "after" }]);
-      const run = await write([{ path: file, documentId: document.id, sha256: planned.sha256, fixes }]);
+      const run = await write([{ path: file, documentId: document.id, sha256: planned.sha256, cloud: planned.cloud, fixes }]);
       const { reason } = run.outcomes[0];
       if (reason === "attributeRanges") {
         refused.push(reason);

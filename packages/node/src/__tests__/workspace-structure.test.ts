@@ -52,7 +52,7 @@ async function plan(name: string, requests: StructureRequest[]): Promise<Workspa
   const document = (await ws.find(path.join(root, "Libraries", "Default", `${name}.pro`)))!;
   const planned = await readForPlanning(ws, document);
   const { raw } = openPresentation(planned.bytes) as { raw: Json };
-  return { path: document.path, documentId: document.id, sha256: planned.sha256, fixes: [], changes: planStructure(raw, requests, config) };
+  return { path: document.path, documentId: document.id, sha256: planned.sha256, cloud: planned.cloud, fixes: [], changes: planStructure(raw, requests, config) };
 }
 
 async function read(name: string) {

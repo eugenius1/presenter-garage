@@ -244,6 +244,13 @@ export interface WorkspaceReplacement {
   fixes: LineFix[];
   /** The structural changes chosen: a group renamed, a macro swapped. */
   changes?: StructureChange[];
+  /**
+   * Whether the plan read the workspace as a Cloud one, and so whether the
+   * person was shown the Cloud warning. One that has become Cloud since, or
+   * stopped being, is refused as `stale`: what they chose from is not what
+   * would be written to.
+   */
+  cloud: boolean;
 }
 
 /** How many changes a presentation has chosen, lines and structure together. */
@@ -508,6 +515,7 @@ function prepare(db: Database, index: number, replacement: WorkspaceReplacement,
   const row = db.prepare(SELECT_ROW).get(replacement.documentId) as Row | undefined;
   if (!row?.snapshot || row.kind !== "Presentation" || Number(row.availability) !== 0) throw new FixError("stale");
   if (hex(row.sha256) !== replacement.sha256) throw new FixError("stale");
+  if (replacement.cloud !== cloud) throw new FixError("stale");
   const { root, version } = gate(row);
   // Inside the lock, on the row about to be replaced: ProPresenter may have run since the plan.
   if (cloud) syncedWithCloud(row, version);

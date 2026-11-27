@@ -454,7 +454,12 @@ server's confirmation, and the desktop app beside its button that writes
 same text box on another computer, not yet synced here, can replace this one
 whole at the next sync (`tools.presentations.cloudWrite` in
 `packages/core/src/i18n`). From the Loro rules above, one whole box replaces
-the other, so guard 4 holds only until then. A document refused as unsynced
+the other, so guard 4 holds only until then. A plan records whether it read
+the workspace as Cloud, and applying refuses it as `stale` if the workspace
+reads otherwise by then, either way: the person chose with or without the
+warning, and that has to be what is written to. The desktop app, which plans
+when its button is pressed, holds the plan to what the page was told when the
+folder opened, the same way. A document refused as unsynced
 is named in the desktop app's outcome with the same reason the MCP server
 gives (`UnsyncedDocument` at plan time).
 

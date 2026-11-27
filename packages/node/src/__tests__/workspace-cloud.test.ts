@@ -142,6 +142,16 @@ suite("writing to a ProPresenter Cloud workspace", () => {
     expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
   });
 
+  it("refuses, as stale, a plan that read the workspace as Cloud or not when it now reads otherwise", async () => {
+    await cloudWorkspace({ lastShared: "synced" });
+    const edit = await plan("Que ton nom");
+    const before = rows();
+    // Planned, and the person shown the confirmation, as for a local workspace.
+    const outcome = await write([{ ...edit, cloud: false }]);
+    expect(outcome.outcomes.map((o) => [o.written, o.reason])).toEqual([[false, "stale"]]);
+    expect(rows()).toEqual(before);
+  });
+
   it("still refuses a document with no snapshot (availability 1)", async () => {
     await cloudWorkspace({ lastShared: "synced" });
     const edit = await plan("Que ton nom");

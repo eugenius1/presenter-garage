@@ -48,6 +48,8 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
   let roots: string[] = [];
   /** The presentations its walk listed: the only paths `read` answers for. */
   let listed = new Set<string>();
+  /** Whether the page was told the folder is a Cloud workspace, and so shows the Cloud warning beside its button. */
+  let shownCloud = false;
   /**
    * Bumped by every open and every forget. An open that finds it moved on
    * while it walked the folder was overtaken, and leaves the state alone.
@@ -79,6 +81,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     if (mine !== generation) throw new LibraryError(`${root} was closed or replaced while it was opening.`);
     roots = opened;
     listed = new Set(files);
+    shownCloud = Boolean(workspace) && cloud;
     // Remembering is a convenience: a folder that opened is open, whether or not it could be noted.
     await remember(root).catch(() => undefined);
     return {
@@ -141,6 +144,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       generation++;
       roots = [];
       listed = new Set();
+      shownCloud = false;
       await remember(undefined);
     },
 
@@ -181,8 +185,17 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       try {
         // A Cloud workspace is written as the MCP server writes it: the page
         // shows the Cloud warning beside the button, and the shared write
-        // path refuses a document Cloud has not caught up with.
-        const { plan, refused } = await planChosenFixes(asked, files);
+        // path refuses a document Cloud has not caught up with. Planned now,
+        // but the person chose with the warning the page showed when the
+        // folder opened: a workspace that has turned Cloud since, or stopped
+        // being, would be written to by nobody's choice, so it is stale.
+        const planned = await planChosenFixes(asked, files);
+        const changed = planned.plan.files.filter((file) => file.workspace && (file.workspace.cloud === true) !== shownCloud);
+        const plan = { ...planned.plan, files: planned.plan.files.filter((file) => !changed.includes(file)) };
+        const refused: typeof planned.refused = [
+          ...planned.refused,
+          ...changed.map((file) => ({ path: file.path, lines: file.lines.length, written: false, reason: "stale" as const })),
+        ];
         const run = plan.files.length > 0 ? await applyPlan(asked, plan, everyLine(plan), deps.backupDir) : { files: [] };
         if (run.backupFolder) backupFolders.add(run.backupFolder);
         // The page words each refusal itself, so the English the MCP server gives a model stays here.
