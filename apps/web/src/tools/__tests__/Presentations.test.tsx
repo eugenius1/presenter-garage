@@ -39,6 +39,8 @@ let writable = true;
 let beforeRead: ((path: string) => Promise<void>) | null = null;
 /** The name of the folder a person chooses. */
 let folderName = "Libraries";
+/** Values kept by a previous visit, standing in for IndexedDB. */
+const remembered = new Map<string, unknown>();
 
 function fakeFolder(): PickedFolder {
   return {
@@ -61,11 +63,14 @@ vi.mock("@presenter-garage/core/lib/folder", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@presenter-garage/core/lib/folder")>()),
   folderAccess: () => access,
   pickFolder: async () => fakeFolder(),
+  readFolderHandle: async () => fakeFolder(),
 }));
 
 vi.mock("../../lib/persistence", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/persistence")>()),
   requestHandlePermission: async () => "granted" as PermissionState,
+  // What the last visit left behind; nothing, unless a test says otherwise.
+  remember: async (key: string) => remembered.get(key) ?? null,
 }));
 
 /** Capture what a download hands the browser, instead of downloading it. */
@@ -114,11 +119,22 @@ beforeEach(() => {
   writable = true;
   beforeRead = null;
   folderName = "Libraries";
+  remembered.clear();
   store.clear();
   store.set("Chants/Checked Song.pro", syntheticTextPresentation());
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("reopening the last folder", () => {
+  it("rereads a folder whose permission is still granted, without asking", async () => {
+    remembered.set("presentations.folder", { name: "Libraries", queryPermission: async () => "granted" });
+    renderTool();
+    // Read straight away: nothing to click, and no offer to grant access again.
+    expect(await screen.findByRole("heading", { name: "Fix these" })).toBeInTheDocument();
+    expect(screen.getByText("leading space")).toBeInTheDocument();
+  });
+});
 
 describe("finding and showing fixes", () => {
   it("shows each line as it is and as it would read", async () => {
@@ -676,6 +692,15 @@ describe("the desktop app", () => {
     teamRules = async () => {
       throw new Error("not set up");
     };
+  });
+
+  it("reopens the folder the shell remembers, on start", async () => {
+    const bridge = fakeBridge();
+    const last = await bridge.pickFolder();
+    vi.stubGlobal(BRIDGE_GLOBAL, { ...bridge, reopenLast: async () => last });
+    renderTool();
+    expect(await screen.findByRole("heading", { name: "Fix these" })).toBeInTheDocument();
+    expect(screen.getByText(ROOT)).toBeInTheDocument();
   });
 
   it("shows the folder's real path and ProPresenter's workspaces", async () => {
