@@ -366,8 +366,6 @@ export const fr: Dictionary = {
         open: "Ouvrir",
         inUse: "celui qu’ouvre ProPresenter",
         cloud: "synchronisé avec ProPresenter Cloud",
-        cloudReadOnly:
-          "Cet espace de travail est synchronisé avec ProPresenter Cloud. Il peut être vérifié ici, mais l’application ne modifie pas encore un espace de travail Cloud. Faites les corrections dans ProPresenter lui-même.",
         closeProPresenter:
           "Ceci est un espace de travail ProPresenter 22. Quittez ProPresenter avant d’enregistrer : tant qu’il a l’espace de travail ouvert, rien n’est écrit.",
         backupWhy:
@@ -384,8 +382,6 @@ export const fr: Dictionary = {
       runRefusals: {
         propresenterOpen:
           "ProPresenter a cet espace de travail ouvert : rien n’a été écrit, car une modification faite sous lui serait perdue à son prochain enregistrement. Quittez ProPresenter et enregistrez de nouveau.",
-        cloudWorkspace:
-          "Cet espace de travail est synchronisé avec ProPresenter Cloud, que l’application ne modifie pas encore, donc rien n’a été écrit. Faites la modification dans ProPresenter lui-même.",
         unverifiedWorkspace:
           "Le format de cet espace de travail n’est pas l’un de ceux que l’application a vérifiés : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
         failed: "Rien n’a été écrit : {detail}",

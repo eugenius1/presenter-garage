@@ -970,13 +970,24 @@ describe("the desktop app", () => {
     expect(await screen.findByRole("button", { name: /^Fix \d+ lines?$/ })).toBeInTheDocument();
   });
 
-  it("reads a Cloud workspace but offers no way to write to it", async () => {
+  it("writes to a Cloud workspace, with the Cloud warning beside the button", async () => {
     vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: true } }));
     const user = userEvent.setup();
     renderTool();
     await openFolder(user);
-    expect(screen.getByText(/synced with ProPresenter Cloud\. It can be checked here/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Fix \d+ lines?$/ })).toBeDisabled();
+    expect(screen.getByText(/^This is a ProPresenter Cloud workspace\. A change made to the same text box on another computer/)).toBeInTheDocument();
+    const fix = screen.getByRole("button", { name: /^Fix \d+ lines?$/ });
+    expect(fix).toBeEnabled();
+    await user.click(fix);
+    expect(applied).toHaveLength(1);
+  });
+
+  it("gives no Cloud warning for a workspace kept on this computer", async () => {
+    vi.stubGlobal(BRIDGE_GLOBAL, fakeBridge({ workspace: { name: "Church", cloud: false } }));
+    const user = userEvent.setup();
+    renderTool();
+    await openFolder(user);
+    expect(screen.queryByText(/ProPresenter Cloud workspace/)).not.toBeInTheDocument();
   });
 
   describe("the team's rules", () => {

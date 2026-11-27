@@ -21,7 +21,7 @@ import {
   type LoroKey,
   type WorkspaceEdit,
 } from "@presenter-garage/core/lib/workspace-edit";
-import { LibraryError, LossyFile, WorkspaceRefused } from "./paths";
+import { LibraryError, LossyFile, UnsyncedDocument, WorkspaceRefused } from "./paths";
 import { backupPath, errorDetail, runFolder, same, sha256, writeBackups, type WriteOutcome } from "./write";
 import { hex, isOwnPath, openDatabase, type StoredDocument, type Workspace } from "./workspace";
 import { checkWritableWorkspace, unverified, VERIFIED_USER_VERSION } from "./workspace-check";
@@ -175,7 +175,7 @@ export async function readForPlanning(
     try {
       syncedWithCloud(row, version);
     } catch {
-      throw new LibraryError(`${document.path}: ${refusals.unsynced}. Nothing was planned.`);
+      throw new UnsyncedDocument(`${document.path}: ${refusals.unsynced}. Nothing was planned.`);
     }
   }
   const { message } = presentationFromWorkspace(root);

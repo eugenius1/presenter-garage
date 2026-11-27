@@ -21,7 +21,7 @@ export function FixCard({
   bridge: DesktopBridge | undefined;
   /** Whether anything could be written back at all, before the reader chooses. */
   canWrite: boolean;
-  /** A ProPresenter Cloud workspace, read here and not written. */
+  /** A ProPresenter Cloud workspace, whose every write comes with the warning that another computer's change can replace it. */
   cloud: boolean;
   /** Whether the folder is a ProPresenter 22 workspace. */
   workspace: boolean;
@@ -38,7 +38,6 @@ export function FixCard({
   /** What the fix card says of saving, which depends on what this app can do with the folder. */
   function fixWhy(): string {
     if (bridge) {
-      if (cloud) return nativeText.cloudReadOnly;
       return workspace ? `${nativeText.backupWhy} ${nativeText.closeProPresenter}` : nativeText.backupWhy;
     }
     if (!canWrite) return p.downloadFixedWhy;
@@ -106,6 +105,10 @@ export function FixCard({
       </div>
 
       {progress && <ProgressBar progress={progress} />}
+
+      {/* Guard 3 for a Cloud workspace: said beside the button that writes,
+          every time, as the MCP server's confirmation says it. */}
+      {bridge && cloud && <p className="why warn-inline">{p.cloudWrite}</p>}
 
       <p className="why">{fixWhy()}</p>
 

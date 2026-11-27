@@ -119,8 +119,8 @@ long as **ProPresenter is closed**: it refuses to write while ProPresenter
 has the workspace open, because ProPresenter would save over the change. In
 a ProPresenter Cloud workspace it edits only a presentation whose changes
 Cloud has all confirmed, and says before you choose that a change made to
-the same text box on another computer can replace yours at the next sync;
-the desktop app does not write to one yet. Started with
+the same text box on another computer can replace yours at the next sync.
+The desktop app does the same. Started with
 no folder it reads the workspace ProPresenter has open; pointed at the old
 folder it reads that, and tells the assistant it is out of date and where the
 current one is. Details are in

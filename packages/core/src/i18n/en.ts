@@ -359,8 +359,6 @@ export const en = {
         open: "Open",
         inUse: "the one ProPresenter opens",
         cloud: "synced with ProPresenter Cloud",
-        cloudReadOnly:
-          "This workspace is synced with ProPresenter Cloud. It can be checked here, but the app does not change a Cloud workspace yet. Make the fixes in ProPresenter itself.",
         closeProPresenter:
           "This is a ProPresenter 22 workspace. Quit ProPresenter before saving: while it has the workspace open, nothing is written.",
         backupWhy:
@@ -378,8 +376,6 @@ export const en = {
       runRefusals: {
         propresenterOpen:
           "ProPresenter has this workspace open, so nothing was written: a change made under it would be lost the next time it saves. Quit ProPresenter and save again.",
-        cloudWorkspace:
-          "This workspace is synced with ProPresenter Cloud, which the app does not change yet, so nothing was written. Make the change in ProPresenter itself.",
         unverifiedWorkspace:
           "This workspace's format is not one the app has been checked against, so nothing was written. Make the change in ProPresenter itself.",
         failed: "Nothing was written: {detail}",

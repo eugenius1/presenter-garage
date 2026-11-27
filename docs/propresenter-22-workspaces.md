@@ -238,8 +238,7 @@ The comparison is a test, skipped without a library to run it on: see
 - **Writing to a Cloud document Cloud has not caught up with.** A Cloud
   workspace is written to only where every change in a document has been
   confirmed by Cloud; see *A Cloud workspace* in
-  [propresenter-22-writing.md](propresenter-22-writing.md). The desktop app
-  writes to none yet.
+  [propresenter-22-writing.md](propresenter-22-writing.md).
 - **The web app.** A browser picking a v22 workspace folder finds no `.pro`
   files. Only the MCP server reads one so far.
 - **When a song was last shown.** See *Dates* above.

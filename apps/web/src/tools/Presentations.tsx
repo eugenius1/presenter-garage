@@ -216,11 +216,11 @@ export function Presentations() {
   /** The kinds both switched on and not filtered out by a pill. */
   const shown = useMemo(() => new Set(kinds.filter((kind) => active.has(kind))), [kinds, active]);
 
-  /** A ProPresenter Cloud workspace: read here, and not written until #55 says how. */
+  /** A ProPresenter Cloud workspace: written as any other, with a warning beside the button. */
   const cloud = native?.workspace?.cloud === true;
 
   /** Whether anything could be written back at all, before the reader chooses. */
-  const canWrite = bridge ? native !== null && !cloud : access === "readwrite" && handle !== null;
+  const canWrite = bridge ? native !== null : access === "readwrite" && handle !== null;
 
   const withIssues = useMemo(
     () => reports.filter((r) => r.issues.some((i) => shown.has(i.kind)) || r.error),

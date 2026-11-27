@@ -29,7 +29,7 @@ import {
 } from "@presenter-garage/core/lib/structure";
 import type { AppliedFile } from "./apply";
 import { LibraryError, readFoundFile, resolveInRoots } from "./library";
-import { LossyFile, WorkspaceRefused } from "./paths";
+import { LossyFile, UnsyncedDocument, WorkspaceRefused } from "./paths";
 import { MAX_PLAN_LINES, newPlan, type Plan, type PlannedFile, type PlanStore } from "./plans";
 import { open, presentationName } from "./presentations";
 import { rulesConfiguration } from "./rules";
@@ -353,7 +353,7 @@ export async function planChosenFixes(
     } catch (e) {
       // A workspace that cannot be written refuses the run; anything else is this file's.
       if (e instanceof WorkspaceRefused || !(e instanceof LibraryError)) throw e;
-      refuse(e instanceof LossyFile ? "lossy" : "unreadable", { detail: e.message });
+      refuse(e instanceof LossyFile ? "lossy" : e instanceof UnsyncedDocument ? "unsynced" : "unreadable", { detail: e.message });
       continue;
     }
     // The page names a file by the path it was listed at, which is where it

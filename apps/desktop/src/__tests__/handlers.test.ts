@@ -557,18 +557,34 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect((await bridge.openWorkspace(root)).workspace?.cloud).toBe(true);
   });
 
-  it("reads a Cloud workspace, and writes nothing to it", async () => {
+  it("writes to a Cloud workspace a document Cloud has caught up with", async () => {
     fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
     root = createWritableWorkspace(tmp, { cloud: true });
-    putPresentation(root, "Checked Song", presentationRoot(() => []));
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
     const folder = await bridge.openWorkspace(root);
     expect(folder.workspace?.cloud).toBe(true);
+    const file = folder.files[0].path;
+
+    const run = await bridge.applyFixes([await chosen(file)]);
+
+    expect(run.refused).toBeUndefined();
+    expect(run.files).toEqual([expect.objectContaining({ path: file, written: true })]);
+    const { report } = examine(file, (await bridge.read(file)).bytes);
+    expect(report.issues.filter((issue) => KINDS.includes(issue.kind))).toEqual([]);
+  });
+
+  it("refuses a Cloud document with changes ProPresenter has not sent, saying why", async () => {
+    fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
+    root = createWritableWorkspace(tmp, { cloud: true });
+    putPresentation(root, "Song", presentationRoot(), { lastShared: null, absenceReason: null });
+    const folder = await bridge.openWorkspace(root);
     const choice = await chosen(folder.files[0].path);
     const before = store();
 
     const run = await bridge.applyFixes([choice]);
 
-    expect(run.refused?.code).toBe("cloudWorkspace");
+    expect(run.refused).toBeUndefined();
+    expect(run.files).toEqual([expect.objectContaining({ written: false, reason: "unsynced" })]);
     expect(store()).toEqual(before);
   });
 });

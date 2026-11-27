@@ -34,7 +34,7 @@ export interface NativeFolder {
   workspace?: {
     /** As ProPresenter names it, when its registry lists it. */
     name?: string;
-    /** Synced through ProPresenter Cloud, which the desktop app reads but does not write to yet: its interface does not give the Cloud warning. */
+    /** Synced through ProPresenter Cloud: every write to it comes with the Cloud warning. */
     cloud: boolean;
   };
   files: NativeFile[];
@@ -107,7 +107,7 @@ export interface NativeFileOutcome {
  * `WorkspaceRefused`, so a refusal added there has a sentence here or does
  * not compile.
  */
-export type WorkspaceRefusalCode = "propresenterOpen" | "cloudWorkspace" | "unverifiedWorkspace";
+export type WorkspaceRefusalCode = "propresenterOpen" | "unverifiedWorkspace";
 
 /**
  * Why nothing at all was written. Each has a sentence under

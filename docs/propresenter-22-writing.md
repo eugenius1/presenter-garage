@@ -448,13 +448,15 @@ second write to a document waits: our own change lags until ProPresenter has
 sent it. A row with no snapshot (`availability = 1`, listed but not
 downloaded) is still refused.
 
-**The person is told it is Cloud before they choose** (guard 3): the
-confirmation says so, and that a change made to the same text box on another
-computer, not yet synced here, can replace this one whole at the next sync
-(`tools.presentations.cloudWrite` in `packages/core/src/i18n`). From the Loro
-rules above, one whole box replaces the other, so guard 4 holds only until
-then. The desktop app's interface gives no such warning yet, so it writes to
-no Cloud workspace (`cloudWorkspace`).
+**The person is told it is Cloud before they choose** (guard 3): the MCP
+server's confirmation, and the desktop app beside its button that writes
+(`FixCard.tsx`), say so on every Cloud write, and that a change made to the
+same text box on another computer, not yet synced here, can replace this one
+whole at the next sync (`tools.presentations.cloudWrite` in
+`packages/core/src/i18n`). From the Loro rules above, one whole box replaces
+the other, so guard 4 holds only until then. A document refused as unsynced
+is named in the desktop app's outcome with the same reason the MCP server
+gives (`UnsyncedDocument` at plan time).
 
 A Cloud workspace is told by its registry row's `cloud_uuid` or by an
 `imprint.cloud` in its folder. Its row is found by the folder's name or by
@@ -524,8 +526,6 @@ Windows.
 - Write with ProPresenter open, on any system.
 - Write a Cloud document with changes Cloud has not confirmed, or one not
   downloaded.
-- Write to a Cloud workspace from the desktop app, whose interface does not
-  give the Cloud warning yet.
 - Anything but a presentation's text, its groups' names, colours and ties,
   and the macros on its slides: playlists, the media bin, restyling.
 - Restore from a backup on request. Putting a row back is a write, and wants
