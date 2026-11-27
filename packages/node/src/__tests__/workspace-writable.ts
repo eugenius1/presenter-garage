@@ -36,8 +36,6 @@ export const REGISTRY_SCHEMA = `CREATE TABLE workspaces (
   CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);`;
 
 export const UUID = "1ca74a0b-0000-4000-8000-000000000001";
-/** The Cloud uuid of the workspace `createWritableWorkspace({ cloud: true })` makes. */
-export const CLOUD_UUID = "12d47ee4-0000-4000-8000-000000000001";
 export const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest();
 type Json = any;
 
@@ -122,24 +120,16 @@ export function presentationRoot(ranges?: (lines: string[]) => { start: number; 
 /** A workspace at `<tmp>/Workspaces/<UUID>`, listed in a registry beside it. Returns its folder. */
 export function createWritableWorkspace(
   tmp: string,
-  { cloud = false, schema = VERIFIED_SCHEMA_VERSION, userVersion = 9, uuid = UUID, rootPath }: {
-    cloud?: boolean;
-    schema?: string;
-    userVersion?: number;
-    /** The workspace's `local_uuid`, and its folder's name. */
-    uuid?: string;
-    /** The registry's `root_path`, when not the folder exactly as made. */
-    rootPath?: string;
-  } = {}
+  { cloud = false, schema = VERIFIED_SCHEMA_VERSION, userVersion = 9 } = {}
 ): string {
-  const root = path.join(tmp, "Workspaces", uuid);
+  const root = path.join(tmp, "Workspaces", UUID);
   fs.mkdirSync(path.join(root, "DocumentStore"), { recursive: true });
   fs.mkdirSync(path.join(root, "Libraries", "Default"), { recursive: true });
   const registry = new sqlite!.DatabaseSync(path.join(tmp, "Workspaces", REGISTRY));
   registry.exec(REGISTRY_SCHEMA);
   registry
     .prepare("INSERT INTO workspaces VALUES (?, ?, ?, ?, ?, 'local')")
-    .run(uuid, rootPath ?? root, "Church", cloud ? CLOUD_UUID : null, schema);
+    .run(UUID, root, "Church", cloud ? "cloud-1" : null, schema);
   registry.close();
   const db = new sqlite!.DatabaseSync(storeOf(root));
   db.exec("PRAGMA journal_mode = WAL");
@@ -151,18 +141,28 @@ export function createWritableWorkspace(
 
 let nextId = 1;
 
-/** Store a presentation as `Libraries/Default/<name>.pro`, with its real hash and version vector. Returns its id. */
+/**
+ * Store a presentation as `Libraries/Default/<name>.pro`, with its real hash
+ * and version vector. Returns its id. Its `last_shared_version_vector` and
+ * `last_shared_absence_reason` are a local workspace's, `NULL` and 2, unless
+ * given: `"synced"` for the version vector itself, as a Cloud document all
+ * of whose changes Cloud has confirmed.
+ */
 export function putPresentation(
   root: string,
   name: string,
   json: Json,
-  { versionVector }: { versionVector?: Uint8Array } = {}
+  {
+    versionVector,
+    lastShared = null,
+    absenceReason = lastShared === null ? 2 : null,
+  }: { versionVector?: Uint8Array; lastShared?: Uint8Array | "synced" | null; absenceReason?: number | null } = {}
 ): Uint8Array {
   const { snapshot, vv } = snapshotOf(json);
   const id = new Uint8Array(16);
   new DataView(id.buffer).setUint32(12, nextId++);
   const db = new sqlite!.DatabaseSync(storeOf(root));
-  db.prepare("INSERT INTO workspace_streams VALUES (?, 0, 1, 'Presentation', ?, 0, ?, ?, ?, ?, ?, ?, NULL, 2)").run(
+  db.prepare("INSERT INTO workspace_streams VALUES (?, 0, 1, 'Presentation', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)").run(
     id,
     `Default/${name}`,
     snapshot,
@@ -170,7 +170,9 @@ export function putPresentation(
     sha(snapshot),
     snapshot.length,
     1_700_000_000_000,
-    `default/${name}`.toLowerCase()
+    `default/${name}`.toLowerCase(),
+    lastShared === "synced" ? (versionVector ?? vv) : lastShared,
+    absenceReason
   );
   db.close();
   return id;

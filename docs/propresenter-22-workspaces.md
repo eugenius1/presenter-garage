@@ -227,8 +227,11 @@ The comparison is a test, skipped without a library to run it on: see
   written into a local workspace while ProPresenter is closed, as
   [propresenter-22-writing.md](propresenter-22-writing.md) describes.
   Nothing else is: playlists, the media bin and restyling stay read-only.
-- **Writing to a Cloud workspace.** Refused until it has been tried
-  ([#55](https://github.com/eugenius1/presenter-garage/issues/55)).
+- **Writing to a Cloud document Cloud has not caught up with.** A Cloud
+  workspace is written to only where every change in a document has been
+  confirmed by Cloud; see *A Cloud workspace* in
+  [propresenter-22-writing.md](propresenter-22-writing.md). The desktop app
+  writes to none yet.
 - **The web app.** A browser picking a v22 workspace folder finds no `.pro`
   files. Only the MCP server reads one so far.
 - **When a song was last shown.** See *Dates* above.

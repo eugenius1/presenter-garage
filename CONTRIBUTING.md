@@ -44,23 +44,6 @@ it on launch, so set `PRESENTER_GARAGE_PROFILE` to an empty scratch folder
 too: otherwise a run against the copy can open the real workspace a real run
 left behind.
 
-For [#55](https://github.com/eugenius1/presenter-garage/issues/55)'s
-experiments, and only from a branch that has it, the MCP server writes slide
-text to one ProPresenter Cloud workspace you name when you start it, with
-ProPresenter quit; every other Cloud workspace stays refused:
-
-```bash
-npm ci && npm run mcp:build
-claude mcp add presenter-garage-cloud -- node "$PWD/packages/mcp/dist/presenter-garage-mcp.mjs" \
-  --allow-cloud-workspace=<cloud uuid> "$HOME/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<local uuid>"
-```
-
-The option takes the workspace's `cloud_uuid` in ProPresenter's registry,
-which stays when the workspace is downloaded again; the folder is named by
-its `local_uuid`, which does not. How to read both, what the option loosens, and what it
-does not, and what the first experiment showed are under *A Cloud workspace* in
-[docs/propresenter-22-writing.md](docs/propresenter-22-writing.md).
-
 `npm run check` is the gate, and it is the one CI runs. Run it before every
 commit — it includes the codegen step, so it also catches the case where a
 clean checkout would not build.

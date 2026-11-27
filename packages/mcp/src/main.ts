@@ -5,7 +5,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { LibraryError } from "@presenter-garage/node/library";
 import { defaultLibrary, folderWorkspaces } from "@presenter-garage/node/workspace";
 import { findRules, rulesSearchDirs } from "@presenter-garage/node/rules";
-import { allowCloudWorkspace } from "@presenter-garage/node/workspace-write";
 import { parseArgs } from "./args";
 import { openLibrary, presentWorkspaces, type LibraryOptions, type OpenLibrary } from "./library";
 import { createServer } from "./server";
@@ -13,8 +12,7 @@ import { createServer } from "./server";
 /**
  * Start the server on stdio.
  *
- *   node packages/mcp/dist/presenter-garage-mcp.mjs [--read-only] [--backup-dir=<folder>]
- *     [--allow-cloud-workspace=<cloud uuid>] [library folder]
+ *   node packages/mcp/dist/presenter-garage-mcp.mjs [--read-only] [--backup-dir=<folder>] [library folder]
  *
  * With no folder named it reads the workspace ProPresenter 22 has open, and
  * where there is none, `~/Documents/ProPresenter` or the one workspace
@@ -45,12 +43,7 @@ async function defaultStart(options: LibraryOptions): Promise<OpenLibrary | { pr
 }
 
 async function main() {
-  const { folder, readOnly, backupDir, allowCloudWorkspace: cloud } = parseArgs(process.argv.slice(2));
-  // Before anything is served, and only from the command line: a uuid that names no Cloud workspace stops the server.
-  if (cloud !== undefined && !readOnly) {
-    const name = await allowCloudWorkspace(cloud);
-    console.error(`presenter-garage MCP: the ProPresenter Cloud workspace "${name}" (${cloud}) may be written to, for #55's experiments`);
-  }
+  const { folder, readOnly, backupDir } = parseArgs(process.argv.slice(2));
   // The folder the server is started in is the one the agent works in, which is where a team keeps its rules.
   const rulesDirs = rulesSearchDirs();
   const options = { readOnly, backupDir, rulesDirs };

@@ -360,7 +360,7 @@ export const en = {
         inUse: "the one ProPresenter opens",
         cloud: "synced with ProPresenter Cloud",
         cloudReadOnly:
-          "This workspace is synced with ProPresenter Cloud. It can be checked here but not changed yet: what Cloud does with a change made outside ProPresenter has not been tried. Make the fixes in ProPresenter itself.",
+          "This workspace is synced with ProPresenter Cloud. It can be checked here, but the app does not change a Cloud workspace yet. Make the fixes in ProPresenter itself.",
         closeProPresenter:
           "This is a ProPresenter 22 workspace. Quit ProPresenter before saving: while it has the workspace open, nothing is written.",
         backupWhy:
@@ -372,14 +372,14 @@ export const en = {
           "This folder holds more presentations than are read at once, so not all of them are listed. Pick the Libraries folder, or one library, instead.",
       },
       // Why a desktop run wrote nothing at all.
-      // Said before a person chooses changes to the one Cloud workspace named for #55's experiments.
+      // Said before a person chooses changes to a ProPresenter Cloud workspace.
       cloudWrite:
-        "This is a ProPresenter Cloud workspace, written to only for an experiment (https://github.com/eugenius1/presenter-garage/issues/55). Another computer's change to the same text box can replace this one, the whole text box at once, at the next sync.",
+        "This is a ProPresenter Cloud workspace. A change made to the same text box on another computer, and not yet synced here, can replace this one, the whole text box at once, at the next sync.",
       runRefusals: {
         propresenterOpen:
           "ProPresenter has this workspace open, so nothing was written: a change made under it would be lost the next time it saves. Quit ProPresenter and save again.",
         cloudWorkspace:
-          "This workspace is synced with ProPresenter Cloud, which is not written to yet, so nothing was written. Make the change in ProPresenter itself.",
+          "This workspace is synced with ProPresenter Cloud, which the app does not change yet, so nothing was written. Make the change in ProPresenter itself.",
         unverifiedWorkspace:
           "This workspace's format is not one the app has been checked against, so nothing was written. Make the change in ProPresenter itself.",
         failed: "Nothing was written: {detail}",
@@ -400,6 +400,8 @@ export const en = {
         rolledBack: "another presentation in the same workspace could not be written, so none in it were",
         newContainer:
           "the change would have to add something new inside a ProPresenter 22 document, such as a colour for a group that has none, which is not done",
+        unsynced:
+          "this Cloud presentation has changes ProPresenter Cloud has not confirmed yet. Open ProPresenter, let it sync, quit it, and try again",
       },
       // Why a box's formatting cannot be moved with its text, said after `refusals.attributeRanges`.
       rangeRefusals: {

@@ -4,6 +4,7 @@
 
 import { randomBytes } from "node:crypto";
 import { isContainer, LoroDoc, LoroList, LoroMap, LoroMovableList, LoroTree, type Container, type TreeID } from "loro-crdt/base64";
+import { createI18n } from "@presenter-garage/core/i18n/core";
 import { FixError, type FixRefusal, type LineFix } from "@presenter-garage/core/lib/fixes";
 import type { StructureChange } from "@presenter-garage/core/lib/structure";
 import { encodePresentation } from "@presenter-garage/core/lib/presentation";
@@ -11,6 +12,8 @@ import { isObject, presentationFromWorkspace } from "@presenter-garage/core/lib/
 import { AttributeRangeError } from "@presenter-garage/core/lib/ranges";
 import {
   checkWorkspaceEdit,
+  coversVersion,
+  decodeVersionVector,
   encodeVersionVector,
   onlyPeerAdded,
   planWorkspaceEdit,
@@ -46,18 +49,14 @@ import { checkWritableWorkspace, unverified, VERIFIED_USER_VERSION } from "./wor
  * reopened read-only and every row checked once more.
  */
 
+const refusals = createI18n("en").t.tools.presentations.refusals;
+
 export const PROPRESENTER_OPEN =
   "ProPresenter has this workspace open, so nothing in it was written: a change made under it is lost the next " +
   "time it saves the presentation. Quit ProPresenter, then plan and apply the edits again.";
 
-// The workspace-level half of guard 1, and the Cloud opt-in, are `workspace-check.ts`.
-export {
-  allowCloudWorkspace,
-  allowedCloudWorkspace,
-  checkWritableWorkspace,
-  CLOUD_REFUSED,
-  VERIFIED_SCHEMA_VERSION,
-} from "./workspace-check";
+// The workspace-level half of guard 1 is `workspace-check.ts`.
+export { checkWritableWorkspace, VERIFIED_SCHEMA_VERSION } from "./workspace-check";
 
 /** A row of `workspace_streams`, as the write path reads it. */
 interface Row {
@@ -102,6 +101,22 @@ export function gate(row: Row): { root: unknown; version: Map<string, number> } 
   }
 }
 
+/**
+ * Guard 1 for a document of a ProPresenter Cloud workspace: Cloud has
+ * confirmed every change in it. Its `last_shared_version_vector` is what
+ * was last sent and acknowledged, and lags the version vector while a
+ * change is still to go up -- seen with sync paused, where a local edit
+ * leaves it behind until sync resumes. Written over then, the change not
+ * yet sent would be folded into ours and sent as one, so it is refused, as
+ * a row with no shared vector or with a reason it has none is. Throws
+ * `FixError("unsynced")`.
+ */
+export function syncedWithCloud(row: Row, version: ReadonlyMap<string, number>): void {
+  const shared = row.last_shared_version_vector;
+  const decoded = ArrayBuffer.isView(shared) ? decodeVersionVector(shared as Uint8Array) : undefined;
+  if (row.last_shared_absence_reason !== null || !decoded || !coversVersion(decoded, version)) throw new FixError("unsynced");
+}
+
 type Database = import("node:sqlite").DatabaseSync;
 
 /** A document's frontiers in one spelling, in order. */
@@ -144,14 +159,21 @@ export async function readForPlanning(
     throw new LibraryError(`Could not read ${workspace.store}: it is reached through a symlink`);
   }
   if (!row?.snapshot) throw new LibraryError(`Could not read ${document.path}: it is no longer in the workspace`);
-  let root;
+  let root, version;
   try {
-    ({ root } = gate(row));
+    ({ root, version } = gate(row));
   } catch {
     throw new LossyFile(
       `${document.path}: this document does not come back exactly as it was through a read and a rewrite, ` +
         "so it is not written to. Nothing was planned."
     );
+  }
+  if (cloud) {
+    try {
+      syncedWithCloud(row, version);
+    } catch {
+      throw new LibraryError(`${document.path}: ${refusals.unsynced}. Nothing was planned.`);
+    }
   }
   const { message } = presentationFromWorkspace(root);
   return { bytes: encodePresentation(message), sha256: hex(row.sha256), root, snapshot: row.snapshot, cloud };
@@ -335,7 +357,7 @@ export async function stageWorkspaceEdits(
   });
   if (replacements.every((r) => chosen(r) === 0)) return nothing();
 
-  await checkWritableWorkspace(workspace);
+  const { cloud } = await checkWritableWorkspace(workspace);
   if (!(await isOwnPath(workspace.store))) {
     throw new LibraryError(`Could not open ${workspace.store}: it is reached through a symlink`);
   }
@@ -372,7 +394,7 @@ export async function stageWorkspaceEdits(
     for (const [index, replacement] of replacements.entries()) {
       if (chosen(replacement) === 0) continue;
       try {
-        ready.push(prepare(db, index, replacement));
+        ready.push(prepare(db, index, replacement, cloud));
       } catch (e) {
         Object.assign(outcomes[index], refusalOf(e));
       }
@@ -474,12 +496,18 @@ function refusalOf(e: unknown): Pick<WorkspaceOutcome, "reason" | "detail"> {
   return { reason: "unreadable", detail: (e as Error).message };
 }
 
-/** The checks before anything is backed up: the row is the planned one, and the document passes the gate and takes the edit. */
-function prepare(db: Database, index: number, replacement: WorkspaceReplacement): Ready {
+/**
+ * The checks before anything is backed up: the row is the planned one, the
+ * document passes the gate, Cloud has confirmed it if it is Cloud's, and it
+ * takes the edit.
+ */
+function prepare(db: Database, index: number, replacement: WorkspaceReplacement, cloud: boolean): Ready {
   const row = db.prepare(SELECT_ROW).get(replacement.documentId) as Row | undefined;
   if (!row?.snapshot || row.kind !== "Presentation" || Number(row.availability) !== 0) throw new FixError("stale");
   if (hex(row.sha256) !== replacement.sha256) throw new FixError("stale");
   const { root, version } = gate(row);
+  // Inside the lock, on the row about to be replaced: ProPresenter may have run since the plan.
+  if (cloud) syncedWithCloud(row, version);
   const edit = planWorkspaceEdit(root, replacement.fixes, replacement.changes);
   return { index, replacement, row, root, version, edit };
 }

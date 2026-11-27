@@ -23,9 +23,8 @@ export interface PlannedFile {
   sha256: string;
   /**
    * Set for a document of a ProPresenter 22 workspace, which is written into
-   * its database rather than over a file. `cloud` when it is the Cloud
-   * workspace named with `--allow-cloud-workspace`, the only Cloud one
-   * written to: the person is told so before they choose.
+   * its database rather than over a file. `cloud` for a ProPresenter Cloud
+   * workspace's: the person is told so before they choose.
    */
   workspace?: { root: string; documentId: Uint8Array; cloud?: true };
   /**

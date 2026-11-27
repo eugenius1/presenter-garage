@@ -34,7 +34,7 @@ export interface NativeFolder {
   workspace?: {
     /** As ProPresenter names it, when its registry lists it. */
     name?: string;
-    /** Synced through ProPresenter Cloud, which is read here but not written to yet (#55). */
+    /** Synced through ProPresenter Cloud, which the desktop app reads but does not write to yet: its interface does not give the Cloud warning. */
     cloud: boolean;
   };
   files: NativeFile[];

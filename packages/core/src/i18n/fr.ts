@@ -367,7 +367,7 @@ export const fr: Dictionary = {
         inUse: "celui qu’ouvre ProPresenter",
         cloud: "synchronisé avec ProPresenter Cloud",
         cloudReadOnly:
-          "Cet espace de travail est synchronisé avec ProPresenter Cloud. Il peut être vérifié ici, mais pas encore modifié : ce que Cloud fait d’une modification faite hors de ProPresenter n’a pas encore été essayé. Faites les corrections dans ProPresenter lui-même.",
+          "Cet espace de travail est synchronisé avec ProPresenter Cloud. Il peut être vérifié ici, mais l’application ne modifie pas encore un espace de travail Cloud. Faites les corrections dans ProPresenter lui-même.",
         closeProPresenter:
           "Ceci est un espace de travail ProPresenter 22. Quittez ProPresenter avant d’enregistrer : tant qu’il a l’espace de travail ouvert, rien n’est écrit.",
         backupWhy:
@@ -378,14 +378,14 @@ export const fr: Dictionary = {
         truncated:
           "Ce dossier contient plus de présentations que ce qui est lu en une fois : elles ne sont donc pas toutes listées. Choisissez plutôt le dossier Libraries, ou une seule bibliothèque.",
       },
-      // Dit avant qu’on choisisse des modifications dans le seul espace Cloud nommé pour les essais de #55.
+      // Dit avant qu’on choisisse des modifications dans un espace de travail ProPresenter Cloud.
       cloudWrite:
-        "Ceci est un espace de travail ProPresenter Cloud, modifié seulement pour un essai (https://github.com/eugenius1/presenter-garage/issues/55). Une modification de la même zone de texte faite sur un autre ordinateur peut remplacer celle-ci à la prochaine synchronisation, la zone de texte tout entière.",
+        "Ceci est un espace de travail ProPresenter Cloud. Une modification de la même zone de texte faite sur un autre ordinateur, et pas encore synchronisée ici, peut remplacer celle-ci à la prochaine synchronisation, la zone de texte tout entière.",
       runRefusals: {
         propresenterOpen:
           "ProPresenter a cet espace de travail ouvert : rien n’a été écrit, car une modification faite sous lui serait perdue à son prochain enregistrement. Quittez ProPresenter et enregistrez de nouveau.",
         cloudWorkspace:
-          "Cet espace de travail est synchronisé avec ProPresenter Cloud, où rien n’est encore écrit : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
+          "Cet espace de travail est synchronisé avec ProPresenter Cloud, que l’application ne modifie pas encore, donc rien n’a été écrit. Faites la modification dans ProPresenter lui-même.",
         unverifiedWorkspace:
           "Le format de cet espace de travail n’est pas l’un de ceux que l’application a vérifiés : rien n’a donc été écrit. Faites la modification dans ProPresenter lui-même.",
         failed: "Rien n’a été écrit : {detail}",
@@ -412,6 +412,8 @@ export const fr: Dictionary = {
           "une autre présentation du même espace de travail n’a pas pu être écrite : aucune n’y a donc été écrite",
         newContainer:
           "la modification devrait ajouter quelque chose de nouveau dans un document de ProPresenter 22, comme une couleur pour un groupe qui n’en a pas, ce qui n’est pas fait",
+        unsynced:
+          "cette présentation Cloud a des modifications que ProPresenter Cloud n’a pas encore confirmées. Ouvrez ProPresenter, laissez-le synchroniser, quittez-le, puis réessayez",
       },
       rangeRefusals: {
         malformed: "une plage de mise en forme y finit avant de commencer",

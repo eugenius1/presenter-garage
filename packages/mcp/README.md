@@ -80,8 +80,8 @@ no folder it reads the workspace ProPresenter 22 has open; where there is
 none, `~/Documents/ProPresenter`, or, where that is missing, the one workspace
 ProPresenter 20 or 21 made elsewhere. Needs Node 20 or later, and
 Node 22.13 or later to read a ProPresenter 22 workspace. Slide text in a
-ProPresenter 22 workspace is edited only while ProPresenter is closed, and a
-Cloud workspace is not written to yet. The package is one file with no
+ProPresenter 22 workspace is edited only while ProPresenter is closed, and in
+a Cloud workspace only a presentation whose changes Cloud has all confirmed. The package is one file with no
 dependencies.
 
 For Claude Desktop there is also a one-click extension (`.mcpb`): see the

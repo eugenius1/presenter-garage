@@ -13,7 +13,7 @@ import { applyPlan, everyLine, planChosenFixes, readWithHash } from "@presenter-
 import { findPresentations, LibraryError, openRoots, resolveInRoots } from "@presenter-garage/node/library";
 import { findRules, loadRules, rulesConfiguration, rulesSearchDirs } from "@presenter-garage/node/rules";
 import { WorkspaceRefused } from "@presenter-garage/node/paths";
-import { hasCloudImprint, registeredWorkspaces, workspaceAt, workspacesDir } from "@presenter-garage/node/workspace";
+import { hasCloudImprint, registeredWorkspaces, workspaceAt, workspacesDir, type RegisteredWorkspace } from "@presenter-garage/node/workspace";
 
 /**
  * What the main process does for each call the page makes, apart from
@@ -40,6 +40,17 @@ export interface ShellDeps {
   workspacesDir?: string;
   /** Where the team's rules are looked for, as the MCP server and the command line do by default. */
   rulesDirs?: string[];
+}
+
+/**
+ * Whether a folder is a ProPresenter Cloud workspace, by its registry row or
+ * by Cloud's marker in it: either says Cloud, as the write path's own check
+ * (`checkWritableWorkspace`) takes either.
+ */
+async function isCloud(root: string, registered?: RegisteredWorkspace): Promise<boolean> {
+  if (!(await workspaceAt(root))) return false;
+  const row = registered ?? (await registeredWorkspaces(path.dirname(root))).find((w) => w.root === root);
+  return row?.cloud === true || (await hasCloudImprint(root));
 }
 
 export function createHandlers(deps: ShellDeps): DesktopBridge {
@@ -71,10 +82,9 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     const workspace = await workspaceAt(root);
     // The registry is the one ProPresenter keeps in the folder above a workspace.
     const registered = workspace
-      ? (await registeredWorkspaces(path.dirname(root))).find((w) => path.resolve(w.root) === root)
+      ? (await registeredWorkspaces(path.dirname(root))).find((w) => w.root === root)
       : undefined;
-    // Either says Cloud, as the write path's own check (`checkWritableWorkspace`) takes either.
-    const cloud = registered?.cloud === true || (await hasCloudImprint(root));
+    const cloud = await isCloud(root, registered);
     const { files, truncated } = await findPresentations(opened);
     if (mine !== generation) throw new LibraryError(`${root} was closed or replaced while it was opening.`);
     roots = opened;
@@ -179,6 +189,12 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       // opened meanwhile would pair this plan with another folder's roots.
       const asked = roots;
       try {
+        // Guard 3 for a Cloud workspace means telling the person that another
+        // computer's change can replace theirs; this interface does not say
+        // so yet, so it writes to none, though the shared write path can.
+        if (await isCloud(asked[0])) {
+          return { files: [], refused: { code: "cloudWorkspace", detail: "This is a ProPresenter Cloud workspace." } };
+        }
         const { plan, refused } = await planChosenFixes(asked, files);
         const run = plan.files.length > 0 ? await applyPlan(asked, plan, everyLine(plan), deps.backupDir) : { files: [] };
         if (run.backupFolder) backupFolders.add(run.backupFolder);

@@ -10,7 +10,6 @@ import { encodeVersionVector, planWorkspaceEdit, valueAt } from "@presenter-gara
 import { openRoots } from "../library";
 import { REGISTRY, workspaceAt, type StoredDocument, type Workspace } from "../workspace";
 import {
-  CLOUD_REFUSED,
   PROPRESENTER_OPEN,
   readForPlanning,
   VERIFIED_SCHEMA_VERSION,
@@ -376,18 +375,6 @@ suite("which workspaces are written to", () => {
     expect(applying).toBe(planning);
     return planning;
   }
-
-  it("refuses a Cloud workspace, and says where that stands", async () => {
-    root = createWritableWorkspace(tmp, { cloud: true });
-    expect(await refusal()).toBe(CLOUD_REFUSED);
-    expect(CLOUD_REFUSED).toMatch(/issues\/55/);
-  });
-
-  it("refuses a workspace with an imprint.cloud, whatever the registry says", async () => {
-    root = createWritableWorkspace(tmp);
-    fs.writeFileSync(path.join(root, "imprint.cloud"), "{}");
-    expect(await refusal()).toBe(CLOUD_REFUSED);
-  });
 
   it("refuses a format version it has not been checked against", async () => {
     root = createWritableWorkspace(tmp, { schema: "22.10.0" });

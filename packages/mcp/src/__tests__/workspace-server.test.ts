@@ -24,10 +24,8 @@ import {
 import { createWorkspace, putDocument, sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
 import { openRoots } from "@presenter-garage/node/library";
 import { applyPlan as applyAcross, planSlideEdits, PlanStore } from "@presenter-garage/node/edits";
-import { CLOUD_UUID, createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
+import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
 import { createI18n } from "@presenter-garage/core/i18n/core";
-import { allowCloudWorkspace, CLOUD_REFUSED } from "@presenter-garage/node/workspace-write";
-import { REGISTRY } from "@presenter-garage/node/workspace";
 import { callTool, connect } from "./connect";
 
 /**
@@ -304,26 +302,11 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     expect(asked).toHaveLength(asks);
   });
 
-  it("refuses a Cloud workspace before anybody is asked", async () => {
-    const cloudDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-workspace-cloud-")));
-    const cloud = createWritableWorkspace(cloudDir, { cloud: true });
-    putPresentation(cloud, "Song", presentationRoot());
-    const { client, call: cloudCall } = await connect(cloud, { backupDir: path.join(cloudDir, "Backups") });
-    const refused = await cloudCall("plan_slide_edits", {
-      edits: [{ path: "Libraries/Default/Song.pro", boxIndex: 6, lineIndex: 0, text: "Que ton nom" }],
-    });
-    expect(refused.isError).toBe(true);
-    expect(refused.text).toBe(CLOUD_REFUSED);
-    await client.close();
-    fs.rmSync(cloudDir, { recursive: true, force: true });
-  });
-
-  it("writes to the one Cloud workspace named at start, telling the person it is Cloud first", async () => {
+  it("writes to a Cloud workspace, telling the person it is Cloud first", async () => {
     const cloudDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pp-mcp-workspace-cloud-")));
     const cloud = createWritableWorkspace(cloudDir, { cloud: true });
     fs.writeFileSync(path.join(cloud, "imprint.cloud"), "{}");
-    putPresentation(cloud, "Song", presentationRoot());
-    await allowCloudWorkspace(CLOUD_UUID, path.join(cloudDir, "Workspaces", REGISTRY));
+    putPresentation(cloud, "Song", presentationRoot(), { lastShared: "synced" });
     const asks: ElicitRequest[] = [];
     const { client, call: cloudCall } = await connect(cloud, { backupDir: path.join(cloudDir, "Backups") }, { elicitation: { form: {} } });
     client.setRequestHandler(ElicitRequestSchema, (request) => {
@@ -336,12 +319,11 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
       const result = (await cloudCall("apply_slide_edits", { planId: planned.planId })).json();
       const { message } = asks[0].params as { message: string };
       expect(message.startsWith(createI18n("en").t.tools.presentations.cloudWrite)).toBe(true);
-      expect(message).toMatch(/replace this one/);
+      expect(message).toMatch(/not yet synced here, can replace this one/);
       expect(result.files).toEqual([expect.objectContaining({ written: true, lines: 1 })]);
       const read = (await cloudCall("read_presentation", { path: song })).json();
       expect(read.slides[6].textBoxes[0].lines[0]).toBe("Que ton nom");
     } finally {
-      await allowCloudWorkspace(undefined);
       await client.close();
       fs.rmSync(cloudDir, { recursive: true, force: true });
     }
