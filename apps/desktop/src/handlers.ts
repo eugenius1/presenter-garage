@@ -182,6 +182,9 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       // The folder the save was asked of, for planning and applying alike: one
       // opened meanwhile would pair this plan with another folder's roots.
       const asked = roots;
+      // And what the page was told of that folder, taken at the same moment:
+      // a Cloud workspace opening while this plans must not answer for it.
+      const askedCloud = shownCloud;
       try {
         // A Cloud workspace is written as the MCP server writes it: the page
         // shows the Cloud warning beside the button, and the shared write
@@ -190,7 +193,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
         // folder opened: a workspace that has turned Cloud since, or stopped
         // being, would be written to by nobody's choice, so it is stale.
         const planned = await planChosenFixes(asked, files);
-        const changed = planned.plan.files.filter((file) => file.workspace && (file.workspace.cloud === true) !== shownCloud);
+        const changed = planned.plan.files.filter((file) => file.workspace && (file.workspace.cloud === true) !== askedCloud);
         const plan = { ...planned.plan, files: planned.plan.files.filter((file) => !changed.includes(file)) };
         const refused: typeof planned.refused = [
           ...planned.refused,
