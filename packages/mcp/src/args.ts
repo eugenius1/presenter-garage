@@ -9,11 +9,17 @@
  * `--read-only` also takes `=true` or `=false`, because the Claude Desktop
  * extension can only pass a setting's value inside a fixed argument, and an
  * unticked box arrives as `--read-only=false`.
+ *
+ * `--allow-cloud-workspace=<uuid>` lets the one ProPresenter Cloud workspace
+ * with that uuid be written to, for #55's experiments (`allowCloudWorkspace`
+ * in `packages/node/src/workspace-write.ts`). Empty, as the extension passes
+ * a setting left blank, it allows none.
  */
 export interface Args {
   folder?: string;
   readOnly: boolean;
   backupDir?: string;
+  allowCloudWorkspace?: string;
 }
 
 export function parseArgs(argv: readonly string[]): Args {
@@ -40,6 +46,9 @@ export function parseArgs(argv: readonly string[]): Args {
     } else if (flag === "--backup-dir") {
       if (!value) throw new Error("--backup-dir needs a folder: --backup-dir=<folder>");
       args.backupDir = value;
+    } else if (flag === "--allow-cloud-workspace") {
+      if (value === undefined) throw new Error("--allow-cloud-workspace needs a uuid: --allow-cloud-workspace=<uuid>");
+      if (value !== "") args.allowCloudWorkspace = value;
     } else {
       throw new Error(`Unknown option ${arg}`);
     }

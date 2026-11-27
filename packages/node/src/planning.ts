@@ -263,8 +263,9 @@ interface ReadForPlan {
 async function readForPlan(real: string): Promise<ReadForPlan> {
   const found = await documentAt(real);
   if (found) {
-    const { bytes, sha256: digest, root, snapshot } = await readForPlanning(found.workspace, found.document);
-    return { bytes, sha256: digest, root, snapshot, workspace: { root: found.workspace.root, documentId: found.document.id } };
+    const { bytes, sha256: digest, root, snapshot, cloud } = await readForPlanning(found.workspace, found.document);
+    const workspace = { root: found.workspace.root, documentId: found.document.id, ...(cloud ? { cloud: true as const } : {}) };
+    return { bytes, sha256: digest, root, snapshot, workspace };
   }
   if (await isInWorkspace(real)) throw new LibraryError(`Not a presentation in the workspace: ${real}`);
   const { bytes } = await readFoundFile(real);

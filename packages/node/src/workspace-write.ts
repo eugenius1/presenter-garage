@@ -22,7 +22,7 @@ import {
 } from "@presenter-garage/core/lib/workspace-edit";
 import { LibraryError, LossyFile, WorkspaceRefused } from "./paths";
 import { backupPath, errorDetail, runFolder, same, sha256, writeBackups, type WriteOutcome } from "./write";
-import { hasCloudImprint, hex, isOwnPath, openDatabase, REGISTRY, type StoredDocument, type Workspace } from "./workspace";
+import { hasCloudImprint, hex, isOwnPath, openDatabase, REGISTRY, workspacesDir, type StoredDocument, type Workspace } from "./workspace";
 
 /**
  * Writing slide text into a ProPresenter 22 workspace.
@@ -65,38 +65,100 @@ const unverified = (what: string) =>
   "Make the change in ProPresenter itself.";
 
 /**
- * Refuse a workspace this cannot write to: one synced through ProPresenter
- * Cloud, or one whose format is not a version this was checked against.
- * Part of guard 1: the gate on a document means little if the store around
- * it is a format nobody has looked at.
+ * The one Cloud workspace this process may write to, for #55's experiments,
+ * by its uuid in the registry (`local_uuid`, the name of its folder).
  *
- * The registry is the one in the folder above the workspace, where
- * ProPresenter keeps it, and the workspace's row is the one named by the
- * folder's own name, which is the workspace's uuid.
+ * Set once, by the person starting the MCP server (`--allow-cloud-workspace`),
+ * before it serves anything: no tool takes it, and no environment variable
+ * sets it, so a model cannot. Everything else about a write stays as it is:
+ * guard 1's other checks, the backup, the person's choice, the read-back and
+ * the exclusive lock.
  */
-export async function checkWritableWorkspace(workspace: Workspace): Promise<void> {
-  const root = workspace.root;
-  if (await hasCloudImprint(root)) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
-  const registry = path.join(path.dirname(root), REGISTRY);
-  if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
-    throw new WorkspaceRefused(unverified(`format version could not be read: there is no ${REGISTRY} beside it`), "unverifiedWorkspace");
+let allowedCloud: string | undefined;
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Let the Cloud workspace with this uuid be written to, or none again. Checks
+ * first that the registry lists it and that it is a Cloud workspace, so a
+ * mistyped uuid stops the server at start instead of doing nothing quietly.
+ */
+export async function allowCloudWorkspace(uuid: string | undefined, registry = path.join(workspacesDir(), REGISTRY)): Promise<void> {
+  if (uuid === undefined) {
+    allowedCloud = undefined;
+    return;
   }
+  if (!UUID_SHAPE.test(uuid)) throw new LibraryError(`--allow-cloud-workspace takes a workspace's uuid, not ${uuid}`);
+  if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
+    throw new LibraryError(`--allow-cloud-workspace=${uuid}: there is no ProPresenter 22 registry at ${registry}`);
+  }
+  const row = await registryRow(registry, uuid);
+  if (!row) throw new LibraryError(`--allow-cloud-workspace=${uuid}: ${registry} lists no workspace with that uuid`);
+  if (row.cloud_uuid === null) {
+    throw new LibraryError(
+      `--allow-cloud-workspace=${uuid}: that workspace is not a Cloud workspace, and needs no option to be written to`
+    );
+  }
+  allowedCloud = uuid.toLowerCase();
+}
+
+/** The Cloud workspace `allowCloudWorkspace` named, if any. */
+export const allowedCloudWorkspace = (): string | undefined => allowedCloud;
+
+interface RegistryRow {
+  local_uuid: string;
+  cloud_uuid: string | null;
+  schema_version: unknown;
+}
+
+async function registryRow(registry: string, uuid: string, root?: string): Promise<RegistryRow | undefined> {
   const db = await openDatabase(registry);
-  let row;
   try {
-    row = db
-      .prepare("SELECT cloud_uuid, schema_version FROM workspaces WHERE local_uuid = ? OR root_path = ?")
-      .get(path.basename(root), root);
+    return db
+      .prepare("SELECT local_uuid, cloud_uuid, schema_version FROM workspaces WHERE local_uuid = ? OR root_path = ?")
+      .get(uuid, root ?? null) as RegistryRow | undefined;
   } catch (e) {
     throw new LibraryError(`Could not read ${registry}: ${(e as Error).message}`);
   } finally {
     db.close();
   }
+}
+
+/**
+ * Refuse a workspace this cannot write to: one synced through ProPresenter
+ * Cloud, unless it is the one `allowCloudWorkspace` named, or one whose
+ * format is not a version this was checked against. Part of guard 1: the
+ * gate on a document means little if the store around it is a format
+ * nobody has looked at. Says whether the workspace is a Cloud one, so the
+ * person can be told before they choose.
+ *
+ * The registry is the one in the folder above the workspace, where
+ * ProPresenter keeps it, and the workspace's row is the one named by the
+ * folder's own name, which is the workspace's uuid.
+ */
+export async function checkWritableWorkspace(workspace: Workspace): Promise<{ cloud: boolean }> {
+  const root = workspace.root;
+  const imprint = await hasCloudImprint(root);
+  // Without the opt-in, refused before anything else is read, as before it.
+  if (imprint && allowedCloud === undefined) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
+  const registry = path.join(path.dirname(root), REGISTRY);
+  if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
+    throw new WorkspaceRefused(unverified(`format version could not be read: there is no ${REGISTRY} beside it`), "unverifiedWorkspace");
+  }
+  const row = await registryRow(registry, path.basename(root), root);
   if (!row) throw new WorkspaceRefused(unverified(`format version could not be read: ${REGISTRY} does not list it`), "unverifiedWorkspace");
-  if (row.cloud_uuid !== null) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
+  const cloud = imprint || row.cloud_uuid !== null;
+  // The named one only: its own row, in its own folder, and a Cloud workspace by the registry too.
+  const named =
+    allowedCloud !== undefined &&
+    row.cloud_uuid !== null &&
+    row.local_uuid.toLowerCase() === allowedCloud &&
+    path.basename(root).toLowerCase() === allowedCloud;
+  if (cloud && !named) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
   if (row.schema_version !== VERIFIED_SCHEMA_VERSION) {
     throw new WorkspaceRefused(unverified(`format is ${String(row.schema_version)}, not ${VERIFIED_SCHEMA_VERSION}`), "unverifiedWorkspace");
   }
+  return { cloud };
 }
 
 /** A row of `workspace_streams`, as the write path reads it. */
@@ -163,8 +225,8 @@ const SELECT_ROW = "SELECT * FROM workspace_streams WHERE document_id = ? AND sc
 export async function readForPlanning(
   workspace: Workspace,
   document: StoredDocument
-): Promise<{ bytes: Uint8Array; sha256: string; root: unknown; snapshot: Uint8Array }> {
-  await checkWritableWorkspace(workspace);
+): Promise<{ bytes: Uint8Array; sha256: string; root: unknown; snapshot: Uint8Array; cloud: boolean }> {
+  const { cloud } = await checkWritableWorkspace(workspace);
   if (document.kind !== "Presentation") throw new LibraryError(`Not a presentation: ${document.path}`);
   if (!(await isOwnPath(workspace.store))) {
     throw new LibraryError(`Could not read ${workspace.store}: it is reached through a symlink`);
@@ -194,7 +256,7 @@ export async function readForPlanning(
     );
   }
   const { message } = presentationFromWorkspace(root);
-  return { bytes: encodePresentation(message), sha256: hex(row.sha256), root, snapshot: row.snapshot };
+  return { bytes: encodePresentation(message), sha256: hex(row.sha256), root, snapshot: row.snapshot, cloud };
 }
 
 /** Refuse a document store of a version this has not been checked against. */

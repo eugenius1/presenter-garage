@@ -21,8 +21,13 @@ export interface PlannedFile {
   name: string;
   /** Of the file, or for a document of a ProPresenter 22 workspace, of its row's snapshot. */
   sha256: string;
-  /** Set for a document of a ProPresenter 22 workspace, which is written into its database rather than over a file. */
-  workspace?: { root: string; documentId: Uint8Array };
+  /**
+   * Set for a document of a ProPresenter 22 workspace, which is written into
+   * its database rather than over a file. `cloud` when it is the Cloud
+   * workspace named with `--allow-cloud-workspace`, the only Cloud one
+   * written to: the person is told so before they choose.
+   */
+  workspace?: { root: string; documentId: Uint8Array; cloud?: true };
   /**
    * Each change with its number in the whole plan, which is how the
    * confirmation names it, and what it does to the styling on its line,

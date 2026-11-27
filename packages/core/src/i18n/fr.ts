@@ -378,6 +378,9 @@ export const fr: Dictionary = {
         truncated:
           "Ce dossier contient plus de présentations que ce qui est lu en une fois : elles ne sont donc pas toutes listées. Choisissez plutôt le dossier Libraries, ou une seule bibliothèque.",
       },
+      // Dit avant qu’on choisisse des modifications dans le seul espace Cloud nommé pour les essais de #55.
+      cloudWrite:
+        "Ceci est un espace de travail ProPresenter Cloud, modifié seulement pour un essai (https://github.com/eugenius1/presenter-garage/issues/55). Une modification de la même zone de texte faite sur un autre ordinateur peut remplacer celle-ci à la prochaine synchronisation, la zone de texte tout entière.",
       runRefusals: {
         propresenterOpen:
           "ProPresenter a cet espace de travail ouvert : rien n’a été écrit, car une modification faite sous lui serait perdue à son prochain enregistrement. Quittez ProPresenter et enregistrez de nouveau.",

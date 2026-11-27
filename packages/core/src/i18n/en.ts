@@ -372,6 +372,9 @@ export const en = {
           "This folder holds more presentations than are read at once, so not all of them are listed. Pick the Libraries folder, or one library, instead.",
       },
       // Why a desktop run wrote nothing at all.
+      // Said before a person chooses changes to the one Cloud workspace named for #55's experiments.
+      cloudWrite:
+        "This is a ProPresenter Cloud workspace, written to only for an experiment (https://github.com/eugenius1/presenter-garage/issues/55). Another computer's change to the same text box can replace this one, the whole text box at once, at the next sync.",
       runRefusals: {
         propresenterOpen:
           "ProPresenter has this workspace open, so nothing was written: a change made under it would be lost the next time it saves. Quit ProPresenter and save again.",

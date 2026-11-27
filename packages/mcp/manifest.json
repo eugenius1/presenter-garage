@@ -25,6 +25,7 @@
       "args": [
         "${__dirname}/server/presenter-garage-mcp.mjs",
         "--read-only=${user_config.read_only}",
+        "--allow-cloud-workspace=${user_config.allow_cloud_workspace}",
         "${user_config.library_folder}"
       ]
     }
@@ -42,6 +43,13 @@
       "title": "Read only",
       "description": "Never write a file. The tools that edit slide text, save the rules or write results to a folder are then not offered; check_presentations stays, answering with its findings.",
       "default": false
+    },
+    "allow_cloud_workspace": {
+      "type": "string",
+      "title": "Cloud workspace to write to (experiment)",
+      "description": "Leave empty. Only for the experiments of https://github.com/eugenius1/presenter-garage/issues/55: the uuid of one ProPresenter Cloud workspace, its folder's name, whose slide text may then be edited. Another computer's change to the same text box can replace an edit made here at the next sync.",
+      "required": false,
+      "default": ""
     }
   },
   "tools": [
