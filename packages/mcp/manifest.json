@@ -47,7 +47,7 @@
     "allow_cloud_workspace": {
       "type": "string",
       "title": "Cloud workspace to write to (experiment)",
-      "description": "Leave empty. Only for the experiments of https://github.com/eugenius1/presenter-garage/issues/55: the uuid of one ProPresenter Cloud workspace, its folder's name, whose slide text may then be edited. Another computer's change to the same text box can replace an edit made here at the next sync.",
+      "description": "Leave empty. Only for the experiments of https://github.com/eugenius1/presenter-garage/issues/55: the Cloud uuid of one ProPresenter Cloud workspace, its cloud_uuid in ProPresenter's registry-v1.sqlite3, whose slide text may then be edited. Another computer's change to the same text box can replace an edit made here at the next sync.",
       "required": false,
       "default": ""
     }

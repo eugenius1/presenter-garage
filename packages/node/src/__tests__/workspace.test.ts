@@ -369,7 +369,8 @@ describe("the registry of workspaces", () => {
     db.exec(REGISTRY);
     const add = db.prepare("INSERT INTO workspaces VALUES (?, ?, ?, ?, ?, ?)");
     add.run("aaa", "/ws/aaa", "Old", null, "22.9.0", "local");
-    add.run("bbb", "/ws/bbb", "Church", "cloud-1", "22.9.0", "local");
+    // A row downloaded from Cloud, whose root_path ProPresenter writes with a trailing separator.
+    add.run("bbb", "/ws/bbb/", "Church", "cloud-1", "22.9.0", "local");
     const meta = db.prepare("INSERT INTO meta VALUES (?, ?)");
     meta.run("active_local_uuid", "bbb");
     meta.run("copied_from:aaa", "/Users/someone/Documents/ProPresenter");

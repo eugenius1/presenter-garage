@@ -1265,7 +1265,7 @@ describe("the command line", () => {
     const uuid = "1ca74a0b-0000-4000-8000-000000000001";
     expect(parseArgs([`--allow-cloud-workspace=${uuid}`, "/a"])).toMatchObject({ folder: "/a", allowCloudWorkspace: uuid });
     expect(parseArgs(["--allow-cloud-workspace="]).allowCloudWorkspace).toBeUndefined();
-    expect(() => parseArgs(["--allow-cloud-workspace"])).toThrow(/needs a uuid/);
+    expect(() => parseArgs(["--allow-cloud-workspace"])).toThrow(/needs a Cloud uuid/);
   });
 
   it("takes the Claude Desktop extension's --read-only=true|false", () => {

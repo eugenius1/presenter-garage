@@ -36,6 +36,8 @@ export const REGISTRY_SCHEMA = `CREATE TABLE workspaces (
   CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);`;
 
 export const UUID = "1ca74a0b-0000-4000-8000-000000000001";
+/** The Cloud uuid of the workspace `createWritableWorkspace({ cloud: true })` makes. */
+export const CLOUD_UUID = "12d47ee4-0000-4000-8000-000000000001";
 export const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest();
 type Json = any;
 
@@ -120,16 +122,24 @@ export function presentationRoot(ranges?: (lines: string[]) => { start: number; 
 /** A workspace at `<tmp>/Workspaces/<UUID>`, listed in a registry beside it. Returns its folder. */
 export function createWritableWorkspace(
   tmp: string,
-  { cloud = false, schema = VERIFIED_SCHEMA_VERSION, userVersion = 9 } = {}
+  { cloud = false, schema = VERIFIED_SCHEMA_VERSION, userVersion = 9, uuid = UUID, rootPath }: {
+    cloud?: boolean;
+    schema?: string;
+    userVersion?: number;
+    /** The workspace's `local_uuid`, and its folder's name. */
+    uuid?: string;
+    /** The registry's `root_path`, when not the folder exactly as made. */
+    rootPath?: string;
+  } = {}
 ): string {
-  const root = path.join(tmp, "Workspaces", UUID);
+  const root = path.join(tmp, "Workspaces", uuid);
   fs.mkdirSync(path.join(root, "DocumentStore"), { recursive: true });
   fs.mkdirSync(path.join(root, "Libraries", "Default"), { recursive: true });
   const registry = new sqlite!.DatabaseSync(path.join(tmp, "Workspaces", REGISTRY));
   registry.exec(REGISTRY_SCHEMA);
   registry
     .prepare("INSERT INTO workspaces VALUES (?, ?, ?, ?, ?, 'local')")
-    .run(UUID, root, "Church", cloud ? "cloud-1" : null, schema);
+    .run(uuid, rootPath ?? root, "Church", cloud ? CLOUD_UUID : null, schema);
   registry.close();
   const db = new sqlite!.DatabaseSync(storeOf(root));
   db.exec("PRAGMA journal_mode = WAL");

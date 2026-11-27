@@ -10,8 +10,8 @@
  * extension can only pass a setting's value inside a fixed argument, and an
  * unticked box arrives as `--read-only=false`.
  *
- * `--allow-cloud-workspace=<uuid>` lets the one ProPresenter Cloud workspace
- * with that uuid be written to, for #55's experiments (`allowCloudWorkspace`
+ * `--allow-cloud-workspace=<cloud uuid>` lets the one ProPresenter Cloud
+ * workspace with that `cloud_uuid` in the registry be written to, for #55's experiments (`allowCloudWorkspace`
  * in `packages/node/src/workspace-write.ts`). Empty, as the extension passes
  * a setting left blank, it allows none.
  */
@@ -47,7 +47,7 @@ export function parseArgs(argv: readonly string[]): Args {
       if (!value) throw new Error("--backup-dir needs a folder: --backup-dir=<folder>");
       args.backupDir = value;
     } else if (flag === "--allow-cloud-workspace") {
-      if (value === undefined) throw new Error("--allow-cloud-workspace needs a uuid: --allow-cloud-workspace=<uuid>");
+      if (value === undefined) throw new Error("--allow-cloud-workspace needs a Cloud uuid: --allow-cloud-workspace=<cloud uuid>");
       if (value !== "") args.allowCloudWorkspace = value;
     } else {
       throw new Error(`Unknown option ${arg}`);

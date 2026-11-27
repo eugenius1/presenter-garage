@@ -24,7 +24,7 @@ import {
 import { createWorkspace, putDocument, sqlite, storeOf } from "@presenter-garage/node/__tests__/workspace-db";
 import { openRoots } from "@presenter-garage/node/library";
 import { applyPlan as applyAcross, planSlideEdits, PlanStore } from "@presenter-garage/node/edits";
-import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
+import { CLOUD_UUID, createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
 import { createI18n } from "@presenter-garage/core/i18n/core";
 import { allowCloudWorkspace, CLOUD_REFUSED } from "@presenter-garage/node/workspace-write";
 import { REGISTRY } from "@presenter-garage/node/workspace";
@@ -323,7 +323,7 @@ suite("editing slide text in a ProPresenter 22 workspace through the server", ()
     const cloud = createWritableWorkspace(cloudDir, { cloud: true });
     fs.writeFileSync(path.join(cloud, "imprint.cloud"), "{}");
     putPresentation(cloud, "Song", presentationRoot());
-    await allowCloudWorkspace(path.basename(cloud), path.join(cloudDir, "Workspaces", REGISTRY));
+    await allowCloudWorkspace(CLOUD_UUID, path.join(cloudDir, "Workspaces", REGISTRY));
     const asks: ElicitRequest[] = [];
     const { client, call: cloudCall } = await connect(cloud, { backupDir: path.join(cloudDir, "Backups") }, { elicitation: { form: {} } });
     client.setRequestHandler(ElicitRequestSchema, (request) => {

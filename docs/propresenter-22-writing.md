@@ -406,7 +406,7 @@ and a restart.
 
 | Guard | How it is kept |
 | --- | --- |
-| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the folder holds no `imprint.cloud`, unless it is the one Cloud workspace the person named with `--allow-cloud-workspace` (below); its `schema_version` is the one checked against (`22.9.0`); the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
+| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the folder holds no `imprint.cloud`, unless it is the one Cloud workspace the person named by its `cloud_uuid` with `--allow-cloud-workspace` (below); its `schema_version` is the one checked against (`22.9.0`); the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
 | 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made, here or in any other root of the call, the run is rolled back and nothing is written in any of them |
 | 3. A person saw every change and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line and per structural change, each structural change as it is and as it would be: a group's name, colour and tie, a macro and its collection. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
 | 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data`, ranges and structural values and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), the whole structure -- every group, the order of the slides, every arrangement, the macros on every slide -- what was promised (`sameStructure()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
@@ -430,61 +430,89 @@ fails to open the store, for the fraction of a second a run takes.
 
 ### A Cloud workspace
 
-Refused (`CLOUD_REFUSED`), at plan time and at apply time, until it has been
-tried: a workspace with a `cloud_uuid` in the registry or an
-`imprint.cloud` in its folder is not written to. That work is
+Refused (`CLOUD_REFUSED`), at plan time and at apply time, unless it is the
+one named for an experiment: a workspace with a `cloud_uuid` in the registry
+or an `imprint.cloud` in its folder is not written to. That work is
 [#55](https://github.com/eugenius1/presenter-garage/issues/55).
 
 **The experiment's opt-in.** For #55's experiments, and only from a branch
 that has it, the MCP server can be started with
-`--allow-cloud-workspace=<uuid>`: the workspace's `local_uuid` in the
-registry, which is also its folder's name. That one workspace skips the Cloud
-refusal in `checkWritableWorkspace()`, and every other Cloud workspace stays
-refused. The rest of guard 1 still applies (the registry's `schema_version`,
-the store's `user_version`, the gate on every document), a document with no
-snapshot (`availability = 1`) is still refused, and guards 2 to 4 and the
-exclusive lock are unchanged. Each change is still made by one new random
-peer.
+`--allow-cloud-workspace=<cloud uuid>`: the workspace's `cloud_uuid` in the
+registry. Not its `local_uuid`, the name of its folder: a Cloud workspace
+downloaded again gets a new folder and `local_uuid`, and keeps its
+`cloud_uuid`. That one workspace skips the Cloud refusal in
+`checkWritableWorkspace()` (`packages/node/src/workspace-check.ts`), matched
+by its own registry row's `cloud_uuid`, and every other Cloud workspace
+stays refused. The rest of guard 1 still applies (the registry's
+`schema_version`, the store's `user_version`, the gate on every document), a
+document with no snapshot (`availability = 1`) is still refused, and guards 2
+to 4 and the exclusive lock are unchanged. Each change is still made by one
+new random peer.
 
 - It is read once, at start, from the command line or the extension's
   *Cloud workspace to write to* setting, and is ignored with `--read-only`.
   No tool takes it and no environment variable sets it, so a model cannot.
-- A uuid the registry beside this computer's workspaces does not list, or
-  one that is not a Cloud workspace, stops the server at start.
+- A Cloud uuid that no workspace, or more than one, has in the registry
+  beside this computer's workspaces stops the server at start.
 - The confirmation says the workspace is a Cloud one, and that another
   computer's change to the same text box can replace this one whole at the
   next sync (`tools.presentations.cloudWrite` in `packages/core/src/i18n`).
+- A workspace's row is found by its folder's name or by `root_path`,
+  compared resolved and without a trailing separator (`registryRoot()`): the
+  row of a workspace downloaded from Cloud has `root_path` ending in `/`,
+  older rows do not. Two rows for one folder are refused.
 
-To run it, with ProPresenter quit:
+The Cloud uuid is in the registry:
+
+```bash
+sqlite3 -readonly "$HOME/Library/Application Support/RenewedVision/ProPresenter/Workspaces/registry-v1.sqlite3" \
+  "SELECT display_name, cloud_uuid, local_uuid FROM workspaces WHERE cloud_uuid IS NOT NULL"
+```
+
+To run it, with ProPresenter quit, on the workspace's folder (its `local_uuid`):
 
 ```bash
 npm ci && npm run mcp:build
-node packages/mcp/dist/presenter-garage-mcp.mjs --allow-cloud-workspace=<uuid> \
-  "$HOME/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<uuid>"
+node packages/mcp/dist/presenter-garage-mcp.mjs --allow-cloud-workspace=<cloud uuid> \
+  "$HOME/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<local uuid>"
 ```
 
 or, to use it from Claude Code:
 
 ```bash
 claude mcp add presenter-garage-cloud -- node "$PWD/packages/mcp/dist/presenter-garage-mcp.mjs" \
-  --allow-cloud-workspace=<uuid> "$HOME/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<uuid>"
+  --allow-cloud-workspace=<cloud uuid> "$HOME/Library/Application Support/RenewedVision/ProPresenter/Workspaces/<local uuid>"
 ```
 
-The uuid is the folder's name under `Workspaces`, or `local_uuid` in
-`registry-v1.sqlite3` beside them. Remove the server again with
-`claude mcp remove presenter-garage-cloud` once the experiment is done.
+Remove the server again with `claude mcp remove presenter-garage-cloud` once
+the experiment is done.
 
-What is known says it should work. ProPresenter sends the server the
-operations between `last_shared_version_vector` and the document's version
-vector, so a change by a peer the server has not seen looks like any local
-edit waiting to go up. What has to be seen on the Windows computer first:
+**Seen on ProPresenter 22.0.1 on macOS, one computer, 2026-11-27,** on a
+throwaway Cloud workspace with one synthetic song:
 
-- the change uploads, reaches a second computer, and is not undone by the
-  next sync;
-- what the server does with a peer id no signed-in computer owns;
-- the same text box changed on another computer meanwhile. From the Loro
-  rules above one whole box replaces the other, so guard 4 holds only until
-  the next sync, and the person has to be told so before they choose.
+- One line written through this path, by a new peer, with ProPresenter
+  closed and Cloud sync paused. Opened with sync still paused, ProPresenter
+  showed the edit and did not rewrite the row.
+- On resuming sync, `last_shared_version_vector` gained the new peer about
+  two seconds later, and stayed there through a restart with sync live.
+  ProPresenter logged that the server's version vector already covered the
+  local state, our peer included. No rejection or conflict was logged. A
+  "presentation migration" hold right after launch or resume withheld the
+  patch for a moment, then lifted by itself, for ProPresenter's own edits
+  too: it is not a sign of the peer being refused.
+- The workspace, removed from this computer and downloaded again from
+  Cloud, read the edit, with the new peer and its commit message in the
+  document's history.
+- `last_shared_version_vector` follows what was sent, not what was saved: a
+  local edit with sync paused leaves it behind the version vector, with
+  `last_shared_absence_reason` still `NULL`.
+
+**Not yet seen:** a second computer receiving the change; the same text box
+changed on another computer meanwhile (from the Loro rules above one whole
+box replaces the other, so guard 4 holds only until the next sync, which is
+why the person is told before they choose); a document with no snapshot
+(`availability = 1`); and Windows. Until those are seen, a Cloud workspace
+is refused unless named.
 
 ### What has been verified, and what has not
 
