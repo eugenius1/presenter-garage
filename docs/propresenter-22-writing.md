@@ -441,7 +441,9 @@ confirmed; it has to cover the version vector, every peer at least as far,
 and `last_shared_absence_reason` has to be `NULL`. Otherwise the document
 has a change Cloud has not confirmed -- made in ProPresenter with sync
 paused, say -- and ours would go up together with it, so the person is told
-to open ProPresenter, let it sync, quit, and try again. That is also why a
+that ProPresenter has changes it has not sent to Cloud yet, and to open
+ProPresenter, let it sync, quit, and try again; the warning about another
+computer's changes is the confirmation's, below. That is also why a
 second write to a document waits: our own change lags until ProPresenter has
 sent it. A row with no snapshot (`availability = 1`, listed but not
 downloaded) is still refused.

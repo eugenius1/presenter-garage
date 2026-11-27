@@ -401,7 +401,7 @@ export const en = {
         newContainer:
           "the change would have to add something new inside a ProPresenter 22 document, such as a colour for a group that has none, which is not done",
         unsynced:
-          "this Cloud presentation has changes ProPresenter Cloud has not confirmed yet. Open ProPresenter, let it sync, quit it, and try again",
+          "this Cloud presentation has changes ProPresenter has not sent to Cloud yet. Open ProPresenter, let it sync, quit it, and try again",
       },
       // Why a box's formatting cannot be moved with its text, said after `refusals.attributeRanges`.
       rangeRefusals: {

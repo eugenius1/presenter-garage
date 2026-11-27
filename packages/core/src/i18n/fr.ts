@@ -413,7 +413,7 @@ export const fr: Dictionary = {
         newContainer:
           "la modification devrait ajouter quelque chose de nouveau dans un document de ProPresenter 22, comme une couleur pour un groupe qui n’en a pas, ce qui n’est pas fait",
         unsynced:
-          "cette présentation Cloud a des modifications que ProPresenter Cloud n’a pas encore confirmées. Ouvrez ProPresenter, laissez-le synchroniser, quittez-le, puis réessayez",
+          "cette présentation Cloud a des modifications que ProPresenter n’a pas encore envoyées à Cloud. Ouvrez ProPresenter, laissez-le synchroniser, quittez-le, puis réessayez",
       },
       rangeRefusals: {
         malformed: "une plage de mise en forme y finit avant de commencer",

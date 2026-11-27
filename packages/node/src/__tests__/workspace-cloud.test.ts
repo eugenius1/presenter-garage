@@ -103,13 +103,13 @@ suite("writing to a ProPresenter Cloud workspace", () => {
     expect(after.last_shared_absence_reason).toBeNull();
     expect(fs.readdirSync(path.join(tmp, "Backups"))).toHaveLength(1);
     // Our change is now the one Cloud has not confirmed: nothing more until ProPresenter has synced it.
-    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not confirmed yet/);
+    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
   });
 
   it("refuses a document whose shared vector lags its version vector, at plan time and inside the lock", async () => {
     await cloudWorkspace({ lastShared: BEHIND });
     expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(
-      /changes ProPresenter Cloud has not confirmed yet\. Open ProPresenter, let it sync, quit it, and try again\. Nothing was planned\.$/
+      /: this Cloud presentation has changes ProPresenter has not sent to Cloud yet\. Open ProPresenter, let it sync, quit it, and try again\. Nothing was planned\.$/
     );
 
     // Planned while it was confirmed, then ProPresenter saved a change it has not sent yet.
@@ -124,11 +124,11 @@ suite("writing to a ProPresenter Cloud workspace", () => {
 
   it("refuses a document with no shared vector, a reason it has none, or one it cannot read", async () => {
     await cloudWorkspace({ lastShared: null, absenceReason: null });
-    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not confirmed yet/);
+    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
     run("UPDATE workspace_streams SET last_shared_version_vector = version_vector, last_shared_absence_reason = 2");
-    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not confirmed yet/);
+    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
     run("UPDATE workspace_streams SET last_shared_version_vector = x'ff', last_shared_absence_reason = NULL");
-    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not confirmed yet/);
+    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
   });
 
   it("leaves a local workspace alone, and tells Cloud by its marker as well as by the registry", async () => {
@@ -139,7 +139,7 @@ suite("writing to a ProPresenter Cloud workspace", () => {
     // Local by both: the shared vector is not looked at.
     expect((await plan("Que ton nom")).cloud).toBe(false);
     fs.writeFileSync(path.join(root, "imprint.cloud"), "{}");
-    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not confirmed yet/);
+    expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
   });
 
   it("still refuses a document with no snapshot (availability 1)", async () => {
