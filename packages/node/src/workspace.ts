@@ -539,6 +539,13 @@ export interface RegisteredWorkspace {
 }
 
 /**
+ * A registry `root_path` as a folder path compares: resolved, and without
+ * the trailing separator ProPresenter writes in some rows (one downloaded
+ * from Cloud ends in `/`, older ones do not).
+ */
+export const registryRoot = (rootPath: string): string => path.resolve(rootPath);
+
+/**
  * Where ProPresenter 22 keeps its workspaces and the registry of them.
  *
  * Seen on both: `~/Library/Application Support` on macOS and `%APPDATA%`
@@ -657,7 +664,7 @@ export async function registeredWorkspaces(dir: string = workspacesDir()): Promi
         .prepare("SELECT local_uuid, root_path, display_name, cloud_uuid, schema_version FROM workspaces")
         .all()
         .map((row) => ({
-          root: String(row.root_path),
+          root: registryRoot(String(row.root_path)),
           name: String(row.display_name),
           active: meta.get("active_local_uuid") === row.local_uuid,
           cloud: row.cloud_uuid !== null,

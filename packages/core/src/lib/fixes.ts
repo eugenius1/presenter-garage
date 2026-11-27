@@ -389,6 +389,9 @@ export function planLineEdits(doc: PresentationDoc, changes: readonly LineChange
  * moved with its text, or a line added to it, without a guess.
  * `newContainer`: a change to a ProPresenter 22 document would have to create
  * a container in it, which nothing here does (docs/propresenter-22-writing.md).
+ * `unsynced`: a document of a ProPresenter Cloud workspace has changes Cloud
+ * has not confirmed (its `last_shared_version_vector` lags its version
+ * vector), so ProPresenter has to sync it first.
  */
 export type FixRefusal =
   | "lossy"
@@ -397,7 +400,8 @@ export type FixRefusal =
   | "unreadable"
   | "stale"
   | "attributeRanges"
-  | "newContainer";
+  | "newContainer"
+  | "unsynced";
 
 export class FixError extends Error {
   readonly reason: FixRefusal;

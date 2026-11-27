@@ -116,11 +116,13 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
   const lines = plan.files.reduce((sum, f) => sum + f.lines.length, 0);
   const changes = plan.files.reduce((sum, f) => sum + f.changes.length, 0);
   const what = [lines && count(lines, "line"), changes && count(changes, "other change")].filter(Boolean).join(" and ");
+  const cloud = plan.files.some((file) => file.workspace?.cloud) ? `${t.tools.presentations.cloudWrite} ` : "";
   const closed = plan.files.some((file) => file.workspace)
     ? "Quit ProPresenter first: while it has the workspace open, nothing is written."
     : "If ProPresenter has one of these open, close it first: ProPresenter may save its own copy over the change.";
   return {
     message:
+      cloud +
       `Make ${what} in ${count(plan.files.length, "presentation")}? ` +
       `Untick any change to leave that as it is. Each presentation is backed up to ${backupDir} before it is changed. ` +
       closed +

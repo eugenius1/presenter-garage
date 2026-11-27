@@ -557,18 +557,87 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect((await bridge.openWorkspace(root)).workspace?.cloud).toBe(true);
   });
 
-  it("reads a Cloud workspace, and writes nothing to it", async () => {
+  it("writes to a Cloud workspace a document Cloud has caught up with", async () => {
     fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
     root = createWritableWorkspace(tmp, { cloud: true });
-    putPresentation(root, "Checked Song", presentationRoot(() => []));
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
     const folder = await bridge.openWorkspace(root);
     expect(folder.workspace?.cloud).toBe(true);
+    const file = folder.files[0].path;
+
+    const run = await bridge.applyFixes([await chosen(file)]);
+
+    expect(run.refused).toBeUndefined();
+    expect(run.files).toEqual([expect.objectContaining({ path: file, written: true })]);
+    const { report } = examine(file, (await bridge.read(file)).bytes);
+    expect(report.issues.filter((issue) => KINDS.includes(issue.kind))).toEqual([]);
+  });
+
+  it("refuses as stale a workspace that has turned Cloud since the page showed it without the warning", async () => {
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
+    const folder = await bridge.openWorkspace(root);
+    expect(folder.workspace?.cloud).toBe(false);
+    const choice = await chosen(folder.files.find((f) => f.name === "Song.pro")!.path);
+    fs.writeFileSync(path.join(root, "imprint.cloud"), "");
+    const before = store();
+
+    const run = await bridge.applyFixes([choice]);
+
+    expect(run.files).toEqual([expect.objectContaining({ written: false, reason: "stale" })]);
+    expect(store()).toEqual(before);
+  });
+
+  it("saves the folder the page still shows while a Cloud workspace is half way through opening", async () => {
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
+    const cloudRoot = createWritableWorkspace(path.join(tmp, "Elsewhere"), { cloud: true });
+    putPresentation(cloudRoot, "Song", presentationRoot(), { lastShared: "synced" });
+    // Remembering the folder is the open's last wait: held, the open is past its every other check.
+    let hold = false;
+    let release: () => void = () => {};
+    let reached: () => void = () => {};
+    const atRemember = new Promise<void>((resolve) => (reached = resolve));
+    bridge = createHandlers({
+      chooseFolder: async () => cloudRoot,
+      showFolder: async () => undefined,
+      stateFile: path.join(tmp, "state.json"),
+      saveState: () => {
+        if (!hold) return Promise.resolve();
+        reached();
+        return new Promise<void>((resolve) => (release = resolve));
+      },
+      backupDir: backups,
+      workspacesDir: path.join(tmp, "Workspaces"),
+    });
+    const shownFolder = await bridge.openWorkspace(root);
+    expect(shownFolder.workspace?.cloud).toBe(false);
+    const choice = await chosen(shownFolder.files.find((f) => f.name === "Song.pro")!.path);
+
+    hold = true;
+    const opening = bridge.pickFolder();
+    await atRemember;
+    // The page still shows the local workspace, with no Cloud warning: the save is of that one.
+    const run = await bridge.applyFixes([choice]);
+    expect(run.files).toEqual([expect.objectContaining({ path: choice.path, written: true })]);
+
+    release();
+    const cloudFolder = (await opening)!;
+    expect(cloudFolder.workspace?.cloud).toBe(true);
+    // And once it has opened, the Cloud workspace is the open one.
+    await expect(bridge.read(choice.path)).rejects.toThrow(/Not a presentation in the open folder/);
+  });
+
+  it("refuses a Cloud document with changes ProPresenter has not sent, saying why", async () => {
+    fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
+    root = createWritableWorkspace(tmp, { cloud: true });
+    putPresentation(root, "Song", presentationRoot(), { lastShared: null, absenceReason: null });
+    const folder = await bridge.openWorkspace(root);
     const choice = await chosen(folder.files[0].path);
     const before = store();
 
     const run = await bridge.applyFixes([choice]);
 
-    expect(run.refused?.code).toBe("cloudWorkspace");
+    expect(run.refused).toBeUndefined();
+    expect(run.files).toEqual([expect.objectContaining({ written: false, reason: "unsynced" })]);
     expect(store()).toEqual(before);
   });
 });

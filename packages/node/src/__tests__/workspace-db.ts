@@ -15,7 +15,7 @@ type Sqlite = typeof import("node:sqlite");
 export const sqlite: Sqlite | undefined = await import("node:sqlite").catch(() => undefined);
 
 /** The columns the reader uses, under the names and types ProPresenter gives them. */
-const SCHEMA = `CREATE TABLE workspace_streams (
+export const SCHEMA = `CREATE TABLE workspace_streams (
   document_id BLOB NOT NULL, scope INTEGER NOT NULL, location_type INTEGER NOT NULL, kind TEXT NOT NULL,
   core_path TEXT, availability INTEGER NOT NULL, snapshot BLOB, version_vector BLOB, sha256 BLOB,
   byte_count INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL, core_path_key TEXT,

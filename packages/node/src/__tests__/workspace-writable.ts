@@ -21,13 +21,18 @@ import { sqlite, storeOf } from "./workspace-db";
  * snapshots hold one value each and whose bookkeeping is made up.
  */
 
-/** A store's columns, as ProPresenter 22.0.1 makes them, with the constraint a wrong `byte_count` meets. */
-const SCHEMA = `CREATE TABLE workspace_streams (
+/**
+ * A store's columns, as ProPresenter 22.0.1 makes them, in its order, with
+ * the constraint a wrong `byte_count` meets. Held to the list in
+ * docs/propresenter-22-workspaces.md by a test.
+ */
+export const SCHEMA = `CREATE TABLE workspace_streams (
   document_id BLOB NOT NULL, scope INTEGER NOT NULL, location_type INTEGER NOT NULL, kind TEXT NOT NULL,
   core_path TEXT, availability INTEGER NOT NULL, snapshot BLOB, version_vector BLOB, sha256 BLOB,
   byte_count INTEGER NOT NULL CHECK (snapshot IS NULL OR byte_count = length(snapshot)),
-  updated_at_ms INTEGER NOT NULL, core_path_key TEXT,
-  last_shared_version_vector BLOB, last_shared_absence_reason INTEGER,
+  updated_at_ms INTEGER NOT NULL,
+  last_shared_version_vector BLOB, last_shared_version_vector_absence_reason INTEGER,
+  core_path_key TEXT,
   PRIMARY KEY(document_id, scope))`;
 
 export const REGISTRY_SCHEMA = `CREATE TABLE workspaces (
@@ -141,18 +146,32 @@ export function createWritableWorkspace(
 
 let nextId = 1;
 
-/** Store a presentation as `Libraries/Default/<name>.pro`, with its real hash and version vector. Returns its id. */
+/**
+ * Store a presentation as `Libraries/Default/<name>.pro`, with its real hash
+ * and version vector. Returns its id. Its `last_shared_version_vector` and
+ * `last_shared_version_vector_absence_reason` are a local workspace's, `NULL` and 2, unless
+ * given: `"synced"` for the version vector itself, as a Cloud document all
+ * of whose changes Cloud has confirmed.
+ */
 export function putPresentation(
   root: string,
   name: string,
   json: Json,
-  { versionVector }: { versionVector?: Uint8Array } = {}
+  {
+    versionVector,
+    lastShared = null,
+    absenceReason = lastShared === null ? 2 : null,
+  }: { versionVector?: Uint8Array; lastShared?: Uint8Array | "synced" | null; absenceReason?: number | null } = {}
 ): Uint8Array {
   const { snapshot, vv } = snapshotOf(json);
   const id = new Uint8Array(16);
   new DataView(id.buffer).setUint32(12, nextId++);
   const db = new sqlite!.DatabaseSync(storeOf(root));
-  db.prepare("INSERT INTO workspace_streams VALUES (?, 0, 1, 'Presentation', ?, 0, ?, ?, ?, ?, ?, ?, NULL, 2)").run(
+  db.prepare(
+    "INSERT INTO workspace_streams (document_id, scope, location_type, kind, core_path, availability, snapshot, " +
+      "version_vector, sha256, byte_count, updated_at_ms, core_path_key, last_shared_version_vector, " +
+      "last_shared_version_vector_absence_reason) VALUES (?, 0, 1, 'Presentation', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
     id,
     `Default/${name}`,
     snapshot,
@@ -160,7 +179,9 @@ export function putPresentation(
     sha(snapshot),
     snapshot.length,
     1_700_000_000_000,
-    `default/${name}`.toLowerCase()
+    `default/${name}`.toLowerCase(),
+    lastShared === "synced" ? (versionVector ?? vv) : lastShared,
+    absenceReason
   );
   db.close();
   return id;

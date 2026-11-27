@@ -116,8 +116,11 @@ under `Library/Application Support/RenewedVision/ProPresenter/Workspaces`, and
 the folder it was upgraded from is left behind as it was that day. The server
 reads a workspace too, and edits slide text in one kept on this computer, as
 long as **ProPresenter is closed**: it refuses to write while ProPresenter
-has the workspace open, because ProPresenter would save over the change. A
-ProPresenter Cloud workspace is read but not written to yet. Started with
+has the workspace open, because ProPresenter would save over the change. In
+a ProPresenter Cloud workspace it edits only a presentation whose changes
+Cloud has all confirmed, and says before you choose that a change made to
+the same text box on another computer can replace yours at the next sync.
+The desktop app does the same. Started with
 no folder it reads the workspace ProPresenter has open; pointed at the old
 folder it reads that, and tells the assistant it is out of date and where the
 current one is. Details are in

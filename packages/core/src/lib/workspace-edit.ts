@@ -403,6 +403,42 @@ export function encodeVersionVector(vv: ReadonlyMap<string, number>): Uint8Array
   return Uint8Array.from(out);
 }
 
+/**
+ * A stored version vector read back, as `encodeVersionVector` writes one, or
+ * `undefined` for bytes that are not exactly one: anything left over, cut
+ * short, or not in that order. Checked by encoding the result again, so
+ * only bytes this would have written are taken.
+ */
+export function decodeVersionVector(bytes: Uint8Array): Map<string, number> | undefined {
+  let at = 0;
+  const read = (): bigint | undefined => {
+    let n = 0n;
+    for (let shift = 0n; at < bytes.length && shift < 70n; shift += 7n) {
+      const byte = bytes[at++];
+      n |= BigInt(byte & 0x7f) << shift;
+      if (!(byte & 0x80)) return n;
+    }
+    return undefined;
+  };
+  const count = read();
+  if (count === undefined || count > BigInt(bytes.length)) return undefined;
+  const vv = new Map<string, number>();
+  for (let i = 0n; i < count; i++) {
+    const peer = read();
+    const zigzag = read();
+    if (peer === undefined || zigzag === undefined) return undefined;
+    vv.set(peer.toString(), Number(zigzag % 2n === 0n ? zigzag / 2n : -(zigzag + 1n) / 2n));
+  }
+  if (at !== bytes.length || vv.size !== Number(count)) return undefined;
+  const again = encodeVersionVector(vv);
+  return again.length === bytes.length && again.every((b, i) => b === bytes[i]) ? vv : undefined;
+}
+
+/** Whether `shared` has every change `vv` has: each peer's counter at least as far. */
+export function coversVersion(shared: ReadonlyMap<string, number>, vv: ReadonlyMap<string, number>): boolean {
+  return [...vv].every(([peer, counter]) => (shared.get(peer) ?? 0) >= counter);
+}
+
 /** Whether `after` is `before` with one peer more, `peer`, and every other counter as it was. */
 export function onlyPeerAdded(before: ReadonlyMap<string, number>, after: ReadonlyMap<string, number>, peer: string): boolean {
   if (before.has(peer) || after.size !== before.size + 1 || !((after.get(peer) ?? 0) > 0)) return false;

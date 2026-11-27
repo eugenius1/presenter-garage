@@ -11,8 +11,8 @@ and the four write guards every writing surface keeps are in
 Everything below was found on ProPresenter 22.0.1 on macOS, on a local
 workspace of 474 presentations (518 documents), first on copies of its
 database and then, once ProPresenter had to be driven, on the workspace
-itself with a copy to restore from. Nothing has been tried on a Cloud
-workspace or on Windows. The code that does the writing was then run on the
+itself with a copy to restore from. A Cloud workspace was tried later, on
+one computer (*A Cloud workspace*, below); nothing on Windows. The code that does the writing was then run on the
 real workspace itself, with a backup to restore from: ProPresenter showed
 its edits with their ranges moved, found them by search, kept them through
 an edit of its own and a restart, and the write was refused while
@@ -39,7 +39,7 @@ only be compared by what it decodes to, never byte for byte.
 | `byte_count` | `length(snapshot)` | A `CHECK` constraint: SQLite refuses the row |
 | `version_vector` | The document's Loro version vector: a count, then for each peer in ascending order of id the id as a varint and its counter as a zigzag varint. This is not the order `VersionVector.encode()` gives. Reproduced for all 518 rows | ProPresenter rewrote a deliberately stale one to the right value on opening, and carried on |
 | `updated_at_ms` | When the row was last written | Left at its old value on one edited row: ProPresenter did not mind |
-| `last_shared_version_vector`, `…_absence_reason` | What the Cloud server is known to hold. `NULL` and `2` on every row of a local workspace | Left alone |
+| `last_shared_version_vector`, `last_shared_version_vector_absence_reason` | What the Cloud server is known to hold. `NULL` and `2` on every row of a local workspace | Left alone |
 
 `workspace_operation_receipts` is not a ledger of writes. 474 presentations
 had three receipts between them. ProPresenter adds one, of kind `patch`, for
@@ -155,8 +155,9 @@ A plan is made as for a `.pro` file, from the document converted to the old
 message (`readForPlanning()`), so the person sees the same slides, boxes and
 lines `read_presentation` shows. It records the row's `sha256`, not a hash
 of the conversion. Everything applying would refuse for the document as it
-stands is refused here too, before anybody reads a line: a Cloud or
-unverified workspace, a document that fails the gate, and a box whose ranges
+stands is refused here too, before anybody reads a line: an unverified
+workspace, a Cloud document with changes Cloud has not confirmed, a
+document that fails the gate, and a box whose ranges
 cannot be moved without a guess.
 
 ### Applying
@@ -406,7 +407,7 @@ and a restart.
 
 | Guard | How it is kept |
 | --- | --- |
-| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's row in the registry beside it has no `cloud_uuid` and the `schema_version` checked against (`22.9.0`), and the folder holds no `imprint.cloud`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
+| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's one row in the registry beside it has the `schema_version` checked against (`22.9.0`); for a Cloud workspace (a `cloud_uuid` in that row, or an `imprint.cloud` in its folder), `syncedWithCloud()` at plan time and again inside the lock: the row's `last_shared_version_vector` decodes and covers its version vector, and `last_shared_version_vector_absence_reason` is `NULL`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
 | 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made, here or in any other root of the call, the run is rolled back and nothing is written in any of them |
 | 3. A person saw every change and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line and per structural change, each structural change as it is and as it would be: a group's name, colour and tie, a macro and its collection. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
 | 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data`, ranges and structural values and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), the whole structure -- every group, the order of the slides, every arrangement, the macros on every slide -- what was promised (`sameStructure()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
@@ -430,22 +431,70 @@ fails to open the store, for the fraction of a second a run takes.
 
 ### A Cloud workspace
 
-Refused (`CLOUD_REFUSED`), at plan time and at apply time, until it has been
-tried: a workspace with a `cloud_uuid` in the registry or an
-`imprint.cloud` in its folder is not written to. That work is
-[#55](https://github.com/eugenius1/presenter-garage/issues/55).
+Written to as a local workspace is, under the same four guards and the same
+lock, with two things more.
 
-What is known says it should work. ProPresenter sends the server the
-operations between `last_shared_version_vector` and the document's version
-vector, so a change by a peer the server has not seen looks like any local
-edit waiting to go up. What has to be seen on the Windows computer first:
+**A document Cloud has not caught up with is refused** (`unsynced`, at plan
+time and again inside the lock, `syncedWithCloud()`). Its
+`last_shared_version_vector` is what ProPresenter last sent and Cloud
+confirmed; it has to cover the version vector, every peer at least as far,
+and `last_shared_version_vector_absence_reason` has to be `NULL`. Otherwise the document
+has a change Cloud has not confirmed -- made in ProPresenter with sync
+paused, say -- and ours would go up together with it, so the person is told
+that ProPresenter has changes it has not sent to Cloud yet, and to open
+ProPresenter, let it sync, quit, and try again; the warning about another
+computer's changes is the confirmation's, below. That is also why a
+second write to a document waits: our own change lags until ProPresenter has
+sent it. A row with no snapshot (`availability = 1`, listed but not
+downloaded) is still refused.
 
-- the change uploads, reaches a second computer, and is not undone by the
-  next sync;
-- what the server does with a peer id no signed-in computer owns;
-- the same text box changed on another computer meanwhile. From the Loro
-  rules above one whole box replaces the other, so guard 4 holds only until
-  the next sync, and the person has to be told so before they choose.
+**The person is told it is Cloud before they choose** (guard 3): the MCP
+server's confirmation, and the desktop app beside its button that writes
+(`FixCard.tsx`), say so on every Cloud write, and that a change made to the
+same text box on another computer, not yet synced here, can replace this one
+whole at the next sync (`tools.presentations.cloudWrite` in
+`packages/core/src/i18n`). From the Loro rules above, one whole box replaces
+the other, so guard 4 holds only until then. A plan records whether it read
+the workspace as Cloud, and applying refuses it as `stale` if the workspace
+reads otherwise by then, either way: the person chose with or without the
+warning, and that has to be what is written to. The desktop app, which plans
+when its button is pressed, holds the plan to what the page was told when the
+folder opened, the same way. A document refused as unsynced
+is named in the desktop app's outcome with the same reason the MCP server
+gives (`UnsyncedDocument` at plan time).
+
+A Cloud workspace is told by its registry row's `cloud_uuid` or by an
+`imprint.cloud` in its folder. Its row is found by the folder's name or by
+`root_path`, compared resolved and without a trailing separator
+(`registryRoot()`): a workspace downloaded from Cloud has a new folder and
+`local_uuid`, the same `cloud_uuid`, and a `root_path` ending in `/` where
+older rows have none. Two rows for one folder are refused. Each change is
+made by one new random peer, as in a local workspace.
+
+**Seen on ProPresenter 22.0.1 on macOS, one computer, 2026-11-27,** on a
+throwaway Cloud workspace with one synthetic song, through this write path:
+
+- One line written by a new peer, with ProPresenter closed and Cloud sync
+  paused. Opened with sync still paused, ProPresenter showed the edit and
+  did not rewrite the row.
+- On resuming sync, `last_shared_version_vector` gained the new peer about
+  two seconds later, and stayed there through a restart with sync live.
+  ProPresenter logged that the server's version vector already covered the
+  local state, our peer included. No rejection or conflict was logged. A
+  "presentation migration" hold right after launch or resume withheld the
+  patch for a moment, then lifted by itself, for ProPresenter's own edits
+  too: it is not a sign of the peer being refused.
+- The workspace, removed from this computer and downloaded again from
+  Cloud, read the edit, with the new peer and its commit message in the
+  document's history.
+- `last_shared_version_vector` follows what was sent, not what was saved: a
+  local edit made with sync paused left it behind the version vector, with
+  `last_shared_version_vector_absence_reason` still `NULL`, until sync resumed. This is
+  what the rule above reads.
+
+**Not yet seen:** a second computer receiving the change; the same text box
+changed on another computer meanwhile; a document with no snapshot; and
+Windows.
 
 ### What has been verified, and what has not
 
@@ -467,7 +516,7 @@ edit waiting to go up. What has to be seen on the Windows computer first:
   Search found all three, an edit made in its editor to the same box kept
   ours, both survived a restart, and a write tried while it ran was refused
   at the lock. The store was restored from its backup afterwards.
-- **Not at all:** Windows; a Cloud workspace; a ProPresenter release other
+- **Not at all:** Windows; a Cloud workspace on a second computer; a ProPresenter release other
   than 22.0.1. Another `schema_version` or `user_version` is refused until
   it has been checked.
 - **Not in ProPresenter yet:** adding a line. It is held by the same tests
@@ -480,7 +529,8 @@ edit waiting to go up. What has to be seen on the Windows computer first:
 ### What it does not do
 
 - Write with ProPresenter open, on any system.
-- Write to a Cloud workspace.
+- Write a Cloud document with changes Cloud has not confirmed, or one not
+  downloaded.
 - Anything but a presentation's text, its groups' names, colours and ties,
   and the macros on its slides: playlists, the media bin, restyling.
 - Restore from a backup on request. Putting a row back is a write, and wants

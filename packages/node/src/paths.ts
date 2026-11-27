@@ -38,6 +38,14 @@ export class LossyFile extends LibraryError {
   }
 }
 
+/** A Cloud document with changes ProPresenter has not sent to Cloud yet (guard 1): one file's refusal, not the run's. */
+export class UnsyncedDocument extends LibraryError {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsyncedDocument";
+  }
+}
+
 export function isInside(root: string, target: string): boolean {
   const rel = path.relative(root, target);
   return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);

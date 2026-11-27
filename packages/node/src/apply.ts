@@ -108,7 +108,13 @@ async function applyPlanNow(
         workspace,
         roots,
         await openBackups(),
-        group.map((file, i) => ({ path: file.path, documentId: file.workspace!.documentId, sha256: file.sha256, ...chosen[i] }))
+        group.map((file, i) => ({
+          path: file.path,
+          documentId: file.workspace!.documentId,
+          sha256: file.sha256,
+          cloud: file.workspace!.cloud === true,
+          ...chosen[i],
+        }))
       );
       staged.push({ write, files });
     }
