@@ -101,7 +101,7 @@ suite("the one Cloud workspace named for #55's experiments", () => {
   });
 
   it("is written to when the opt-in names it, and says it is Cloud", async () => {
-    await allowCloudWorkspace(UUID, registry);
+    await allowCloudWorkspace(UUID.toUpperCase(), registry);
     const edit = await plan("Que ton nom");
     expect(edit.cloud).toBe(true);
     const run = await write([edit]);

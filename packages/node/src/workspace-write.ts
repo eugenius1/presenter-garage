@@ -89,6 +89,8 @@ export async function allowCloudWorkspace(uuid: string | undefined, registry = p
     return;
   }
   if (!UUID_SHAPE.test(uuid)) throw new LibraryError(`--allow-cloud-workspace takes a workspace's uuid, not ${uuid}`);
+  // As ProPresenter writes it, so a uuid typed in capitals is found too.
+  uuid = uuid.toLowerCase();
   if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
     throw new LibraryError(`--allow-cloud-workspace=${uuid}: there is no ProPresenter 22 registry at ${registry}`);
   }
@@ -99,7 +101,7 @@ export async function allowCloudWorkspace(uuid: string | undefined, registry = p
       `--allow-cloud-workspace=${uuid}: that workspace is not a Cloud workspace, and needs no option to be written to`
     );
   }
-  allowedCloud = uuid.toLowerCase();
+  allowedCloud = uuid;
 }
 
 /** The Cloud workspace `allowCloudWorkspace` named, if any. */
@@ -139,8 +141,8 @@ async function registryRow(registry: string, uuid: string, root?: string): Promi
 export async function checkWritableWorkspace(workspace: Workspace): Promise<{ cloud: boolean }> {
   const root = workspace.root;
   const imprint = await hasCloudImprint(root);
-  // Without the opt-in, refused before anything else is read, as before it.
-  if (imprint && allowedCloud === undefined) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
+  // Unless this is the named one, refused before anything else is read, as before the opt-in.
+  if (imprint && path.basename(root).toLowerCase() !== allowedCloud) throw new WorkspaceRefused(CLOUD_REFUSED, "cloudWorkspace");
   const registry = path.join(path.dirname(root), REGISTRY);
   if (!(await fs.stat(registry).catch(() => undefined))?.isFile()) {
     throw new WorkspaceRefused(unverified(`format version could not be read: there is no ${REGISTRY} beside it`), "unverifiedWorkspace");
