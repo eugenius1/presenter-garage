@@ -39,6 +39,8 @@ let writable = true;
 let beforeRead: ((path: string) => Promise<void>) | null = null;
 /** The name of the folder a person chooses. */
 let folderName = "Libraries";
+/** Set by a test that wants to hold the reread of a remembered folder. */
+let beforeReopen: (() => Promise<void>) | null = null;
 /** Values kept by a previous visit, standing in for IndexedDB. */
 const remembered = new Map<string, unknown>();
 
@@ -63,7 +65,10 @@ vi.mock("@presenter-garage/core/lib/folder", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@presenter-garage/core/lib/folder")>()),
   folderAccess: () => access,
   pickFolder: async () => fakeFolder(),
-  readFolderHandle: async () => fakeFolder(),
+  readFolderHandle: async () => {
+    await beforeReopen?.();
+    return fakeFolder();
+  },
 }));
 
 vi.mock("../../lib/persistence", async (importOriginal) => ({
@@ -120,6 +125,7 @@ beforeEach(() => {
   beforeRead = null;
   folderName = "Libraries";
   remembered.clear();
+  beforeReopen = null;
   store.clear();
   store.set("Chants/Checked Song.pro", syntheticTextPresentation());
 });
@@ -133,6 +139,26 @@ describe("reopening the last folder", () => {
     // Read straight away: nothing to click, and no offer to grant access again.
     expect(await screen.findByRole("heading", { name: "Fix these" })).toBeInTheDocument();
     expect(screen.getByText("leading space")).toBeInTheDocument();
+  });
+
+  it("reads nothing once the tool is closed while the folder was still being reopened", async () => {
+    remembered.set("presentations.folder", { name: "Libraries", queryPermission: async () => "granted" });
+    let release!: () => void;
+    let reached!: () => void;
+    const held = new Promise<void>((resolve) => (reached = resolve));
+    beforeReopen = () => {
+      reached();
+      return new Promise<void>((resolve) => (release = resolve));
+    };
+    const read: string[] = [];
+    beforeRead = async (path) => void read.push(path);
+
+    const { unmount } = renderTool();
+    await held;
+    unmount();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(read).toEqual([]);
   });
 });
 
