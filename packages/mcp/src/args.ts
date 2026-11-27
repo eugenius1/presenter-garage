@@ -11,9 +11,9 @@
  * unticked box arrives as `--read-only=false`.
  *
  * `--allow-cloud-workspace=<cloud uuid>` lets the one ProPresenter Cloud
- * workspace with that `cloud_uuid` in the registry be written to, for #55's experiments (`allowCloudWorkspace`
- * in `packages/node/src/workspace-write.ts`). Empty, as the extension passes
- * a setting left blank, it allows none.
+ * workspace with that `cloud_uuid` in the registry be written to, for #55's
+ * experiments (`allowCloudWorkspace` in `packages/node/src/workspace-check.ts`).
+ * Empty, as the extension passes a setting left blank, it allows none.
  */
 export interface Args {
   folder?: string;
