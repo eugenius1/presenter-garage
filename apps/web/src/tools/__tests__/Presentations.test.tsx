@@ -39,6 +39,10 @@ let writable = true;
 let beforeRead: ((path: string) => Promise<void>) | null = null;
 /** The name of the folder a person chooses. */
 let folderName = "Libraries";
+/** Set by a test that wants to hold the reread of a remembered folder. */
+let beforeReopen: (() => Promise<void>) | null = null;
+/** Values kept by a previous visit, standing in for IndexedDB. */
+const remembered = new Map<string, unknown>();
 
 function fakeFolder(): PickedFolder {
   return {
@@ -61,11 +65,17 @@ vi.mock("@presenter-garage/core/lib/folder", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@presenter-garage/core/lib/folder")>()),
   folderAccess: () => access,
   pickFolder: async () => fakeFolder(),
+  readFolderHandle: async () => {
+    await beforeReopen?.();
+    return fakeFolder();
+  },
 }));
 
 vi.mock("../../lib/persistence", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/persistence")>()),
   requestHandlePermission: async () => "granted" as PermissionState,
+  // What the last visit left behind; nothing, unless a test says otherwise.
+  remember: async (key: string) => remembered.get(key) ?? null,
 }));
 
 /** Capture what a download hands the browser, instead of downloading it. */
@@ -114,11 +124,43 @@ beforeEach(() => {
   writable = true;
   beforeRead = null;
   folderName = "Libraries";
+  remembered.clear();
+  beforeReopen = null;
   store.clear();
   store.set("Chants/Checked Song.pro", syntheticTextPresentation());
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("reopening the last folder", () => {
+  it("rereads a folder whose permission is still granted, without asking", async () => {
+    remembered.set("presentations.folder", { name: "Libraries", queryPermission: async () => "granted" });
+    renderTool();
+    // Read straight away: nothing to click, and no offer to grant access again.
+    expect(await screen.findByRole("heading", { name: "Fix these" })).toBeInTheDocument();
+    expect(screen.getByText("leading space")).toBeInTheDocument();
+  });
+
+  it("reads nothing once the tool is closed while the folder was still being reopened", async () => {
+    remembered.set("presentations.folder", { name: "Libraries", queryPermission: async () => "granted" });
+    let release!: () => void;
+    let reached!: () => void;
+    const held = new Promise<void>((resolve) => (reached = resolve));
+    beforeReopen = () => {
+      reached();
+      return new Promise<void>((resolve) => (release = resolve));
+    };
+    const read: string[] = [];
+    beforeRead = async (path) => void read.push(path);
+
+    const { unmount } = renderTool();
+    await held;
+    unmount();
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(read).toEqual([]);
+  });
+});
 
 describe("finding and showing fixes", () => {
   it("shows each line as it is and as it would read", async () => {
@@ -676,6 +718,15 @@ describe("the desktop app", () => {
     teamRules = async () => {
       throw new Error("not set up");
     };
+  });
+
+  it("reopens the folder the shell remembers, on start", async () => {
+    const bridge = fakeBridge();
+    const last = await bridge.pickFolder();
+    vi.stubGlobal(BRIDGE_GLOBAL, { ...bridge, reopenLast: async () => last });
+    renderTool();
+    expect(await screen.findByRole("heading", { name: "Fix these" })).toBeInTheDocument();
+    expect(screen.getByText(ROOT)).toBeInTheDocument();
   });
 
   it("shows the folder's real path and ProPresenter's workspaces", async () => {
