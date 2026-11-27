@@ -620,7 +620,7 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect(run.files).toEqual([expect.objectContaining({ path: choice.path, written: true })]);
 
     release();
-    const cloudFolder = await opening;
+    const cloudFolder = (await opening)!;
     expect(cloudFolder.workspace?.cloud).toBe(true);
     // And once it has opened, the Cloud workspace is the open one.
     await expect(bridge.read(choice.path)).rejects.toThrow(/Not a presentation in the open folder/);
