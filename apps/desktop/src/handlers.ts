@@ -192,10 +192,11 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
         // Guard 3 for a Cloud workspace means telling the person that another
         // computer's change can replace theirs; this interface does not say
         // so yet, so it writes to none, though the shared write path can.
-        if (await isCloud(asked[0])) {
-          return { files: [], refused: { code: "cloudWorkspace", detail: "This is a ProPresenter Cloud workspace." } };
-        }
+        const cloudRefused = { files: [], refused: { code: "cloudWorkspace" as const, detail: "This is a ProPresenter Cloud workspace." } };
+        if (await isCloud(asked[0])) return cloudRefused;
         const { plan, refused } = await planChosenFixes(asked, files);
+        // And by the plan itself, which marks every Cloud document it read, whichever root it came through.
+        if (plan.files.some((file) => file.workspace?.cloud)) return cloudRefused;
         const run = plan.files.length > 0 ? await applyPlan(asked, plan, everyLine(plan), deps.backupDir) : { files: [] };
         if (run.backupFolder) backupFolders.add(run.backupFolder);
         // The page words each refusal itself, so the English the MCP server gives a model stays here.
