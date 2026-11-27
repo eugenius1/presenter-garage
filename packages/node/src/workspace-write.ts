@@ -63,6 +63,9 @@ interface Row {
   snapshot: Uint8Array;
   sha256: Uint8Array;
   version_vector: Uint8Array;
+  last_shared_version_vector: Uint8Array | null;
+  /** Named as ProPresenter names it: docs/propresenter-22-workspaces.md lists every column. */
+  last_shared_version_vector_absence_reason: number | null;
   [column: string]: unknown;
 }
 
@@ -114,7 +117,7 @@ export function gate(row: Row): { root: unknown; version: Map<string, number> } 
 export function syncedWithCloud(row: Row, version: ReadonlyMap<string, number>): void {
   const shared = row.last_shared_version_vector;
   const decoded = ArrayBuffer.isView(shared) ? decodeVersionVector(shared as Uint8Array) : undefined;
-  if (row.last_shared_absence_reason !== null || !decoded || !coversVersion(decoded, version)) throw new FixError("unsynced");
+  if (row.last_shared_version_vector_absence_reason !== null || !decoded || !coversVersion(decoded, version)) throw new FixError("unsynced");
 }
 
 type Database = import("node:sqlite").DatabaseSync;

@@ -100,7 +100,7 @@ suite("writing to a ProPresenter Cloud workspace", () => {
     expect(linesOf(edit.box)[0]).toBe("Que ton nom");
     const [after] = rows();
     expect(after.last_shared_version_vector).toEqual(before.last_shared_version_vector);
-    expect(after.last_shared_absence_reason).toBeNull();
+    expect(after.last_shared_version_vector_absence_reason).toBeNull();
     expect(fs.readdirSync(path.join(tmp, "Backups"))).toHaveLength(1);
     // Our change is now the one Cloud has not confirmed: nothing more until ProPresenter has synced it.
     expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
@@ -125,9 +125,9 @@ suite("writing to a ProPresenter Cloud workspace", () => {
   it("refuses a document with no shared vector, a reason it has none, or one it cannot read", async () => {
     await cloudWorkspace({ lastShared: null, absenceReason: null });
     expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
-    run("UPDATE workspace_streams SET last_shared_version_vector = version_vector, last_shared_absence_reason = 2");
+    run("UPDATE workspace_streams SET last_shared_version_vector = version_vector, last_shared_version_vector_absence_reason = 2");
     expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
-    run("UPDATE workspace_streams SET last_shared_version_vector = x'ff', last_shared_absence_reason = NULL");
+    run("UPDATE workspace_streams SET last_shared_version_vector = x'ff', last_shared_version_vector_absence_reason = NULL");
     expect(await message(readForPlanning(ws, await documentNamed()))).toMatch(/not sent to Cloud yet/);
   });
 

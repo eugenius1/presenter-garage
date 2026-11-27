@@ -119,7 +119,7 @@ suite("writing slide text into a workspace", () => {
     expect(changed.byte_count).toBe(changed.snapshot.length);
     expect(changed.updated_at_ms).toBeGreaterThan(before[0].updated_at_ms);
     expect(changed.last_shared_version_vector).toBeNull();
-    expect(changed.last_shared_absence_reason).toBe(2);
+    expect(changed.last_shared_version_vector_absence_reason).toBe(2);
     expect(changed.core_path).toBe(before[0].core_path);
 
     const old = new LoroDoc();

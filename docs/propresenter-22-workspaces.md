@@ -105,6 +105,14 @@ database and `-wal` themselves come through byte for byte.
 | `snapshot` | the document, as a [Loro](https://loro.dev) CRDT snapshot |
 | `sha256`, `byte_count`, `version_vector`, `updated_at_ms` | bookkeeping: the snapshot's SHA-256 and length, the document's Loro version vector, and when the row was written |
 | `last_shared_version_vector` | what the Cloud server is known to hold; `NULL` throughout a local workspace |
+| `last_shared_version_vector_absence_reason` | why there is no `last_shared_version_vector`: `2` throughout a local workspace, `NULL` for a Cloud document that has one |
+| `core_path_key` | `core_path` in lower case, for looking a path up |
+
+In ProPresenter's order: `document_id`, `scope`, `location_type`, `kind`,
+`core_path`, `availability`, `snapshot`, `version_vector`, `sha256`,
+`byte_count`, `updated_at_ms`, `last_shared_version_vector`,
+`last_shared_version_vector_absence_reason`, `core_path_key` (22.0.1, macOS;
+the test fixtures are held to this list).
 
 | `kind` | Replaces |
 | --- | --- |

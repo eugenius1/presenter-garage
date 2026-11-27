@@ -39,7 +39,7 @@ only be compared by what it decodes to, never byte for byte.
 | `byte_count` | `length(snapshot)` | A `CHECK` constraint: SQLite refuses the row |
 | `version_vector` | The document's Loro version vector: a count, then for each peer in ascending order of id the id as a varint and its counter as a zigzag varint. This is not the order `VersionVector.encode()` gives. Reproduced for all 518 rows | ProPresenter rewrote a deliberately stale one to the right value on opening, and carried on |
 | `updated_at_ms` | When the row was last written | Left at its old value on one edited row: ProPresenter did not mind |
-| `last_shared_version_vector`, `…_absence_reason` | What the Cloud server is known to hold. `NULL` and `2` on every row of a local workspace | Left alone |
+| `last_shared_version_vector`, `last_shared_version_vector_absence_reason` | What the Cloud server is known to hold. `NULL` and `2` on every row of a local workspace | Left alone |
 
 `workspace_operation_receipts` is not a ledger of writes. 474 presentations
 had three receipts between them. ProPresenter adds one, of kind `patch`, for
@@ -407,7 +407,7 @@ and a restart.
 
 | Guard | How it is kept |
 | --- | --- |
-| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's one row in the registry beside it has the `schema_version` checked against (`22.9.0`); for a Cloud workspace (a `cloud_uuid` in that row, or an `imprint.cloud` in its folder), `syncedWithCloud()` at plan time and again inside the lock: the row's `last_shared_version_vector` decodes and covers its version vector, and `last_shared_absence_reason` is `NULL`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
+| 1. The fidelity gate passes on that document | `gate()`, at plan time and again inside the lock at apply time: the `sha256` beside the snapshot is its hash; the snapshot imports, exports and imports again to identical JSON, version vector and frontiers; and `encodeVersionVector()` of its version vector is byte for byte the stored `version_vector`, which shows the bookkeeping is understood for this row. `checkWritableWorkspace()`: the workspace's one row in the registry beside it has the `schema_version` checked against (`22.9.0`); for a Cloud workspace (a `cloud_uuid` in that row, or an `imprint.cloud` in its folder), `syncedWithCloud()` at plan time and again inside the lock: the row's `last_shared_version_vector` decodes and covers its version vector, and `last_shared_version_vector_absence_reason` is `NULL`; the store's `user_version` is `9`. And every box the person was shown is found in the Loro document holding exactly the RTF the plan read, with every one of its ranges mapped through the edit without a guess; and every structural change a value in a map the document already holds, holding exactly what the plan read (`valueEdits()`), none set over a container and none needing a new one. Anything else refuses that document |
 | 2. A backup exists before anything changes | Inside the lock, before the first `UPDATE`, each row about to change is written to the backup folder as three files at the path its `.pro` file had: `<name>.pro.loro`, the snapshot as stored; `<name>.pro.row.json`, the other columns, bytes as hex; and `<name>.pro`, the conversion, for a person to read. Each is read back and compared and its folders flushed (`writeBackups()`, shared with the `.pro` path). If one cannot be made, here or in any other root of the call, the run is rolled back and nothing is written in any of them |
 | 3. A person saw every change and chose it | `apply_slide_edits` takes a plan id, and the server asks through MCP elicitation, one tick box per line and per structural change, each structural change as it is and as it would be: a group's name, colour and tie, a macro and its collection. Each line also says what it does to the styling on it, every range whose text on that line changes, as the text it covers before and after, and for an added line the styling it takes (`describeStyling()` in `packages/node/src/styling.ts`), and whether a range past the end of the box is cut back. The confirmation says to quit ProPresenter first |
 | 4. The result is read back and compared | Three times. The new snapshot, before it is written: decoded afresh, it must be the old document with exactly the planned `rtf_data`, ranges and structural values and nothing else (`checkWorkspaceEdit()`), its version vector the old one plus our one peer (`onlyPeerAdded()`), every line of every box, read through the conversion, what was promised (`verifyLines()`, which `applyFixes()` uses too), the whole structure -- every group, the order of the slides, every arrangement, the macros on every slide -- what was promised (`sameStructure()`, which `applyFixes()` uses too), and every range of every edited box the right way round and within its text, which a plan holding a wrong range would otherwise pass. The row, read back on the same connection before `COMMIT`, checked the same way. And the store reopened read-only after it. A mismatch before `COMMIT` rolls the run back |
@@ -438,7 +438,7 @@ lock, with two things more.
 time and again inside the lock, `syncedWithCloud()`). Its
 `last_shared_version_vector` is what ProPresenter last sent and Cloud
 confirmed; it has to cover the version vector, every peer at least as far,
-and `last_shared_absence_reason` has to be `NULL`. Otherwise the document
+and `last_shared_version_vector_absence_reason` has to be `NULL`. Otherwise the document
 has a change Cloud has not confirmed -- made in ProPresenter with sync
 paused, say -- and ours would go up together with it, so the person is told
 that ProPresenter has changes it has not sent to Cloud yet, and to open
@@ -482,7 +482,7 @@ throwaway Cloud workspace with one synthetic song, through this write path:
   document's history.
 - `last_shared_version_vector` follows what was sent, not what was saved: a
   local edit made with sync paused left it behind the version vector, with
-  `last_shared_absence_reason` still `NULL`, until sync resumed. This is
+  `last_shared_version_vector_absence_reason` still `NULL`, until sync resumed. This is
   what the rule above reads.
 
 **Not yet seen:** a second computer receiving the change; the same text box
