@@ -4,7 +4,7 @@
 // kept in several places. What stands alone -- the rows, the write path, the
 // team's rules, the cards -- is under `presentations/`.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { FolderOpen, X } from "lucide-react";
 import {
   folderAccess,
@@ -418,6 +418,11 @@ export function Presentations() {
     return load({ name: folder.name, files: nativeFiles(shell, folder) }, null, mine);
   }
 
+  // The reopen on mount calls these through effect events: it must run once,
+  // yet always reach the latest render's `load`, not the first one's.
+  const loadOnMount = useEffectEvent(load);
+  const loadNativeOnMount = useEffectEvent(loadNative);
+
   /** Open a folder through the desktop shell: its dialog, or a workspace it listed. */
   async function chooseNative(open: () => Promise<NativeFolder | null>) {
     setError(null);
@@ -465,7 +470,7 @@ export function Presentations() {
           const [last, listed] = await Promise.all([shell.reopenLast(), shell.workspaces()]);
           if (cancelled) return;
           setWorkspaces(listed);
-          if (last) await loadNative(shell, last, mine);
+          if (last) await loadNativeOnMount(shell, last, mine);
         } catch (e) {
           if (!cancelled) setError((e as Error).message);
         }
@@ -486,7 +491,7 @@ export function Presentations() {
           await forget(KEYS.presentationsFolder);
           return;
         }
-        if (!cancelled) await load(folder, saved, mine);
+        if (!cancelled) await loadOnMount(folder, saved, mine);
         return;
       }
 
