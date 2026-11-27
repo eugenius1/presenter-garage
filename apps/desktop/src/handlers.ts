@@ -40,16 +40,30 @@ export interface ShellDeps {
   workspacesDir?: string;
   /** Where the team's rules are looked for, as the MCP server and the command line do by default. */
   rulesDirs?: string[];
+  /** Writes the remembered folder's state; `stateFile` by default. A test holds it to hold an open half way. */
+  saveState?: (json: string) => Promise<void>;
 }
+
+/**
+ * The folder open now, as the page was told of it, kept as one value and
+ * replaced whole: a handler takes it once, before its first wait, so a folder
+ * opened or forgotten meanwhile is never half of what it works with.
+ */
+interface OpenFolder {
+  /** As `openRoots` resolved it. Nothing outside it can be read or written. */
+  roots: string[];
+  /** The presentations its walk listed: the only paths `read` answers for. */
+  listed: Set<string>;
+  /** Whether the page was told it is a Cloud workspace, and so shows the Cloud warning beside its button. */
+  cloud: boolean;
+}
+
+const NOTHING_OPEN: OpenFolder = { roots: [], listed: new Set(), cloud: false };
 
 export function createHandlers(deps: ShellDeps): DesktopBridge {
   const registryDir = deps.workspacesDir ?? workspacesDir();
-  /** The folder open now, as `openRoots` resolved it. Nothing outside it can be read or written. */
-  let roots: string[] = [];
-  /** The presentations its walk listed: the only paths `read` answers for. */
-  let listed = new Set<string>();
-  /** Whether the page was told the folder is a Cloud workspace, and so shows the Cloud warning beside its button. */
-  let shownCloud = false;
+  /** The folder open now, set only once an open has finished every wait, as the page is told of it. */
+  let open: OpenFolder = NOTHING_OPEN;
   /**
    * Bumped by every open and every forget. An open that finds it moved on
    * while it walked the folder was overtaken, and leaves the state alone.
@@ -78,12 +92,15 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
     // Either says Cloud, as the write path's own check (`checkWritableWorkspace`) takes either.
     const cloud = registered?.cloud === true || (await hasCloudImprint(root));
     const { files, truncated } = await findPresentations(opened);
-    if (mine !== generation) throw new LibraryError(`${root} was closed or replaced while it was opening.`);
-    roots = opened;
-    listed = new Set(files);
-    shownCloud = Boolean(workspace) && cloud;
+    const overtaken = () => new LibraryError(`${root} was closed or replaced while it was opening.`);
+    if (mine !== generation) throw overtaken();
     // Remembering is a convenience: a folder that opened is open, whether or not it could be noted.
     await remember(root).catch(() => undefined);
+    // Made the open folder only now, after the last wait, and only if nothing
+    // overtook it during that wait either: until this returns, the page shows
+    // the folder before, and a save meanwhile is a save of that one.
+    if (mine !== generation) throw overtaken();
+    open = { roots: opened, listed: new Set(files), cloud: Boolean(workspace) && cloud };
     return {
       root,
       name: registered?.name ?? path.basename(root),
@@ -98,9 +115,11 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
   }
 
   function remember(root: string | undefined): Promise<void> {
+    const json = JSON.stringify(root ? { lastFolder: root } : {});
     const write = saving.then(async () => {
+      if (deps.saveState) return deps.saveState(json);
       await fs.mkdir(path.dirname(deps.stateFile), { recursive: true });
-      await fs.writeFile(deps.stateFile, JSON.stringify(root ? { lastFolder: root } : {}));
+      await fs.writeFile(deps.stateFile, json);
     });
     saving = write.catch(() => undefined);
     return write;
@@ -142,9 +161,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
 
     async forgetLast() {
       generation++;
-      roots = [];
-      listed = new Set();
-      shownCloud = false;
+      open = NOTHING_OPEN;
       await remember(undefined);
     },
 
@@ -171,6 +188,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
       if (typeof p !== "string") throw new LibraryError("No file named.");
       // Only what the folder's walk listed: the open folder may hold other files that are none of the page's business.
       // Checked again once links are followed: a listed file since replaced by a link to another file is not that file.
+      const { roots, listed } = open;
       const real = listed.has(p) ? await resolveInRoots(roots, p) : undefined;
       if (real === undefined || !listed.has(real)) throw new LibraryError(`Not a presentation in the open folder: ${p}`);
       return readWithHash(real);
@@ -178,13 +196,11 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
 
     async applyFixes(files: ChosenFile[]): Promise<NativeApplyResult> {
       if (!isChosenFiles(files)) throw new LibraryError("The lines to fix were not sent in a shape this understands.");
-      if (roots.length === 0) throw new LibraryError("No folder is open.");
-      // The folder the save was asked of, for planning and applying alike: one
-      // opened meanwhile would pair this plan with another folder's roots.
-      const asked = roots;
-      // And what the page was told of that folder, taken at the same moment:
-      // a Cloud workspace opening while this plans must not answer for it.
-      const askedCloud = shownCloud;
+      // The folder the save was asked of, and what the page was told of it,
+      // for planning and applying alike: one opened meanwhile would pair this
+      // plan with another folder's roots, or another folder's Cloud warning.
+      const { roots: asked, cloud: askedCloud } = open;
+      if (asked.length === 0) throw new LibraryError("No folder is open.");
       try {
         // A Cloud workspace is written as the MCP server writes it: the page
         // shows the Cloud warning beside the button, and the shared write
@@ -229,6 +245,7 @@ export function createHandlers(deps: ShellDeps): DesktopBridge {
 
     async readConfiguration() {
       // Read only, and only from the folder open: `rulesConfiguration` reads through the roots, as every read here does.
+      const { roots } = open;
       return roots.length ? rulesConfiguration(roots) : { problems: [] };
     },
 

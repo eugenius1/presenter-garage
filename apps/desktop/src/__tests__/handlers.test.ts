@@ -587,6 +587,45 @@ describe.skipIf(!sqlite)("a ProPresenter 22 workspace", () => {
     expect(store()).toEqual(before);
   });
 
+  it("saves the folder the page still shows while a Cloud workspace is half way through opening", async () => {
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
+    const cloudRoot = createWritableWorkspace(path.join(tmp, "Elsewhere"), { cloud: true });
+    putPresentation(cloudRoot, "Song", presentationRoot(), { lastShared: "synced" });
+    // Remembering the folder is the open's last wait: held, the open is past its every other check.
+    let hold = false;
+    let release: () => void = () => {};
+    let reached: () => void = () => {};
+    const atRemember = new Promise<void>((resolve) => (reached = resolve));
+    bridge = createHandlers({
+      chooseFolder: async () => cloudRoot,
+      showFolder: async () => undefined,
+      stateFile: path.join(tmp, "state.json"),
+      saveState: () => {
+        if (!hold) return Promise.resolve();
+        reached();
+        return new Promise<void>((resolve) => (release = resolve));
+      },
+      backupDir: backups,
+      workspacesDir: path.join(tmp, "Workspaces"),
+    });
+    const shownFolder = await bridge.openWorkspace(root);
+    expect(shownFolder.workspace?.cloud).toBe(false);
+    const choice = await chosen(shownFolder.files.find((f) => f.name === "Song.pro")!.path);
+
+    hold = true;
+    const opening = bridge.pickFolder();
+    await atRemember;
+    // The page still shows the local workspace, with no Cloud warning: the save is of that one.
+    const run = await bridge.applyFixes([choice]);
+    expect(run.files).toEqual([expect.objectContaining({ path: choice.path, written: true })]);
+
+    release();
+    const cloudFolder = await opening;
+    expect(cloudFolder.workspace?.cloud).toBe(true);
+    // And once it has opened, the Cloud workspace is the open one.
+    await expect(bridge.read(choice.path)).rejects.toThrow(/Not a presentation in the open folder/);
+  });
+
   it("refuses a Cloud document with changes ProPresenter has not sent, saying why", async () => {
     fs.rmSync(path.join(tmp, "Workspaces"), { recursive: true });
     root = createWritableWorkspace(tmp, { cloud: true });
