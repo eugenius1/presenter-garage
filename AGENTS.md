@@ -76,10 +76,11 @@ quietly drop one from a path that has them:
    only what they left chosen. Where their client can ask, the server asks
    them itself before anything is written, and the model cannot answer
    that. The model is told never to choose or confirm for them; where the
-   client cannot ask, only choices saved by a review page a person was shown
-   are taken as theirs -- an accepted risk, weighed in
+   client cannot ask, only choices saved to a review folder whose page a
+   person was shown are taken as theirs -- an accepted risk, weighed in
    [docs/design/guard3-review-file.md](docs/design/guard3-review-file.md)
-   -- and a write path with no such page writes nothing.
+   (designed, not yet built) -- and a write path with no such page writes
+   nothing.
 4. **The result is read back and compared** to what was promised, for every
    line of every box including the ones no change touched, and for the whole
    structure -- every group, the order of the slides, every arrangement and

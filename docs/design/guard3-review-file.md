@@ -51,8 +51,10 @@ It does not work for a cleanup across a library:
 5. **Apply.** When the person says they are done, the model calls
    `apply_slide_edits` with the folder.
    - **A client with form elicitation:** the server asks the person once
-     to confirm the set they chose. For example: "Write 37 of the 40
-     changes, in 6 presentations? Each is backed up to … first."
+     to confirm the set they chose, naming each presentation with how many
+     of its changes are chosen. For example: "Write 37 of the 40 changes,
+     in 6 presentations (Amazing Grace: 5 of 6, …)? Each is backed up to …
+     first."
    - **A client without it:** the saved choices are taken as the person's,
      and the server writes without asking.
 
@@ -66,7 +68,7 @@ ask gets nothing written. The refusal suggests planning again with `out`.
 
 | File | Written | Holds |
 | --- | --- | --- |
-| `plan.json` | Once, at plan time | The plan as `applyPlan()` takes it. That is each `PlannedFile` with its `sha256`, its numbered lines and structural changes, and the slides around them. It also holds the library root it was made in, and a hash of itself. |
+| `plan.json` | Once, at plan time | The plan as `applyPlan()` takes it. That is each `PlannedFile` with its `sha256`, its numbered lines and structural changes, and the slides around them. It also holds the library root it was made in and its backup folder, which `refuseUnlessOpen()` compares. |
 | `choices.json` | On every save, batched to about half a second, atomically (temp file, then rename) | The plan's hash. For each change: ticked or not, and its note. |
 | `runs.json` | After every apply | Each apply's outcome: which changes were written, and why each file that was not, was not. |
 | `review.html` | At plan time, after every apply, and on request (`export_review(folder)`, or the page's "Save a read-only copy") | One self-contained, read-only snapshot with the plan, choices and outcomes embedded, headed with when it was made: "Choices as of 28 Nov 2026, 14:32". |
@@ -75,8 +77,8 @@ ask gets nothing written. The refusal suggests planning again with `out`.
 a look during a break with no session open, or to send to someone. Opened
 from disk, it says how to change the choices: ask Claude to open the review.
 
-The plan never expires. Guard 4's check per file is what keeps an old plan
-safe. A plan made 14 days ago still writes every file that has not changed
+The plan never expires. The hash check on each file, as it is read at apply
+time, is what keeps an old plan safe. A plan made 14 days ago still writes every file that has not changed
 since. Every file that has is refused alone (see *Applying*).
 
 ## The page
@@ -133,9 +135,12 @@ form that is already long.
 
 `apply_slide_edits(folder)` does the following, in order:
 
-1. Reads `plan.json` and checks it against its hash as recorded at plan
-   time in the server's own state, outside `out`. A plan that differs is
-   refused whole: what is applied must be what the page showed.
+1. Reads `plan.json` and checks its hash against the one recorded at plan
+   time in the server's own state on disk, outside `out`: a marker file
+   named for the hash in a `Reviews` folder beside the default `Backups`
+   one (`defaultBackupDir()`), so it survives a restart as the plan does.
+   A plan that differs is refused whole: what is applied must be what the
+   page showed.
 2. Reads `choices.json`, and refuses it unless it names that plan's hash.
 3. Refuses unless the plan's library is the one open, as
    `refuseUnlessOpen()` does today.
@@ -188,10 +193,12 @@ working against them.
   descriptions, never to edit a review's files, and never to choose or
   confirm for the person.
 
-**Accepted risk:** where the client cannot ask, a model that edits
-`choices.json`, or posts to the page itself, is taken as the person. That is
-the price of not blocking clients without elicitation, and AGENTS.md's
-guard 3 now says so.
+**Accepted risk:** a model that edits `choices.json`, or posts to the page
+itself, is taken as the person. Where the client cannot ask, nothing else
+is asked. Where it can, the summary confirmation names each presentation
+with how many of its changes are chosen, so a swap that keeps every count
+the same would still pass. That is the price of a friendly review that does
+not block clients without elicitation, and AGENTS.md's guard 3 now says so.
 
 **Unchanged:** the per-change form without `out` keeps today's strength. The
 person's answer comes from the client, and a client that cannot ask gets
