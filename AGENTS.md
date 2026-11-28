@@ -73,7 +73,13 @@ quietly drop one from a path that has them:
 3. **A person saw every change and chose it.** They see each line as it is
    and as it would read, and each structural change as it is and as it would
    be, one tick box to a change, before anything happens, and the run touches
-   only what they left chosen. The model never answers for them.
+   only what they left chosen. Where their client can ask, the server asks
+   them itself before anything is written, and the model cannot answer
+   that. The model is told never to choose or confirm for them; where the
+   client cannot ask, only choices saved by a review page a person was shown
+   are taken as theirs -- an accepted risk, weighed in
+   [docs/design/guard3-review-file.md](docs/design/guard3-review-file.md)
+   -- and a write path with no such page writes nothing.
 4. **The result is read back and compared** to what was promised, for every
    line of every box including the ones no change touched, and for the whole
    structure -- every group, the order of the slides, every arrangement and
