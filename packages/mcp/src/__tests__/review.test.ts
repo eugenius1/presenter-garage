@@ -6,6 +6,10 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { ElicitRequestSchema, type ElicitRequest, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 import { syntheticTextPresentation, textLines } from "@presenter-garage/core/lib/__tests__/synthetic";
+import { createI18n } from "@presenter-garage/core/i18n/core";
+import { sqlite } from "@presenter-garage/node/__tests__/workspace-db";
+import { createWritableWorkspace, presentationRoot, putPresentation } from "@presenter-garage/node/__tests__/workspace-writable";
+import { openInBrowser } from "../review-server";
 import { connect } from "./connect";
 
 /**
@@ -74,10 +78,13 @@ const EDITS = [
   { path: "Libraries/Default/Other.pro", boxIndex: 0, lineIndex: 0, text: "Another tidier line" },
 ];
 
-async function planReview(call: Awaited<ReturnType<typeof server>>["call"], edits = EDITS) {
+/** Plan into a review, and have the page show it to the person, as their browser would, unless `shown` is false. */
+async function planReview(call: Awaited<ReturnType<typeof server>>["call"], { edits = EDITS, shown = true } = {}) {
   const result = await call("plan_slide_edits", { edits, out });
   expect(result.isError, result.text).toBe(false);
-  return result.json() as { review: string; url: string; opened: string; chosen: number; presentations: number };
+  const planned = result.json() as { review: string; url: string; opened: string; chosen: number; presentations: number };
+  if (shown) expect((await request(`${planned.url}review.json`)).status).toBe(200);
+  return planned;
 }
 
 /** A request to the page's server, with any `Host` and headers a test wants. */
@@ -106,7 +113,7 @@ describe("planning into a review folder", () => {
     const result = await call("plan_slide_edits", { edits: EDITS, out });
     expect(result.text).not.toContain("tidier");
     const planned = result.json();
-    expect(planned).toMatchObject({ presentations: 2, changes: { lines: 3, structural: 0 }, chosen: 3, written: 0, opened: "browser" });
+    expect(planned).toMatchObject({ presentations: 2, changes: { lines: 3, structural: 0 }, chosen: 3, written: 0, shown: false, opened: "browser" });
     expect(path.dirname(planned.review)).toBe(fs.realpathSync(out));
     expect(fs.readdirSync(planned.review).sort()).toEqual(["choices.json", "plan.json", "runs.json"]);
     expect(opened).toEqual([planned.url]);
@@ -116,12 +123,13 @@ describe("planning into a review folder", () => {
     expect([fs.readFileSync(song), fs.readFileSync(other)]).toEqual(before);
   });
 
-  it("never makes the folder inside the library", async () => {
+  it("never makes the folder inside the library, nor anywhere a relative path would land", async () => {
     const { call } = await server();
     const result = await call("plan_slide_edits", { edits: EDITS, out: path.join(library, "out") });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/inside the library/);
     expect(fs.existsSync(path.join(library, "out"))).toBe(false);
+    expect((await call("plan_slide_edits", { edits: EDITS, out: "out" })).text).toMatch(/Give an absolute folder for the review, not out/);
   });
 
   it("takes more than a form's 200 changes with out, up to 2,000", async () => {
@@ -152,6 +160,7 @@ describe("the page", () => {
     expect(page.headers["content-security-policy"]).toMatch(/script-src 'nonce-/);
     const data = JSON.parse((await request(`${url}review.json`)).body);
     expect(data.files.map((f: { name: string }) => f.name)).toEqual(["Song", "Other"]);
+    expect(data.warning).toMatch(/close it first/);
     expect(data.files[0].items[0]).toMatchObject({ n: 1, said: "“A tidy line” → “A tidier line”" });
     expect(data.choices).toEqual({ 1: { ticked: true }, 2: { ticked: true }, 3: { ticked: true } });
 
@@ -173,8 +182,12 @@ describe("the page", () => {
     expect((await put(url, { 1: { ticked: false } }, { Origin: "https://evil.example" })).status).toBe(403);
     const form = await request(`${url}choices`, { method: "PUT", headers: { "Content-Type": "text/plain" }, body: "{}" });
     expect(form.status).toBe(415);
+    expect((await request(url, { headers: { Host: `localhost:${port}` } })).status).toBe(403);
+    expect((await put(url, { 1: { ticked: false } }, { Origin: "null" })).status).toBe(403);
     const unknown = await put(url, { 9: { ticked: false } });
     expect([unknown.status, unknown.body]).toEqual([409, "The plan has no change 9."]);
+    const vague = await put(url, { 1: { ticked: "yes" } });
+    expect([vague.status, vague.body]).toEqual([409, "Change 1 is neither ticked nor unticked."]);
     expect(choicesOf(review).changes[1]).toEqual({ ticked: true });
   });
 });
@@ -214,9 +227,33 @@ describe("reading and applying a review", () => {
     expect(JSON.parse(fs.readFileSync(path.join(review, "runs.json"), "utf8"))[0].written).toEqual([1, 3]);
 
     // Again: what was written is not written twice, and what stays unticked stays unwritten.
+    // Nor can the change left unticked in a presentation since written: its file has moved on, and needs a new plan.
+    await put(url, { 2: { ticked: true } });
     const again = (await call("apply_slide_edits", { review })).json();
     expect(again).toMatchObject({ answer: "nothingChosen", files: [] });
     expect(asked).toHaveLength(1);
+    const read = (await call("read_review", { review })).json();
+    expect(read.needNewPlan).toEqual([expect.objectContaining({ n: 2, presentation: "Song", after: "Que ton nom" })]);
+    expect(JSON.parse((await request(`${url}review.json`)).body).needNewPlan).toEqual([2]);
+  });
+
+  it("applies nothing from a review whose page nobody has opened", async () => {
+    const before = fs.readFileSync(song);
+    const { call } = await server();
+    const { review } = await planReview(call, { shown: false });
+    const result = await call("apply_slide_edits", { review });
+    expect([result.isError, result.text]).toEqual([true, expect.stringMatching(/has not opened this review's page yet/)]);
+    expect(fs.readFileSync(song)).toEqual(before);
+  });
+
+  it("refuses a review's files copied into another folder", async () => {
+    const { call } = await server();
+    const { review } = await planReview(call);
+    const copy = path.join(dir, "copy");
+    fs.cpSync(review, copy, { recursive: true });
+    const result = await call("apply_slide_edits", { review: copy });
+    expect([result.isError, result.text]).toEqual([true, expect.stringMatching(/not a plan this server wrote into this folder/)]);
+    expect((await call("apply_slide_edits", { review: "out/review" })).text).toMatch(/Give an absolute folder for the review/);
   });
 
   it("writes nothing when the person declines", async () => {
@@ -301,5 +338,30 @@ describe("reading and applying a review", () => {
     const { call } = await server();
     expect((await call("apply_slide_edits", {})).text).toBe("Give either planId or review.");
     expect((await call("apply_slide_edits", { planId: "x", review: "/y" })).text).toBe("Give either planId or review.");
+  });
+});
+
+describe.skipIf(!sqlite)("a review of a ProPresenter 22 Cloud workspace", () => {
+  it("keeps the document's id through plan.json, warns on the page that it is Cloud, and writes into the workspace", async () => {
+    const root = createWritableWorkspace(path.join(dir, "cloud"), { cloud: true });
+    fs.writeFileSync(path.join(root, "imprint.cloud"), "{}");
+    putPresentation(root, "Song", presentationRoot(), { lastShared: "synced" });
+    const { call } = await server({}, undefined, root);
+    const edits = [{ path: "Libraries/Default/Song.pro", boxIndex: 6, lineIndex: 0, text: "Que ton nom" }];
+    const { review, url } = await planReview(call, { edits });
+    const data = JSON.parse((await request(`${url}review.json`)).body);
+    expect(data.warning.startsWith(createI18n("en").t.tools.presentations.cloudWrite)).toBe(true);
+    expect(data.warning).toMatch(/Quit ProPresenter first/);
+    const result = (await call("apply_slide_edits", { review })).json();
+    expect(result).toMatchObject({ answer: "notAsked", files: [{ written: true, lines: 1 }] });
+    const read = (await call("read_presentation", { path: "Libraries/Default/Song.pro" })).json();
+    expect(read.slides[6].textBoxes[0].lines[0]).toBe("Que ton nom");
+  });
+});
+
+describe("opening the page in the browser", () => {
+  it("opens nothing but this server's own page", async () => {
+    expect(await openInBrowser("https://example.com/")).toBe(false);
+    expect(await openInBrowser("http://127.0.0.1:1/r/x/; rm -rf ~")).toBe(false);
   });
 });

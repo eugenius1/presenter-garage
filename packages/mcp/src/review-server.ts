@@ -3,9 +3,9 @@ import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { LibraryError } from "@presenter-garage/node/library";
-import { mergeChoices, readReview, saveChoices, writtenIn, type Review } from "@presenter-garage/node/review";
+import { markShown, needNewPlan, readReview, saveChoices, writtenIn, type Review } from "@presenter-garage/node/review";
 import { reviewPage } from "./review-page";
-import { changeWhere, describeChange, lineSaid, lineWhere } from "./wording";
+import { beforeWriting, changeWhere, describeChange, lineSaid, lineWhere } from "./wording";
 
 /**
  * The loopback server a review page is served from: one per MCP server,
@@ -45,8 +45,11 @@ export function reviewData(review: Review) {
         ...file.changes.map(({ n, change }) => ({ n, where: changeWhere(change), said: describeChange(change) })),
       ],
     })),
+    // Said on the page as in the form: where the client cannot ask, the page is all the person sees before a write.
+    warning: Object.values(beforeWriting(review.plan.files)).join("").trim(),
     choices: review.choices.changes,
     written: [...writtenIn(review)],
+    needNewPlan: needNewPlan(review),
     runs: review.runs.map((run) => ({
       at: run.at,
       files: run.files.map(({ name, written, reason, detail }) => ({ name, written, reason, detail })),
@@ -86,7 +89,8 @@ export function reviewHost(reviewsDir: string): ReviewHost {
       });
     }
     if (request.method === "GET" && rest === "review.json") {
-      return send(200, JSON.stringify(reviewData(await readReview(folder, reviewsDir))), "application/json");
+      // The page has the review in front of the person: until it has, nothing is applied from it.
+      return send(200, JSON.stringify(reviewData(await markShown(folder, reviewsDir))), "application/json");
     }
     if (request.method === "PUT" && rest === "choices") {
       const sentFrom = request.headers.origin;
@@ -105,8 +109,7 @@ export function reviewHost(reviewsDir: string): ReviewHost {
       } catch {
         return send(400, "The choices are not JSON.");
       }
-      const review = await readReview(folder, reviewsDir);
-      await saveChoices(review, mergeChoices(review, sent));
+      await saveChoices(folder, reviewsDir, sent);
       return send(200, JSON.stringify({ saved: true }), "application/json");
     }
     return send(405, "Not something this page does.");

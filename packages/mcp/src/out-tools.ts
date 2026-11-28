@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createI18n, type Lang } from "@presenter-garage/core/i18n/core";
 import { isPresentationFile } from "@presenter-garage/core/lib/folder";
 import { discover } from "@presenter-garage/node/commands/discover";
+import { absoluteFolder } from "@presenter-garage/node/commands/out-folder";
 import { labelKey, writeCheck, writeCompare, writeDump, writeRulesCheck, writeSources } from "@presenter-garage/node/commands/output";
 import { isLabel, readSource, type Source } from "@presenter-garage/node/commands/source";
 import { isFile, LibraryError, openRoots, resolveInRoots } from "@presenter-garage/node/library";
@@ -46,12 +47,8 @@ export const OUT = z
       "`out` is that new folder."
   );
 
-/** The folder a model named, as an absolute path. */
-function outFolder(given: string): string {
-  const dir = given.startsWith("file:") ? fileURLToPath(given) : given;
-  if (!path.isAbsolute(dir)) throw new LibraryError(`Give an absolute folder for the results, not ${given}.`);
-  return dir;
-}
+/** The folder a model named for the results, as an absolute path. */
+const outFolder = (given: string) => absoluteFolder(given, "the results");
 
 /** A folder that cannot be made or written is the person's to put right: an answer, not a crash. */
 async function writing<T>(run: () => Promise<T>): Promise<T> {

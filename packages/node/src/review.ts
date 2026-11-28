@@ -1,8 +1,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { writeOut } from "./commands/out-folder";
+import { absoluteFolder, writeOut } from "./commands/out-folder";
 import { isInside, LibraryError } from "./library";
 import type { AppliedFile } from "./apply";
 import type { Plan } from "./plans";
@@ -14,15 +13,18 @@ import { appDataDir, sha256 } from "./write";
  * have exactly what they chose applied. See docs/design/guard3-review-file.md.
  *
  * The folder is made inside an `out` folder by `writeOut()`, so it is never
- * inside, nor holding, a library. Unlike the rest of `out`, three of its
- * files are replaced as the review goes on -- `choices.json`, `runs.json`,
- * and the page's snapshot -- each written whole beside itself and renamed
- * over the last, so a reader never finds half of one. Nothing else in the
- * folder, or outside it, is ever replaced.
+ * inside, nor holding, a library. Unlike the rest of `out`, two of its
+ * files are replaced as the review goes on -- `choices.json` and
+ * `runs.json` -- each written whole beside itself and renamed over the
+ * last, so a reader never finds half of one, and each read, changed and
+ * written in one turn of the review's queue, so two saves never build on
+ * the same old copy. Nothing else in the folder, or outside it, is ever
+ * replaced.
  *
  * `plan.json` is written once. Its hash is recorded at plan time in the
- * server's own `Reviews` folder, outside `out`, so a plan changed since --
- * by hand, by a tool, by mistake -- is refused whole: what is applied must
+ * server's own `Reviews` folder, outside `out`, with the folder it was
+ * written into, so a plan changed since -- by hand, by a tool, by mistake --
+ * or one copied into another review is refused whole: what is applied must
  * be what the page showed. That is not proof against somebody determined;
  * the design note says why that was weighed and accepted.
  */
@@ -44,6 +46,8 @@ export interface Choice {
 /** What `choices.json` holds, bound to the plan it is about by that plan's hash. */
 export interface Choices {
   plan: string;
+  /** When the page first showed the review: nothing is applied from a review nobody has opened. */
+  shown?: string;
   changes: Record<string, Choice>;
 }
 
@@ -74,7 +78,7 @@ const PLAN = "plan.json";
 const CHOICES = "choices.json";
 const RUNS = "runs.json";
 /** The only files a review ever replaces. */
-export type ReplacedFile = typeof CHOICES | typeof RUNS | "review.html";
+type ReplacedFile = typeof CHOICES | typeof RUNS;
 
 /** Where plans' hashes are recorded when nobody says: the app's own data folder, beside its backups. */
 export const defaultReviewsDir = () => appDataDir("Reviews");
@@ -130,11 +134,14 @@ async function openReviewsDir(dir: string, roots: readonly string[]): Promise<st
   return real;
 }
 
-/** A review folder named by a model or a person, as an absolute path. */
-function reviewFolder(given: string): string {
-  const dir = given.startsWith("file:") ? fileURLToPath(given) : given;
-  if (!path.isAbsolute(dir)) throw new LibraryError(`Give the review folder as an absolute path, not ${given}.`);
-  return dir;
+/** A review folder named by a model or a person, as its real path. */
+async function reviewFolder(given: string): Promise<string> {
+  try {
+    return await fs.realpath(absoluteFolder(given, "the review"));
+  } catch (e) {
+    if (e instanceof LibraryError) throw e;
+    throw new LibraryError(`There is no review folder at ${given}.`);
+  }
 }
 
 async function readJson(file: string, what: string): Promise<{ bytes: Uint8Array; value: unknown }> {
@@ -154,22 +161,27 @@ async function readJson(file: string, what: string): Promise<{ bytes: Uint8Array
 }
 
 /**
- * Read a review folder, refusing a `plan.json` whose hash this server did not
- * record when it wrote it, and a `choices.json` about any other plan.
+ * Read a review folder once every write to it already asked for has landed,
+ * refusing a `plan.json` whose hash this server did not record when it
+ * wrote it into this very folder, and a `choices.json` about any other plan.
  */
 export async function readReview(given: string, reviewsDir: string): Promise<Review> {
-  let folder: string;
-  try {
-    folder = await fs.realpath(reviewFolder(given));
-  } catch {
-    throw new LibraryError(`There is no review folder at ${given}.`);
-  }
+  const folder = await reviewFolder(given);
+  return inTurn(folder, () => readNow(folder, reviewsDir));
+}
+
+/** The read itself, for a caller already in the folder's turn. */
+async function readNow(folder: string, reviewsDir: string): Promise<Review> {
   const planned = await readJson(path.join(folder, PLAN), PLAN);
   const hash = sha256(planned.bytes);
-  const recorded = await fs.stat(path.join(reviewsDir, hash)).then((s) => s.isFile(), () => false);
-  if (!recorded) {
+  const record = await fs.readFile(path.join(reviewsDir, hash), "utf8").then(
+    (text) => (JSON.parse(text) as { folder?: unknown }).folder,
+    () => undefined
+  );
+  if (record !== folder) {
     throw new LibraryError(
-      `${path.join(folder, PLAN)} is not a plan this server wrote: it has changed since, or was made on another computer. ` +
+      `${path.join(folder, PLAN)} is not a plan this server wrote into this folder: it has changed since, was moved or ` +
+        "copied here from another review, or was made on another computer. " +
         "Nothing was read from it. Plan the edits again."
     );
   }
@@ -186,10 +198,28 @@ export async function readReview(given: string, reviewsDir: string): Promise<Rev
 /** Every change a run of this review has written. */
 export const writtenIn = (review: Pick<Review, "runs">) => new Set(review.runs.flatMap((run) => run.written));
 
-/** The changes an apply would write now: left ticked, and not written by an earlier run. */
+/**
+ * The presentations a run of this review has written. The rest of their
+ * changes cannot be applied from it: the file's hash changed when it was
+ * written, so they need a new plan.
+ */
+export const closedIn = (review: Pick<Review, "runs">) =>
+  new Set(review.runs.flatMap((run) => run.files.filter((file) => file.written).map((file) => file.path)));
+
+/** Each change's number, with the presentation it is in. */
+const changesByFile = (plan: Plan) => plan.files.flatMap((file) => [...file.lines, ...file.changes].map(({ n }) => ({ n, path: file.path })));
+
+/** The changes an apply would write now: left ticked, in a presentation no earlier run wrote. */
 export function chosenNow(review: Review): Set<number> {
+  const closed = closedIn(review);
+  return new Set(changesByFile(review.plan).filter(({ n, path: p }) => review.choices.changes[n]?.ticked === true && !closed.has(p)).map(({ n }) => n));
+}
+
+/** Changes not written, in a presentation a run wrote: the ones only a new plan can make. */
+export function needNewPlan(review: Review): number[] {
+  const closed = closedIn(review);
   const written = writtenIn(review);
-  return new Set(changeNumbers(review.plan).filter((n) => review.choices.changes[n]?.ticked === true && !written.has(n)));
+  return changesByFile(review.plan).filter(({ n, path: p }) => closed.has(p) && !written.has(n)).map(({ n }) => n);
 }
 
 /**
@@ -210,15 +240,15 @@ export function mergeChoices(review: Review, sent: unknown): Choices {
     const line = note?.replace(/[\r\n\u2028\u2029]+/g, " ").trim().slice(0, MAX_NOTE);
     merged[key] = { ticked, ...(line ? { note: line } : {}) };
   }
-  return { plan: review.hash, changes: merged };
+  return { ...review.choices, changes: merged };
 }
 
 /** Writes to one review folder, one at a time: two renames racing could land the older last. */
 const queues = new Map<string, Promise<unknown>>();
 
-/** Run `write` once every earlier write to this folder has finished. */
-function inTurn<T>(folder: string, write: () => Promise<T>): Promise<T> {
-  const run = (queues.get(folder) ?? Promise.resolve()).then(write);
+/** Run `work` once everything asked of this folder before it has finished. */
+function inTurn<T>(folder: string, work: () => Promise<T>): Promise<T> {
+  const run = (queues.get(folder) ?? Promise.resolve()).then(work);
   const settled = run.catch(() => undefined);
   queues.set(folder, settled);
   void settled.then(() => {
@@ -231,33 +261,42 @@ function inTurn<T>(folder: string, write: () => Promise<T>): Promise<T> {
  * Replace one of the files a review keeps up to date: written whole beside
  * it under a name nothing else uses, then renamed over it, so a reader finds
  * the old file or the new one and never half of either. A rename replaces a
- * link left in the file's place rather than following it.
+ * link left in the file's place rather than following it. Called in the
+ * folder's turn.
  */
-export function replaceInReview(folder: string, name: ReplacedFile, content: string): Promise<void> {
+async function replace(folder: string, name: ReplacedFile, content: string): Promise<void> {
+  const temp = path.join(folder, `.${name}.${randomBytes(6).toString("hex")}.tmp`);
+  await fs.writeFile(temp, content, { flag: "wx" });
+  try {
+    // The folder itself checked again: a folder swapped for a link would put the file elsewhere.
+    if ((await fs.realpath(folder)) !== folder) throw new LibraryError(`${folder} has moved, so the review was not saved.`);
+    await fs.rename(temp, path.join(folder, name));
+  } catch (e) {
+    await fs.rm(temp, { force: true });
+    throw e;
+  }
+}
+
+/** Read the review, change it, and write what changed, all in one turn, so no other save lands in between. */
+async function update(given: string, reviewsDir: string, change: (review: Review) => Partial<Pick<Review, "choices" | "runs">>): Promise<Review> {
+  const folder = await reviewFolder(given);
   return inTurn(folder, async () => {
-    const target = path.join(folder, name);
-    const temp = path.join(folder, `.${name}.${randomBytes(6).toString("hex")}.tmp`);
-    await fs.writeFile(temp, content, { flag: "wx" });
-    try {
-      // The folder itself checked again: a folder swapped for a link would put the file elsewhere.
-      if ((await fs.realpath(folder)) !== folder) throw new LibraryError(`${folder} has moved, so the review was not saved.`);
-      await fs.rename(temp, target);
-    } catch (e) {
-      await fs.rm(temp, { force: true });
-      throw e;
-    }
+    const review = await readNow(folder, reviewsDir);
+    const { choices, runs } = change(review);
+    if (choices) await replace(folder, CHOICES, JSON.stringify(choices));
+    if (runs) await replace(folder, RUNS, JSON.stringify(runs, null, 1));
+    return { ...review, ...(choices && { choices }), ...(runs && { runs }) };
   });
 }
 
-/** Save the person's choices, as `mergeChoices` checked them. */
-export async function saveChoices(review: Review, choices: Choices): Promise<void> {
-  await replaceInReview(review.folder, CHOICES, JSON.stringify(choices));
-  review.choices = choices;
-}
+/** Save the choices the page sent, checked against the plan as it is on disk now. */
+export const saveChoices = (given: string, reviewsDir: string, sent: unknown) =>
+  update(given, reviewsDir, (review) => ({ choices: mergeChoices(review, sent) }));
+
+/** Record that the page has shown the review, the first time it does. */
+export const markShown = (given: string, reviewsDir: string) =>
+  update(given, reviewsDir, (review) => (review.choices.shown ? {} : { choices: { ...review.choices, shown: new Date().toISOString() } }));
 
 /** Record an apply's outcome, so the page can show it and a later apply writes nothing twice. */
-export async function recordRun(review: Review, run: ReviewRun): Promise<void> {
-  const runs = [...review.runs, run];
-  await replaceInReview(review.folder, RUNS, JSON.stringify(runs, null, 1));
-  review.runs = runs;
-}
+export const recordRun = (given: string, reviewsDir: string, run: ReviewRun) =>
+  update(given, reviewsDir, (review) => ({ runs: [...review.runs, run] }));

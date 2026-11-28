@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { isInside, LibraryError } from "../library";
 
 /**
@@ -30,6 +31,17 @@ export interface OutFolder {
   put(relative: string, content: string): Promise<string>;
   /** Make a folder under it, empty if nothing goes in it. */
   mkdir(relative: string): Promise<void>;
+}
+
+/**
+ * A folder a model or a person named, as an absolute path: a `file:` URL
+ * converted, a relative path refused, since it would resolve against
+ * wherever the server happened to start.
+ */
+export function absoluteFolder(given: string, what: string): string {
+  const dir = given.startsWith("file:") ? fileURLToPath(given) : given;
+  if (!path.isAbsolute(dir)) throw new LibraryError(`Give an absolute folder for ${what}, not ${given}.`);
+  return dir;
 }
 
 /** How many names a run tries before giving up: the same second, many runs over. */

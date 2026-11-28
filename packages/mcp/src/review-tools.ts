@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { MAX_REVIEW_LINES, newPlan, planFiles, planView, type RequestedChange, type RequestedEdit } from "@presenter-garage/node/edits";
+import { absoluteFolder } from "@presenter-garage/node/commands/out-folder";
 import { LibraryError } from "@presenter-garage/node/library";
 import {
   changeNumbers,
   chosenNow,
   createReview,
   defaultReviewsDir,
+  needNewPlan,
   readReview,
   recordRun,
   writtenIn,
@@ -47,20 +49,19 @@ export interface ReviewApplyResult extends Omit<ApplyResult, "answer"> {
   unrecorded?: string;
 }
 
+/** The changes numbered `wanted`, as plan_slide_edits described them, each with whether it was left ticked. */
+function described(review: Review, wanted: ReadonlySet<number>) {
+  return planView(review.plan).flatMap((file) =>
+    [...file.lines, ...file.changes]
+      .filter(({ n }) => wanted.has(n))
+      .map((change) => ({ path: file.path, presentation: file.name, ...change, ticked: review.choices.changes[change.n]?.ticked === true }))
+  );
+}
+
 /** Every change the person left a note on, as plan_slide_edits described it, with whether it was left ticked. */
 export function reviewNotes(review: Review) {
-  const view = planView(review.plan);
-  return view.flatMap((file) =>
-    [...file.lines, ...file.changes]
-      .filter(({ n }) => review.choices.changes[n]?.note)
-      .map((change) => ({
-        path: file.path,
-        presentation: file.name,
-        ...change,
-        ticked: review.choices.changes[change.n].ticked,
-        note: review.choices.changes[change.n].note!,
-      }))
-  );
+  const noted = new Set(changeNumbers(review.plan).filter((n) => review.choices.changes[n]?.note));
+  return described(review, noted).map((change) => ({ ...change, note: review.choices.changes[change.n].note! }));
 }
 
 /** A review in counts, for a model: never its lines, which stay on disk. */
@@ -73,6 +74,8 @@ function summary(review: Review) {
     changes: { lines, structural },
     chosen: chosenNow(review).size,
     written: writtenIn(review).size,
+    /** Whether the page has ever shown it to the person; nothing is applied until it has. */
+    shown: review.choices.shown !== undefined,
   };
 }
 
@@ -132,7 +135,9 @@ export function registerReviewTools(
           { timeout: CONFIRM_TIMEOUT_MS, signal }
         );
         return reply.action === "accept" ? "client" : "declined";
-      } catch {
+      } catch (e) {
+        // A client that gave up on the call wants nothing opened behind it.
+        if (signal.aborted) throw e;
         // A client that says it can and then cannot: the browser, as for one that never said.
       }
     }
@@ -183,6 +188,8 @@ export function registerReviewTools(
           return {
             ...summary(review),
             notes: reviewNotes(review),
+            // In a presentation an earlier apply wrote: plan these again to make them.
+            needNewPlan: described(review, new Set(needNewPlan(review))),
             runs: review.runs.map((run) => ({
               at: run.at,
               written: run.written.length,
@@ -197,7 +204,7 @@ export function registerReviewTools(
     tools,
     async plan(open, edits, structural, out, signal) {
       const files = await planFiles([open.root], edits, structural, MAX_REVIEW_LINES);
-      const review = await createReview(out, [open.root], newPlan(files), { root: open.root, backupDir: open.backupDir }, reviewsDir);
+      const review = await createReview(absoluteFolder(out, "the review"), [open.root], newPlan(files), { root: open.root, backupDir: open.backupDir }, reviewsDir);
       const url = await host.serve(review.folder);
       const shown = await show(url, signal);
       return { ...summary(review), url, opened: shown, next: opened(shown) };
@@ -208,6 +215,13 @@ export function registerReviewTools(
       const made = { root: review.root, backupDir: review.backupDir };
       // Refused before the person is asked anything when another library is open already.
       refuseUnlessOpen(made, await library.get().catch(() => undefined));
+      // Every change starts ticked: a review nobody has opened would otherwise be applied whole, unseen.
+      if (!review.choices.shown) {
+        throw new LibraryError(
+          "The person has not opened this review's page yet, so nothing was written. Open it with open_review, " +
+            "and apply once they say they are done."
+        );
+      }
       const chosen = chosenNow(review);
       const notes = reviewNotes(review);
       if (chosen.size === 0) return { answer: "nothingChosen", review: review.folder, files: [], notes };
@@ -234,7 +248,7 @@ export function registerReviewTools(
         .filter((n) => chosen.has(n));
       let unrecorded: string | undefined;
       try {
-        await recordRun(review, { at: new Date().toISOString(), written, files: run.files });
+        await recordRun(review.folder, reviewsDir, { at: new Date().toISOString(), written, files: run.files });
       } catch (e) {
         // Written all the same, and said so. A file written has a new hash, so applying again cannot write it twice.
         unrecorded = `The outcome could not be saved in the review (${(e as Error).message}): its page will not show it.`;
