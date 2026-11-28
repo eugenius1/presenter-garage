@@ -114,6 +114,9 @@ since. Every file that has is refused alone (see *Applying*).
   seconds it takes the person to say "done" and the model to call the tool.
   An explicit "done" step that apply waits for would close even that, at
   the cost of a step the person must remember; that was judged not worth it.
+- **Warnings.** The page says what the form says before a write: that a
+  Cloud workspace is Cloud, and to close ProPresenter. Where the client
+  cannot ask, the page is all the person sees before anything is written.
 - **When saving fails.** If the server has gone away (its session closed),
   the page says so ("Not saved: ask Claude to reopen this review") and
   stops taking ticks, so nothing the person does is silently lost. Nothing
@@ -160,10 +163,15 @@ form that is already long.
    the page showed. A review folder moved elsewhere is refused the same
    way, and is planned again.
 2. Reads `choices.json`, and refuses it unless it names that plan's hash.
-3. Refuses unless the plan's library is the one open, as
+3. Refuses a review whose page has never shown it. Every change starts
+   ticked, so without this a model that plans and applies at once, in a
+   client that cannot ask, would write everything unseen: no tampering
+   needed, only haste. The page records, in `choices.json`, when it first
+   loaded the review.
+4. Refuses unless the plan's library is the one open, as
    `refuseUnlessOpen()` does today.
-4. Asks the one summary confirmation where the client can.
-5. Runs the ticked changes that are still open through `applyPlan()` in
+5. Asks the one summary confirmation where the client can.
+6. Runs the ticked changes that are still open through `applyPlan()` in
    `packages/node/src/apply.ts`, unchanged. A change is open while no run
    of this review has written its presentation.
 
@@ -209,6 +217,8 @@ working against them.
 - What is applied is the plan the page showed. `plan.json` is checked
   against its hash at plan time, that hash's record must name this review
   folder, and `choices.json` must name that plan.
+- Nothing is applied from a review whose page never loaded it, so a model
+  in a hurry cannot apply every change, all ticked by default, unseen.
 - Where the client can ask, the server itself asks the person to confirm
   the chosen set, and the model cannot answer that.
 - Other websites in the browser cannot post choices (token, `Host` check).
@@ -285,5 +295,5 @@ is built (`packages/mcp/src/review.ts`, say):
 | --- | --- |
 | 1 | As the MCP server's column: `applyFixes()` run again on each file as read at apply time, or `gate()` inside the workspace's lock, through `applyPlan()` |
 | 2 | As the MCP server's column: `applyPlan()` makes every root's backups before it writes into any |
-| 3 | Every change shown on a page served on `127.0.0.1` from a review folder inside `out`, with a tick box (all ticked to start, select and deselect all) and a note, saved to `choices.json` as made. `apply_slide_edits` takes only the folder, refuses a `plan.json` whose hash differs from plan time or a `choices.json` naming another plan, and writes only ticked changes not yet written. Where the client can ask, the server asks the person to confirm the chosen set. Where it cannot, the saved choices are taken as theirs, and the model is told never to edit them |
+| 3 | Every change shown on a page served on `127.0.0.1` from a review folder inside `out`, with a tick box (all ticked to start, select and deselect all) and a note, saved to `choices.json` as made. `apply_slide_edits` takes only the folder, refuses a review whose page never loaded it, a `plan.json` whose hash differs from plan time or was recorded for another folder, and a `choices.json` naming another plan, and writes only ticked changes in presentations no run has written. Where the client can ask, the server asks the person to confirm the chosen set. Where it cannot, the saved choices are taken as theirs, and the model is told never to edit them |
 | 4 | As the MCP server's column: `applyFixes()` and `checkWorkspaceEdit()` through `applyPlan()` |
