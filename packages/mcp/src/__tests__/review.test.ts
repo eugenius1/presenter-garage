@@ -227,10 +227,38 @@ describe("the read-only snapshot", () => {
 
   it("is saved from the page only, as the choices are", async () => {
     const { call } = await server();
-    const { url } = await planReview(call);
+    const { review, url } = await planReview(call);
+    const before = fs.readFileSync(path.join(review, "review.html"));
     const post = (headers: Record<string, string>) => request(`${url}snapshot`, { method: "POST", headers, body: "{}" });
     expect((await post({ "Content-Type": "application/json", Origin: "https://evil.example" })).status).toBe(403);
     expect((await post({ "Content-Type": "text/plain" })).status).toBe(415);
+    expect(fs.readFileSync(path.join(review, "review.html"))).toEqual(before);
+  });
+
+  it("is written only into a review this server made, as planned", async () => {
+    const { call } = await server();
+    const elsewhere = path.join(dir, "not-a-review");
+    fs.mkdirSync(elsewhere);
+    expect((await call("export_review", { review: elsewhere })).text).toMatch(/is not a review folder/);
+    expect(fs.existsSync(path.join(elsewhere, "review.html"))).toBe(false);
+
+    const { review } = await planReview(call);
+    const planFile = path.join(review, "plan.json");
+    fs.writeFileSync(planFile, fs.readFileSync(planFile, "utf8").replace("A tidier line", "Something nobody saw"));
+    fs.rmSync(path.join(review, "review.html"));
+    expect((await call("export_review", { review })).text).toMatch(/is not a plan this server wrote into this folder/);
+    expect(fs.existsSync(path.join(review, "review.html"))).toBe(false);
+  });
+
+  it("holds a script that parses, served and as a snapshot", async () => {
+    const { call } = await server();
+    const { review, url } = await planReview(call);
+    const scripts = (html: string) => [...html.matchAll(/<script nonce="[^"]*">(.*?)<\/script>/gs)].map((m) => m[1]);
+    for (const html of [(await request(url)).body, fs.readFileSync(path.join(review, "review.html"), "utf8")]) {
+      const [script] = scripts(html);
+      expect(script).toContain("function save()");
+      expect(() => new Function(script)).not.toThrow();
+    }
   });
 });
 

@@ -1,5 +1,4 @@
-import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
-import { macroNames, shownGroupName } from "@presenter-garage/core/lib/slide-context";
+import { macroNames, placeAmongSlides, shownGroupName } from "@presenter-garage/core/lib/slide-context";
 import { visibleWhitespace } from "@presenter-garage/core/lib/whitespace";
 import type { PlannedFile } from "@presenter-garage/node/edits";
 import { needNewPlan, writtenIn, type Review } from "@presenter-garage/node/review";
@@ -44,9 +43,9 @@ export interface ViewSlide {
   entries: ViewEntry[];
 }
 
+/** A presentation by name only: the snapshot is for sending to someone, and its path would say where the library is, and whose. */
 export interface ViewFile {
   name: string;
-  path: string;
   changes: ViewChange[];
   /** Slides that follow one another, each run one stretch of context. */
   runs: ViewSlide[][];
@@ -54,7 +53,6 @@ export interface ViewFile {
   stray: number[];
 }
 
-const shown = (text: string) => (text === "" ? "" : visibleWhitespace(text));
 
 function changesOf(file: PlannedFile): ViewChange[] {
   return [
@@ -62,67 +60,51 @@ function changesOf(file: PlannedFile): ViewChange[] {
       n,
       kind: "line",
       where: lineWhere(fix),
-      before: fix.insert ? null : shown(fix.before),
-      after: fix.after === null ? null : shown(fix.after),
-      ...(fix.insert && { insert: fix.insert, beside: shown(fix.before) }),
+      before: fix.insert ? null : visibleWhitespace(fix.before),
+      after: fix.after === null ? null : visibleWhitespace(fix.after),
+      ...(fix.insert && { insert: fix.insert, beside: visibleWhitespace(fix.before) }),
       ...(styling && { styling }),
     })),
     ...file.changes.map(({ n, change }): ViewChange => ({ n, kind: "structure", where: changeWhere(change), said: describeChange(change) })),
   ];
 }
 
-/** Slides that follow one another, in runs. */
-function runsOf(slides: readonly ContextSlide[]): ContextSlide[][] {
-  const out: ContextSlide[][] = [];
-  for (const slide of slides) {
-    const run = out.at(-1);
-    if (run && run.at(-1)!.slideIndex === slide.slideIndex - 1) run.push(slide);
-    else out.push([slide]);
-  }
-  return out;
-}
-
 /**
- * Each change on its slide: a changed line in the line's place, an added
- * line on its side of the line it goes beside, a structural change at the
- * top of the slide it is on. Every change comes back once, on a slide or in
- * `stray`, so a change that can be ticked is never left off the page.
+ * Each change among the slides around it, by core's rules, as the web app
+ * places a finding: a changed line in the line's place, an added line on its
+ * side of the line it goes beside, a structural change at the top of the
+ * slide it is on, a group renamed marking every slide it holds.
  */
 function placed(file: PlannedFile): Pick<ViewFile, "runs" | "stray"> {
-  const left = new Set([...file.lines, ...file.changes].map(({ n }) => n));
-  const take = (n: number) => (left.delete(n) ? [{ n }] : []);
-  const runs = runsOf(file.context ?? []).map((run) =>
-    run.map((slide): ViewSlide => {
-      const here = file.lines.filter(({ fix }) => fix.slideIndex === slide.slideIndex);
-      const structural = file.changes.filter(({ change }) =>
-        change.kind === "swapMacro" ? change.slideIndex === slide.slideIndex : change.slides[0] === slide.slideIndex
-      );
-      const entries: ViewEntry[] = structural.flatMap(({ n }) => take(n));
-      for (const line of slide.lines) {
-        const at = here.filter(({ fix }) => fix.boxIndex === line.boxIndex && fix.lineIndex === line.lineIndex);
-        const side = (insert: "before" | "after") => at.filter(({ fix }) => fix.insert === insert).flatMap(({ n }) => take(n));
-        const changed = at.find(({ fix }) => !fix.insert);
-        entries.push(...side("before"), ...(changed ? take(changed.n) : [{ text: line.text }]), ...side("after"));
-      }
-      // A change whose line the slide does not list still goes on its slide.
-      for (const { n } of here) entries.push(...take(n));
-      return {
+  const items = [
+    ...file.lines.map(({ n, fix }) => ({ n, slideIndex: fix.slideIndex, boxIndex: fix.boxIndex, lineIndex: fix.lineIndex, insert: fix.insert })),
+    ...file.changes.map(({ n, change }) => {
+      const slides = change.kind === "renameGroup" ? change.slides : [change.slideIndex];
+      return { n, slideIndex: slides[0] ?? -1, slides };
+    }),
+  ];
+  const holding = (item: (typeof items)[number]) => ("slides" in item ? item.slides : [item.slideIndex]);
+  // The plan does not keep the slide count; the context it does keep was cut by the same windows.
+  const { runs, stray } = placeAmongSlides(items, file.context ?? [], Number.MAX_SAFE_INTEGER, holding);
+  return {
+    runs: runs.map((run) =>
+      run.map((slide): ViewSlide => ({
         slideIndex: slide.slideIndex,
         group: shownGroupName(slide.groupName ?? ""),
         macros: macroNames(slide.macros),
-        holds: here.length > 0 || structural.length > 0,
-        entries,
-      };
-    })
-  );
-  return { runs, stray: [...left] };
+        holds: slide.holds,
+        entries: slide.items.map((entry) => ("item" in entry ? { n: entry.item.n } : { text: entry.line.text })),
+      }))
+    ),
+    stray: stray.map(({ n }) => n),
+  };
 }
 
 /** What the page is sent, or the snapshot holds. */
 export function reviewData(review: Review) {
   return {
     title: `Review: ${review.plan.files.length === 1 ? review.plan.files[0].name : `${review.plan.files.length} presentations`}`,
-    files: review.plan.files.map((file): ViewFile => ({ name: file.name, path: file.path, changes: changesOf(file), ...placed(file) })),
+    files: review.plan.files.map((file): ViewFile => ({ name: file.name, changes: changesOf(file), ...placed(file) })),
     // Said on the page as in the form: where the client cannot ask, the page is all the person sees before a write.
     warning: Object.values(beforeWriting(review.plan.files)).join("").trim(),
     choices: review.choices.changes,

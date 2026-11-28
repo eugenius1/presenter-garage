@@ -52,9 +52,11 @@ button { font: inherit; margin: .2rem .4rem .2rem 0; }
 const SCRIPT = `
 const MAX_NOTE = ${MAX_NOTE};
 const base = location.protocol === "file:" ? null : location.pathname.replace(/\\/?$/, "/");
-let state = {}, closed = new Set(), timer, stopped = false;
-/** One save at a time: a save sent while another is on its way could land first and be overwritten by the older. */
-let saving = false, dirty = false;
+let state = {}, closed = new Set(), timer, stopped = false, dirty = false;
+/** The save on its way, if any: one at a time, since one sent beside it could land first and be overwritten by the older. */
+let inflight = null;
+/** Chrome refuses a keepalive body over 64 KiB; a big review with many notes is sent without it. */
+const KEEPALIVE_MAX = 60000;
 const boxes = [];
 
 function el(tag, props, ...children) {
@@ -88,26 +90,31 @@ function changed() {
   timer = setTimeout(save, 500);
 }
 
-async function save() {
+/** Save what has changed, resolving once it, and anything changed while it was on its way, has landed. */
+function save() {
   clearTimeout(timer);
-  if (stopped || !dirty || saving) return; // A save on its way sends again once it has landed.
-  saving = true;
-  dirty = false;
-  try {
-    const response = await fetch(base + "choices", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ changes: state }),
-      keepalive: true,
-    });
-    if (!response.ok) throw new Error(await response.text());
-  } catch (e) {
-    saving = false;
-    return stop("Not saved: ask Claude to reopen this review. " + (e && e.message ? e.message : ""));
-  }
-  saving = false;
-  if (dirty) return save();
-  status("All choices saved");
+  if (inflight) return inflight; // It sends again before it resolves if anything changed meanwhile.
+  if (stopped || !dirty) return Promise.resolve();
+  inflight = (async () => {
+    while (dirty && !stopped) {
+      dirty = false;
+      const body = JSON.stringify({ changes: state });
+      try {
+        const response = await fetch(base + "choices", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: body.length < KEEPALIVE_MAX,
+        });
+        if (!response.ok) throw new Error(await response.text());
+      } catch (e) {
+        stop("Not saved: ask Claude to reopen this review. " + (e && e.message ? e.message : ""));
+      }
+    }
+    inflight = null;
+    if (!stopped) status("All choices saved");
+  })();
+  return inflight;
 }
 
 function setAll(list, ticked) {
@@ -203,6 +210,8 @@ if (embedded) {
   document.getElementById("none").onclick = () => setAll(boxes, false);
   document.getElementById("copy").onclick = async () => {
     await save();
+    // A copy of choices that did not save would show the person what they never kept.
+    if (stopped) return;
     const response = await fetch(base + "snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     status(response.ok ? "Saved a read-only copy as " + (await response.json()).file : "No copy was saved: " + (await response.text()));
   };
@@ -210,7 +219,7 @@ if (embedded) {
   window.addEventListener("blur", save);
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && save());
   window.addEventListener("beforeunload", (event) => {
-    if (dirty || saving) event.preventDefault();
+    if (dirty || inflight) event.preventDefault();
   });
   fetch(base + "review.json")
     .then((response) => (response.ok ? response.json() : response.text().then((t) => Promise.reject(new Error(t)))))
