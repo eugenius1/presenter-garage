@@ -20,7 +20,9 @@ export { applyPlan, type AppliedFile } from "./apply";
 export {
   planChosenFixes,
   plannedChange,
+  planFiles,
   planSlideEdits,
+  planView,
   readWithHash,
   type PlannedChange,
   type PlannedLine,
@@ -28,5 +30,5 @@ export {
   type RequestedChange,
   type RequestedEdit,
 } from "./planning";
-export { everyLine, MAX_PLAN_LINES, PlanStore, type Plan, type PlannedFile } from "./plans";
+export { everyLine, MAX_PLAN_LINES, MAX_REVIEW_LINES, newPlan, PlanStore, type Plan, type PlannedFile } from "./plans";
 export { describeStyling } from "./styling";

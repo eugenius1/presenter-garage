@@ -20,7 +20,7 @@ import { isInside, LibraryError } from "../library";
  * it; the libraries stay untouched because nothing here is let near them.
  */
 
-export type Command = "sources" | "dump" | "compare" | "check" | "rules-check";
+export type Command = "sources" | "dump" | "compare" | "check" | "rules-check" | "review";
 
 /** A run's own folder, and the one way to write into it. */
 export interface OutFolder {

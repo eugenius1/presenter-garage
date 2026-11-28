@@ -141,8 +141,11 @@ const OUT_TOOLS = ["check_rules", "compare_libraries", "dump_library", "find_lib
 describe("the tools offered", () => {
   it("read, except the ones that apply a confirmed edit, save the rules, or write results to a folder", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...READING_TOOLS, ...OUT_TOOLS, "apply_slide_edits", "plan_slide_edits", "save_rules"].sort());
-    const writing = new Set(["apply_slide_edits", "save_rules", "check_presentations", ...OUT_TOOLS]);
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      [...READING_TOOLS, ...OUT_TOOLS, "apply_slide_edits", "plan_slide_edits", "open_review", "read_review", "save_rules"].sort()
+    );
+    // plan_slide_edits writes a review folder when given `out`.
+    const writing = new Set(["apply_slide_edits", "plan_slide_edits", "save_rules", "check_presentations", ...OUT_TOOLS]);
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint, tool.name).toBe(!writing.has(tool.name));
     }

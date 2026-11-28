@@ -686,7 +686,11 @@ Shared analysis lives in `packages/core/src/lib/`, shared interface pieces in
 `packages/mcp/` is the MCP server. It calls `core` and nothing in `core` knows
 it exists. `server.ts` describes and routes the tools; what each one answers
 is in `src/tools/`, one file per group of tools, and what writes is in
-`edits.ts`. `out-tools.ts` offers the command line's commands as tools
+`edits.ts`. A plan made with `out` is a review instead (`review-tools.ts`):
+kept in a folder of its own, shown to the person on a page the server
+serves on 127.0.0.1 (`review-server.ts`, `review-page.ts`), and applied from
+the choices they saved there. `wording.ts` says each change the same way in
+the form and on the page. `out-tools.ts` offers the command line's commands as tools
 (`find_libraries`, `dump_library`, `compare_libraries`, `check_rules`, and
 `check_presentations` given `out`), which write to a folder through
 `packages/node/src/commands/` and answer with counts and paths: an answer
@@ -714,7 +718,9 @@ In `library.ts` there, every path a tool is given is resolved with `realpath`
 before it is compared with the configured folders, and nothing opens a file
 for writing; `write.ts` is the only code that does, apart from `rules.ts`
 writing a team's `rules.json` beside its `RULES.md`, `commands/out-folder.ts`
-writing a command's results into its `out` folder, `workspace-write.ts` the
+writing a command's results into its `out` folder, `review.ts` keeping a
+review folder's choices and runs up to date (made by `out-folder.ts`, and
+the only files under `out` ever replaced, each renamed over the last), `workspace-write.ts` the
 only code that opens a workspace's database for writing, and `apply.ts`
 beside them the only caller of either, called in turn by the server and the
 desktop app. Node has no
