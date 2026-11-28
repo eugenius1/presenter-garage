@@ -688,7 +688,9 @@ it exists. `server.ts` describes and routes the tools; what each one answers
 is in `src/tools/`, one file per group of tools, and what writes is in
 `edits.ts`. A plan made with `out` is a review instead (`review-tools.ts`):
 kept in a folder of its own, shown to the person on a page the server
-serves on 127.0.0.1 (`review-server.ts`, `review-page.ts`), and applied from
+serves on 127.0.0.1 (`review-server.ts`; the page is `review-page.ts`,
+drawn from what `review-view.ts` builds, and written beside the review as a
+read-only `review.html` too), and applied from
 the choices they saved there. `wording.ts` says each change the same way in
 the form and on the page. `out-tools.ts` offers the command line's commands as tools
 (`find_libraries`, `dump_library`, `compare_libraries`, `check_rules`, and

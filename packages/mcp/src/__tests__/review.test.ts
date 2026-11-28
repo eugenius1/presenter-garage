@@ -115,7 +115,8 @@ describe("planning into a review folder", () => {
     const planned = result.json();
     expect(planned).toMatchObject({ presentations: 2, changes: { lines: 3, structural: 0 }, chosen: 3, written: 0, shown: false, opened: "browser" });
     expect(path.dirname(planned.review)).toBe(fs.realpathSync(out));
-    expect(fs.readdirSync(planned.review).sort()).toEqual(["choices.json", "plan.json", "runs.json"]);
+    expect(fs.readdirSync(planned.review).sort()).toEqual(["choices.json", "plan.json", "review.html", "runs.json"]);
+    expect(planned.snapshot).toBe(path.join(planned.review, "review.html"));
     expect(opened).toEqual([planned.url]);
     expect(planned.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/r\/[\w-]+\/$/);
     // The plan's hash recorded outside out, so a plan changed since is known.
@@ -161,7 +162,12 @@ describe("the page", () => {
     const data = JSON.parse((await request(`${url}review.json`)).body);
     expect(data.files.map((f: { name: string }) => f.name)).toEqual(["Song", "Other"]);
     expect(data.warning).toMatch(/close it first/);
-    expect(data.files[0].items[0]).toMatchObject({ n: 1, said: "“A tidy line” → “A tidier line”" });
+    expect(data.files[0].changes[0]).toMatchObject({ n: 1, kind: "line", before: "A tidy line", after: "A tidier line" });
+    // Each change in its line's place among the slides around it, as they read.
+    const first = data.files[0].runs[0];
+    expect(first[0]).toMatchObject({ slideIndex: 0, group: "Verse", holds: true, entries: [{ n: 1 }, { text: "And another" }] });
+    expect(first.map((slide: { slideIndex: number }) => slide.slideIndex)).toEqual([0, 1, 2]);
+    expect(data.files[0].stray).toEqual([]);
     expect(data.choices).toEqual({ 1: { ticked: true }, 2: { ticked: true }, 3: { ticked: true } });
 
     const saved = await put(url, { 2: { ticked: false, note: "Not this one,\nthe accent is right" } });
@@ -189,6 +195,42 @@ describe("the page", () => {
     const vague = await put(url, { 1: { ticked: "yes" } });
     expect([vague.status, vague.body]).toEqual([409, "Change 1 is neither ticked nor unticked."]);
     expect(choicesOf(review).changes[1]).toEqual({ ticked: true });
+  });
+});
+
+describe("the read-only snapshot", () => {
+  it("is written at plan time, after every apply, and when asked for, holding the choices and notes as they stand", async () => {
+    const { call } = await server();
+    const { review, url } = await planReview(call);
+    const file = path.join(review, "review.html");
+    const embedded = () => {
+      const html = fs.readFileSync(file, "utf8");
+      return JSON.parse(html.match(/<script type="application\/json" id="data">(.*?)<\/script>/s)![1]).review;
+    };
+    expect(embedded().choices[1]).toEqual({ ticked: true });
+
+    // A note can hold anything a person types, a closing script tag included.
+    await put(url, { 1: { ticked: false, note: "Not </script> this" } });
+    const copied = await request(`${url}snapshot`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    expect([copied.status, JSON.parse(copied.body).file]).toEqual([200, file]);
+    expect(fs.readFileSync(file, "utf8")).not.toContain("Not </script>");
+    expect(embedded().choices[1]).toEqual({ ticked: false, note: "Not </script> this" });
+
+    await put(url, { 1: { ticked: true } });
+    expect((await call("export_review", { review })).json()).toEqual({ file });
+    expect(embedded().choices[1]).toEqual({ ticked: true });
+
+    await call("apply_slide_edits", { review });
+    expect(embedded().written).toEqual([1, 2, 3]);
+    expect(embedded().runs).toHaveLength(1);
+  });
+
+  it("is saved from the page only, as the choices are", async () => {
+    const { call } = await server();
+    const { url } = await planReview(call);
+    const post = (headers: Record<string, string>) => request(`${url}snapshot`, { method: "POST", headers, body: "{}" });
+    expect((await post({ "Content-Type": "application/json", Origin: "https://evil.example" })).status).toBe(403);
+    expect((await post({ "Content-Type": "text/plain" })).status).toBe(415);
   });
 });
 

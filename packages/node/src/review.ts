@@ -13,10 +13,10 @@ import { appDataDir, sha256 } from "./write";
  * have exactly what they chose applied. See docs/design/guard3-review-file.md.
  *
  * The folder is made inside an `out` folder by `writeOut()`, so it is never
- * inside, nor holding, a library. Unlike the rest of `out`, two of its
- * files are replaced as the review goes on -- `choices.json` and
- * `runs.json` -- each written whole beside itself and renamed over the
- * last, so a reader never finds half of one, and each read, changed and
+ * inside, nor holding, a library. Unlike the rest of `out`, three of its
+ * files are replaced as the review goes on -- `choices.json`, `runs.json`
+ * and the snapshot `review.html` -- each written whole beside itself and
+ * renamed over the last, so a reader never finds half of one, and each read, changed and
  * written in one turn of the review's queue, so two saves never build on
  * the same old copy. Nothing else in the folder, or outside it, is ever
  * replaced.
@@ -77,8 +77,10 @@ export const MAX_NOTE = 500;
 const PLAN = "plan.json";
 const CHOICES = "choices.json";
 const RUNS = "runs.json";
+/** A read-only page of the review as it stands, to open from the disk. */
+export const SNAPSHOT = "review.html";
 /** The only files a review ever replaces. */
-type ReplacedFile = typeof CHOICES | typeof RUNS;
+type ReplacedFile = typeof CHOICES | typeof RUNS | typeof SNAPSHOT;
 
 /** Where plans' hashes are recorded when nobody says: the app's own data folder, beside its backups. */
 export const defaultReviewsDir = () => appDataDir("Reviews");
@@ -300,3 +302,12 @@ export const markShown = (given: string, reviewsDir: string) =>
 /** Record an apply's outcome, so the page can show it and a later apply writes nothing twice. */
 export const recordRun = (given: string, reviewsDir: string, run: ReviewRun) =>
   update(given, reviewsDir, (review) => ({ runs: [...review.runs, run] }));
+
+/** Write the review's read-only snapshot as `render` draws it from the review as it is now. Returns the file. */
+export async function writeSnapshot(given: string, reviewsDir: string, render: (review: Review) => string): Promise<string> {
+  const folder = await reviewFolder(given);
+  return inTurn(folder, async () => {
+    await replace(folder, SNAPSHOT, render(await readNow(folder, reviewsDir)));
+    return path.join(folder, SNAPSHOT);
+  });
+}

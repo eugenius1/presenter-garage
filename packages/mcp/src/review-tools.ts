@@ -12,12 +12,14 @@ import {
   needNewPlan,
   readReview,
   recordRun,
+  writeSnapshot,
   writtenIn,
   type Review,
 } from "@presenter-garage/node/review";
 import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
 import type { ApplyResult } from "./edits";
 import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
+import { snapshotHtml } from "./review-page";
 import { openInBrowser, reviewHost } from "./review-server";
 import { beforeWriting, count } from "./wording";
 
@@ -151,7 +153,23 @@ export function registerReviewTools(
         ? "The page could not be opened here: give the person `url` to open in their browser."
         : "The page is open for the person. Tell them to choose there, and to tell you when they are done.";
 
+  /** The read-only snapshot, written beside the review; a snapshot that cannot be written costs nothing but itself. */
+  const snapshot = (folder: string) => writeSnapshot(folder, reviewsDir, snapshotHtml).catch(() => undefined);
+
   const tools = [
+    server.registerTool(
+      "export_review",
+      {
+        title: "Save a read-only copy of a review",
+        description:
+          "Write review.html into the review folder: one page, opened from the disk with no server, showing every " +
+          "change, the person's ticks and notes as they stand, and what each apply did. For the person to look at " +
+          "during a break, or to send to someone. Replaces the copy there before; changes no choice.",
+        inputSchema: { review: z.string().describe("The review folder plan_slide_edits made, as an absolute path.") },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      ({ review }) => answer(async () => ({ file: await writeSnapshot(review, reviewsDir, snapshotHtml) }))
+    ),
     server.registerTool(
       "open_review",
       {
@@ -205,9 +223,10 @@ export function registerReviewTools(
     async plan(open, edits, structural, out, signal) {
       const files = await planFiles([open.root], edits, structural, MAX_REVIEW_LINES);
       const review = await createReview(absoluteFolder(out, "the review"), [open.root], newPlan(files), { root: open.root, backupDir: open.backupDir }, reviewsDir);
+      const file = await snapshot(review.folder);
       const url = await host.serve(review.folder);
       const shown = await show(url, signal);
-      return { ...summary(review), url, opened: shown, next: opened(shown) };
+      return { ...summary(review), url, opened: shown, next: opened(shown), ...(file && { snapshot: file }) };
     },
 
     async apply(folder, signal) {
@@ -253,6 +272,7 @@ export function registerReviewTools(
         // Written all the same, and said so. A file written has a new hash, so applying again cannot write it twice.
         unrecorded = `The outcome could not be saved in the review (${(e as Error).message}): its page will not show it.`;
       }
+      await snapshot(review.folder);
       return { answer: asked ? "accept" : "notAsked", review: review.folder, ...run, notes, ...(unrecorded && { unrecorded }) };
     },
   };

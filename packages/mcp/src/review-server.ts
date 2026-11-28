@@ -3,9 +3,9 @@ import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { LibraryError } from "@presenter-garage/node/library";
-import { markShown, needNewPlan, readReview, saveChoices, writtenIn, type Review } from "@presenter-garage/node/review";
-import { reviewPage } from "./review-page";
-import { beforeWriting, changeWhere, describeChange, lineSaid, lineWhere } from "./wording";
+import { markShown, readReview, saveChoices, writeSnapshot } from "@presenter-garage/node/review";
+import { reviewPage, snapshotHtml } from "./review-page";
+import { reviewData } from "./review-view";
 
 /**
  * The loopback server a review page is served from: one per MCP server,
@@ -31,30 +31,6 @@ export interface ReviewHost {
   /** Serve the review in `folder`, answering the URL its page is at. */
   serve(folder: string): Promise<string>;
   close(): Promise<void>;
-}
-
-/** What the page is sent: every change in words, with the person's choices and what earlier runs wrote. */
-export function reviewData(review: Review) {
-  return {
-    title: `Review: ${review.plan.files.length === 1 ? review.plan.files[0].name : `${review.plan.files.length} presentations`}`,
-    files: review.plan.files.map((file) => ({
-      name: file.name,
-      path: file.path,
-      items: [
-        ...file.lines.map(({ n, fix, styling }) => ({ n, where: lineWhere(fix), said: lineSaid(fix, styling) })),
-        ...file.changes.map(({ n, change }) => ({ n, where: changeWhere(change), said: describeChange(change) })),
-      ],
-    })),
-    // Said on the page as in the form: where the client cannot ask, the page is all the person sees before a write.
-    warning: Object.values(beforeWriting(review.plan.files)).join("").trim(),
-    choices: review.choices.changes,
-    written: [...writtenIn(review)],
-    needNewPlan: needNewPlan(review),
-    runs: review.runs.map((run) => ({
-      at: run.at,
-      files: run.files.map(({ name, written, reason, detail }) => ({ name, written, reason, detail })),
-    })),
-  };
 }
 
 const SECURITY = {
@@ -92,10 +68,19 @@ export function reviewHost(reviewsDir: string): ReviewHost {
       // The page has the review in front of the person: until it has, nothing is applied from it.
       return send(200, JSON.stringify(reviewData(await markShown(folder, reviewsDir))), "application/json");
     }
-    if (request.method === "PUT" && rest === "choices") {
+    const fromPage = () => {
       const sentFrom = request.headers.origin;
-      if (sentFrom !== undefined && sentFrom !== `http://${origin}`) return send(403, "Choices are taken only from the review page.");
-      if (!request.headers["content-type"]?.startsWith("application/json")) return send(415, "Choices are sent as JSON.");
+      if (sentFrom !== undefined && sentFrom !== `http://${origin}`) return send(403, "Taken only from the review page.");
+      if (!request.headers["content-type"]?.startsWith("application/json")) return send(415, "Sent only as JSON.");
+      return true;
+    };
+    if (request.method === "POST" && rest === "snapshot") {
+      if (fromPage() !== true) return;
+      const file = await writeSnapshot(folder, reviewsDir, snapshotHtml);
+      return send(200, JSON.stringify({ file }), "application/json");
+    }
+    if (request.method === "PUT" && rest === "choices") {
+      if (fromPage() !== true) return;
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of request) {

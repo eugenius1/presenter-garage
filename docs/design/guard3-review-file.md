@@ -83,11 +83,16 @@ since. Every file that has is refused alone (see *Applying*).
 
 ## The page
 
-- **Built from the web app's components.** A separate Vite entry reuses the
-  change rows of `FindingsCard.tsx` and the slide context of #86. It is
-  built into the MCP server's package, so the served page and
-  `review.html` are one bundle, and a line reads the same in the web app,
-  the desktop app and the review.
+- **Drawn like the web app's findings, built like `report.html`.** Each
+  change sits in its line's place among the slides around it, as it is and
+  what it becomes, as `FindingsCard.tsx` draws a finding, with the
+  whitespace that matters made visible by the same `visibleWhitespace()`,
+  now in core. The page itself is one file with its style and script
+  inline, built with `textContent`, as the command line's `report.html`
+  is, and the served page and `review.html` are the same page. The MCP
+  server may import only from `packages/`, never `apps/`, and ships as one
+  small file, so the web app's React components were not brought into it
+  (see *Rejected options*).
 - **Every change is shown.** Nothing is paginated away or collapsed behind
   a click. Each change is shown as it is and as it would read, among the
   slides around it.
@@ -251,6 +256,11 @@ nothing written.
   accepted risk above.
 - **Blocking clients without elicitation**, as the form path does. That
   would leave reviews unusable in exactly the clients that most need them.
+- **The web app's React components in the page.** The server may import
+  only what `packages/` holds, so they would have to move into a shared
+  package, and React and the app's dictionaries would go into a server that
+  ships as one small file with no dependencies. The page follows
+  `report.html` instead, and draws a change the way the web app does.
 - **A write button in the page.** It would give two ways to start a write,
   and the outcome would not reach the model on its own. Only
   `apply_slide_edits` writes. The page shows the outcome afterwards.

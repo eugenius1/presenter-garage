@@ -1,38 +1,57 @@
 import { MAX_NOTE } from "@presenter-garage/node/review";
+import type { Review } from "@presenter-garage/node/review";
+import { reviewData, type ReviewData } from "./review-view";
 
 /**
- * The review page as the loopback server sends it: one HTML document with
- * its style and script inline, fetching the review from beside itself.
+ * The review page: one HTML document with its style and script inline, as
+ * the command line's `report.html` is, served by the loopback server and
+ * written into the review folder as a read-only snapshot.
  *
  * Every element is built with `textContent`, never `innerHTML`: the data is
- * lyrics, and a note is whatever the person typed. Choices are sent whole,
+ * lyrics, and a note is whatever the person typed. Each change is drawn as
+ * the web app draws a finding -- among the slides around it, as it is, and
+ * what it becomes -- from data `review-view.ts` builds.
+ *
+ * Served, it fetches the review from beside itself and saves choices whole,
  * half a second after the last change, so a burst of clicks is one save, or
  * at once when the page loses focus; one save at a time, so an older one
- * never lands after a newer. The page says when everything is saved, and a
- * save that fails stops it taking more, so nothing the person does
- * afterwards is silently lost.
+ * never lands after a newer. It says when everything is saved, and a save
+ * that fails stops it taking more, so nothing the person does afterwards is
+ * silently lost. As a snapshot, the data is inside it and nothing can be
+ * changed.
  */
 
 const STYLE = `
-:root { color-scheme: light dark; --line: #8884; --muted: #888; --warn: #b00020; }
-body { font: 15px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 60rem; padding: 1rem; }
-header { position: sticky; top: 0; background: Canvas; padding: .5rem 0; border-bottom: 1px solid var(--line); z-index: 1; }
+:root { color-scheme: light dark; --line: #8884; --muted: #888; --warn: #b00020; --accent: #3b82f6; --added: #15803d; }
+@media (prefers-color-scheme: dark) { :root { --warn: #ff6b81; --added: #4ade80; } }
+body { font: 15px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 62rem; padding: 0 1rem 3rem; }
+header { position: sticky; top: 0; background: Canvas; padding: .6rem 0; border-bottom: 1px solid var(--line); z-index: 1; }
 h1 { font-size: 1.2rem; margin: 0 0 .3rem; }
-h2 { font-size: 1.05rem; margin: 1.5rem 0 .3rem; }
-button { font: inherit; margin-right: .4rem; }
-.change { display: grid; grid-template-columns: auto 1fr; gap: .2rem .6rem; padding: .5rem 0; border-bottom: 1px solid var(--line); }
-.change input[type=text] { grid-column: 2; font: inherit; padding: .2rem .3rem; }
+h2 { font-size: 1.05rem; margin: 1.6rem 0 .4rem; }
+p { margin: .3rem 0; }
+button { font: inherit; margin: .2rem .4rem .2rem 0; }
+.run { margin: .6rem 0 1rem; }
+.slide { border-left: 2px solid var(--line); padding-left: .7rem; margin: .5rem 0; }
+.slide.holds { border-left-color: var(--accent); }
+.heading { color: var(--muted); font-size: .9em; }
+.context { color: var(--muted); white-space: pre-wrap; }
+.change { display: grid; grid-template-columns: auto 1fr; gap: .15rem .6rem; padding: .45rem 0; }
+.change > :not(input[type=checkbox]) { grid-column: 2; }
+.change input[type=text] { font: inherit; padding: .2rem .3rem; }
 .where { color: var(--muted); font-size: .9em; }
-.written { opacity: .6; }
-#problem { color: var(--warn); font-weight: 600; }
+.text { white-space: pre-wrap; }
+.becomes { color: var(--added); white-space: pre-wrap; }
+.label { color: var(--muted); font-size: .85em; text-transform: uppercase; letter-spacing: .03em; margin-right: .3rem; }
+.closed { opacity: .6; }
+#problem, #warning { font-weight: 600; }
+#problem { color: var(--warn); }
 #problem:empty, #warning:empty { display: none; }
-#warning { font-weight: 600; }
-.run { color: var(--muted); }
+.outcome { color: var(--muted); }
 `;
 
 const SCRIPT = `
-const base = location.pathname.replace(/\\/?$/, "/");
 const MAX_NOTE = ${MAX_NOTE};
+const base = location.protocol === "file:" ? null : location.pathname.replace(/\\/?$/, "/");
 let state = {}, closed = new Set(), timer, stopped = false;
 /** One save at a time: a save sent while another is on its way could land first and be overwritten by the older. */
 let saving = false, dirty = false;
@@ -41,13 +60,10 @@ const boxes = [];
 function el(tag, props, ...children) {
   const node = document.createElement(tag);
   Object.assign(node, props || {});
-  for (const child of children) node.append(child);
+  for (const child of children) if (child != null) node.append(child);
   return node;
 }
-
-function status(text) {
-  document.getElementById("status").textContent = text;
-}
+const status = (text) => (document.getElementById("status").textContent = text);
 
 function stop(message) {
   stopped = true;
@@ -74,8 +90,7 @@ function changed() {
 
 async function save() {
   clearTimeout(timer);
-  if (stopped || !dirty) return;
-  if (saving) return; // Sent again once the save on its way has landed.
+  if (stopped || !dirty || saving) return; // A save on its way sends again once it has landed.
   saving = true;
   dirty = false;
   try {
@@ -104,7 +119,39 @@ function setAll(list, ticked) {
   changed();
 }
 
-function render(data) {
+/** A line's text, or a dash for an empty one, which would otherwise show as nothing. */
+const line = (text) => (text === "" ? "—" : text);
+
+function changeRow(change, written, replan, readOnly, mine) {
+  const done = closed.has(change.n);
+  const box = el("input", { type: "checkbox", checked: state[change.n].ticked, disabled: done || readOnly, id: "c" + change.n });
+  box.setAttribute("aria-label", "Change " + change.n + ": " + change.where);
+  box.addEventListener("change", () => { state[change.n].ticked = box.checked; changed(); });
+  const after = written.has(change.n) ? " · written" : replan.has(change.n) ? " · its presentation was written since: plan it again to make it" : "";
+  const parts = [el("div", { className: "where", textContent: change.n + ". " + change.where + after })];
+  if (change.kind === "structure") {
+    parts.push(el("div", { className: "text", textContent: change.said }));
+  } else {
+    if (change.insert) parts.push(el("div", { className: "text" }, el("span", { className: "label", textContent: "Added " + change.insert }), line(change.beside)));
+    else parts.push(el("div", { className: "text" }, el("span", { className: "label", textContent: "Now" }), line(change.before)));
+    parts.push(el("div", { className: "becomes" }, el("span", { className: "label", textContent: "Becomes" }),
+      change.after === null ? el("em", { textContent: "line removed" }) : line(change.after)));
+    if (change.styling) parts.push(el("div", { className: "where", textContent: "Styling: " + change.styling.join("; ") }));
+  }
+  if (readOnly) {
+    if (state[change.n].note) parts.push(el("div", { className: "text" }, el("span", { className: "label", textContent: "Note" }), state[change.n].note));
+  } else {
+    const note = el("input", { type: "text", value: state[change.n].note || "", maxLength: MAX_NOTE, placeholder: "Note (why, or what else)" });
+    note.setAttribute("aria-label", "Note on change " + change.n);
+    note.addEventListener("input", () => { state[change.n].note = note.value; changed(); });
+    parts.push(note);
+  }
+  mine.push({ n: change.n, box });
+  boxes.push({ n: change.n, box });
+  return el("div", { className: "change" + (done ? " closed" : "") }, box, ...parts);
+}
+
+function render(data, readOnly) {
   state = data.choices;
   const written = new Set(data.written);
   const replan = new Set(data.needNewPlan);
@@ -114,58 +161,78 @@ function render(data) {
   const main = document.getElementById("changes");
   for (const file of data.files) {
     const mine = [];
-    main.append(
-      el("h2", { textContent: file.name }),
-      el("div", {},
+    const byN = new Map(file.changes.map((c) => [c.n, c]));
+    const row = (n) => changeRow(byN.get(n), written, replan, readOnly, mine);
+    main.append(el("h2", { textContent: file.name }));
+    if (!readOnly) {
+      main.append(el("div", {},
         el("button", { type: "button", textContent: "Select all in this presentation", onclick: () => setAll(mine, true) }),
-        el("button", { type: "button", textContent: "Deselect all in this presentation", onclick: () => setAll(mine, false) })
-      )
-    );
-    for (const item of file.items) {
-      const done = closed.has(item.n);
-      const box = el("input", { type: "checkbox", checked: state[item.n].ticked, disabled: done, id: "c" + item.n });
-      box.addEventListener("change", () => { state[item.n].ticked = box.checked; changed(); });
-      const note = el("input", { type: "text", value: state[item.n].note || "", maxLength: MAX_NOTE, placeholder: "Note (why, or what else)" });
-      note.setAttribute("aria-label", "Note on change " + item.n);
-      note.addEventListener("input", () => { state[item.n].note = note.value; changed(); });
-      const after = written.has(item.n) ? " (written)" : replan.has(item.n) ? " (its presentation was written since: plan it again to make it)" : "";
-      const label = el("label", { htmlFor: box.id },
-        el("div", { className: "where", textContent: item.n + ". " + item.where + after }),
-        el("div", { textContent: item.said })
-      );
-      main.append(el("div", { className: "change" + (done ? " written" : "") }, box, label, note));
-      mine.push({ n: item.n, box });
-      boxes.push({ n: item.n, box });
+        el("button", { type: "button", textContent: "Deselect all in this presentation", onclick: () => setAll(mine, false) })));
     }
+    for (const run of file.runs) {
+      const block = el("div", { className: "run" });
+      for (const slide of run) {
+        const heading = "Slide " + (slide.slideIndex + 1) + (slide.group ? " · " + slide.group : "") + (slide.macros.length ? " · " + slide.macros.join(", ") : "");
+        const box = el("div", { className: "slide" + (slide.holds ? " holds" : "") }, el("div", { className: "heading", textContent: heading }));
+        for (const entry of slide.entries) box.append("n" in entry ? row(entry.n) : el("div", { className: "context", textContent: line(entry.text) }));
+        if (slide.entries.length === 0) box.append(el("div", { className: "context", textContent: "(no text)" }));
+        block.append(box);
+      }
+      main.append(block);
+    }
+    for (const n of file.stray) main.append(row(n));
   }
-  const runs = document.getElementById("runs");
+  const outcomes = document.getElementById("runs");
   for (const run of data.runs) {
     const wrote = run.files.filter((f) => f.written).length;
-    runs.append(el("div", { className: "run", textContent: run.at + ": " + wrote + " of " + run.files.length + " presentations written" }));
+    outcomes.append(el("p", { className: "outcome", textContent: run.at + ": " + wrote + " of " + run.files.length + " presentations written" }));
     for (const f of run.files.filter((f) => !f.written)) {
-      runs.append(el("div", { className: "run", textContent: "  " + f.name + ": not written (" + (f.detail || f.reason || "") + ")" }));
+      outcomes.append(el("p", { className: "outcome", textContent: f.name + ": not written (" + (f.detail || f.reason || "") + ")" }));
     }
   }
   counted();
-  status("All choices saved");
 }
 
-document.getElementById("all").onclick = () => setAll(boxes, true);
-document.getElementById("none").onclick = () => setAll(boxes, false);
-// Switching to the chat to say "done" takes the focus away: save then, not half a second later.
-window.addEventListener("blur", save);
-document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && save());
-window.addEventListener("beforeunload", (event) => {
-  if (dirty || saving) event.preventDefault();
-});
-fetch(base + "review.json")
-  .then((response) => (response.ok ? response.json() : response.text().then((t) => Promise.reject(new Error(t)))))
-  .then(render)
-  .catch((e) => stop("This review cannot be shown: " + e.message));
+const embedded = document.getElementById("data");
+if (embedded) {
+  const snapshot = JSON.parse(embedded.textContent);
+  render(snapshot.review, true);
+  status("Choices as of " + new Date(snapshot.at).toLocaleString() + ". To change them, ask Claude to open this review.");
+} else {
+  document.getElementById("all").onclick = () => setAll(boxes, true);
+  document.getElementById("none").onclick = () => setAll(boxes, false);
+  document.getElementById("copy").onclick = async () => {
+    await save();
+    const response = await fetch(base + "snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    status(response.ok ? "Saved a read-only copy as " + (await response.json()).file : "No copy was saved: " + (await response.text()));
+  };
+  // Switching to the chat to say "done" takes the focus away: save then, not half a second later.
+  window.addEventListener("blur", save);
+  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && save());
+  window.addEventListener("beforeunload", (event) => {
+    if (dirty || saving) event.preventDefault();
+  });
+  fetch(base + "review.json")
+    .then((response) => (response.ok ? response.json() : response.text().then((t) => Promise.reject(new Error(t)))))
+    .then((data) => { render(data, false); status("All choices saved"); })
+    .catch((e) => stop("This review cannot be shown: " + e.message));
+}
 `;
 
-/** The page, its inline style and script allowed by `nonce` alone, as the server's Content-Security-Policy names it. */
-export function reviewPage(nonce: string): string {
+/**
+ * The page. Served, its inline style and script are allowed by `nonce`
+ * alone, as the server's Content-Security-Policy names it. With `snapshot`,
+ * the review is inside it and it changes nothing: `review.html`.
+ */
+export function reviewPage(nonce: string, snapshot?: { review: ReviewData; at: string }): string {
+  // `<` escaped so no lyric or note can close the script element it sits in.
+  const data = snapshot ? `<script type="application/json" id="data">${JSON.stringify(snapshot).replace(/</g, "\\u003c")}</script>\n` : "";
+  const controls = snapshot
+    ? ""
+    : `<div><button type="button" id="all">Select all</button><button type="button" id="none">Deselect all</button><button type="button" id="copy">Save a read-only copy</button></div>\n`;
+  const intro = snapshot
+    ? "A read-only copy of a review of slide edits: every change as the line read and as it would read, ticked or not, with the notes left on it."
+    : "Every change is shown as the line reads now and as it would read, among the slides around it. Untick any to leave it as it is, and say why in its note if you like: Claude reads the notes. Your choices are saved as you go. When you are done, tell Claude to apply them.";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -176,15 +243,18 @@ export function reviewPage(nonce: string): string {
 </head>
 <body>
 <header>
-<h1>Choose the slide edits to make</h1>
-<p>Every change is shown as the line reads now and as it would read. Untick any to leave it as it is, and say why in its note if you like: Claude reads the notes. Your choices are saved as you go. When you are done, tell Claude to apply them.</p>
+<h1>${snapshot ? "Slide edits reviewed" : "Choose the slide edits to make"}</h1>
+<p>${intro}</p>
 <p id="warning"></p>
-<div><button type="button" id="all">Select all</button><button type="button" id="none">Deselect all</button> <span id="count"></span> · <span id="status"></span></div>
+${controls}<p><span id="count"></span> · <span id="status"></span></p>
 <p id="problem"></p>
 </header>
 <div id="runs"></div>
 <main id="changes"></main>
-<script nonce="${nonce}">${SCRIPT}</script>
+${data}<script nonce="${nonce}">${SCRIPT}</script>
 </body>
 </html>`;
 }
+
+/** The read-only snapshot of a review as it stands now: `review.html`. */
+export const snapshotHtml = (review: Review) => reviewPage("", { review: reviewData(review), at: new Date().toISOString() });
