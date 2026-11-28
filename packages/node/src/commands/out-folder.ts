@@ -192,8 +192,8 @@ async function refuseLibraries(
   }
 }
 
-/** A path's real location, through the nearest part of it that exists. */
-async function realPath(p: string): Promise<string> {
+/** A path's real location, through the nearest part of it that exists: where a folder not made yet would be. */
+export async function realPath(p: string): Promise<string> {
   let rest = "";
   let at = path.resolve(p);
   for (;;) {

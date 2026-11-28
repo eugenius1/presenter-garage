@@ -288,8 +288,11 @@ nothing written.
 - **The desktop app opening a review folder** as a second place to review.
 - **WSL2 and remote SSH.** The browser may not be on the machine running
   the server. WSL2 forwards localhost by default, but that is untried.
-- **Two tabs on one review.** Today the last save wins for each change.
-  Detect it, or accept it.
+- **Two tabs on one review.** Each page sends only the changes it
+  changed, so one tab's save never undoes another's; the last change made
+  to each change wins. A tab still shows what it loaded, though, so it can
+  show a tick another tab has since taken away. Refresh the other tabs, or
+  detect it.
 - **The next MCP revision.** 2026-07-28 changes URL elicitation (no
   `elicitationId`, no completion notification, no -32042). The design uses
   URL elicitation only to hand the link over, with the system browser as

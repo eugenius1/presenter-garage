@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { absoluteFolder, writeOut } from "./commands/out-folder";
+import { absoluteFolder, realPath, writeOut } from "./commands/out-folder";
 import { isInside, LibraryError } from "./library";
 import type { AppliedFile } from "./apply";
 import type { Plan } from "./plans";
@@ -128,11 +128,17 @@ export async function createReview(
 
 /** The folder plans' hashes are recorded in, made if need be, refused inside a library: there it would be a write to it. */
 async function openReviewsDir(dir: string, roots: readonly string[]): Promise<string> {
+  const refuseInside = (real: string) => {
+    if (roots.some((root) => root === real || isInside(root, real))) {
+      throw new LibraryError(`The folder reviews are recorded in, ${real}, is inside a library folder.`);
+    }
+  };
+  // Before anything is made, where it would be: a folder made inside a library is already a write to it.
+  refuseInside(await realPath(dir));
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  // Again where it really is: a link made in between could have put it anywhere.
   const real = await fs.realpath(dir);
-  if (roots.some((root) => root === real || isInside(root, real))) {
-    throw new LibraryError(`The folder reviews are recorded in, ${real}, is inside a library folder.`);
-  }
+  refuseInside(real);
   return real;
 }
 
@@ -227,7 +233,8 @@ export function needNewPlan(review: Review): number[] {
 /**
  * The person's choices as the page sent them, checked against the plan:
  * every change named is one the plan has, every tick a boolean, every note
- * one line of text. A change left out keeps its last choice.
+ * one line of text. A change left out keeps its last choice, and a change
+ * sent with only its tick, or only its note, keeps the other as it was.
  */
 export function mergeChoices(review: Review, sent: unknown): Choices {
   const changes = (sent as { changes?: unknown } | null)?.changes;
@@ -236,11 +243,14 @@ export function mergeChoices(review: Review, sent: unknown): Choices {
   const merged: Record<string, Choice> = { ...review.choices.changes };
   for (const [key, value] of Object.entries(changes)) {
     if (!known.has(key)) throw new LibraryError(`The plan has no change ${key}.`);
+    // Field by field: a tab that changed only a note must not send back its stale tick, nor one that ticked a stale note.
     const { ticked, note } = (value ?? {}) as { ticked?: unknown; note?: unknown };
-    if (typeof ticked !== "boolean") throw new LibraryError(`Change ${key} is neither ticked nor unticked.`);
+    if (ticked === undefined && note === undefined) throw new LibraryError(`Nothing was sent for change ${key}.`);
+    if (ticked !== undefined && typeof ticked !== "boolean") throw new LibraryError(`Change ${key} is neither ticked nor unticked.`);
     if (note !== undefined && typeof note !== "string") throw new LibraryError(`Change ${key}'s note is not text.`);
-    const line = note?.replace(/[\r\n\u2028\u2029]+/g, " ").trim().slice(0, MAX_NOTE);
-    merged[key] = { ticked, ...(line ? { note: line } : {}) };
+    const before = merged[key] ?? { ticked: true };
+    const line = note === undefined ? before.note : note.replace(/[\r\n\u2028\u2029]+/g, " ").trim().slice(0, MAX_NOTE);
+    merged[key] = { ticked: ticked ?? before.ticked, ...(line ? { note: line } : {}) };
   }
   return { ...review.choices, changes: merged };
 }

@@ -12,8 +12,8 @@ import { reviewData, type ReviewData } from "./review-view";
  * the web app draws a finding -- among the slides around it, as it is, and
  * what it becomes -- from data `review-view.ts` builds.
  *
- * Served, it fetches the review from beside itself and saves choices whole,
- * half a second after the last change, so a burst of clicks is one save, or
+ * Served, it fetches the review from beside itself and saves the choices it
+ * changed, half a second after the last change, so a burst of clicks is one save, or
  * at once when the page loses focus; one save at a time, so an older one
  * never lands after a newer. It says when everything is saved, and a save
  * that fails stops it taking more, so nothing the person does afterwards is
@@ -52,7 +52,13 @@ button { font: inherit; margin: .2rem .4rem .2rem 0; }
 const SCRIPT = `
 const MAX_NOTE = ${MAX_NOTE};
 const base = location.protocol === "file:" ? null : location.pathname.replace(/\\/?$/, "/");
-let state = {}, closed = new Set(), timer, stopped = false, dirty = false;
+let state = {}, closed = new Set(), timer, stopped = false;
+/**
+ * What this page has changed and not yet saved, by change, each with the
+ * fields changed: only those are sent, so a second tab on the same review
+ * sends what it changed, never its stale copy of what another tab changed.
+ */
+const pending = new Map();
 /** The save on its way, if any: one at a time, since one sent beside it could land first and be overwritten by the older. */
 let inflight = null;
 /** Chrome refuses a keepalive body over 64 KiB; a big review with many notes is sent without it. */
@@ -81,10 +87,10 @@ function counted() {
   document.getElementById("count").textContent = chosen + " of " + open.length + " changes chosen";
 }
 
-function changed() {
+function changed(field, ...ns) {
   counted();
-  if (stopped) return;
-  dirty = true;
+  if (stopped || ns.length === 0) return;
+  for (const n of ns) pending.set(String(n), new Set([...(pending.get(String(n)) || []), field]));
   status("Saving…");
   clearTimeout(timer);
   timer = setTimeout(save, 500);
@@ -94,20 +100,25 @@ function changed() {
 function save() {
   clearTimeout(timer);
   if (inflight) return inflight; // It sends again before it resolves if anything changed meanwhile.
-  if (stopped || !dirty) return Promise.resolve();
+  if (stopped || pending.size === 0) return Promise.resolve();
   inflight = (async () => {
-    while (dirty && !stopped) {
-      dirty = false;
-      const body = JSON.stringify({ changes: state });
+    while (pending.size > 0 && !stopped) {
+      const sent = [...pending];
+      const changes = Object.fromEntries(sent.map(([n, fields]) => [n, Object.fromEntries([...fields].map((f) => [f, state[n][f] ?? ""]))]));
+      pending.clear();
+      const body = JSON.stringify({ changes });
       try {
         const response = await fetch(base + "choices", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body,
-          keepalive: body.length < KEEPALIVE_MAX,
+          // Measured as sent: a note in Cyrillic is two bytes a character.
+          keepalive: new TextEncoder().encode(body).byteLength < KEEPALIVE_MAX,
         });
         if (!response.ok) throw new Error(await response.text());
       } catch (e) {
+        // Still unsaved, so closing the tab still warns.
+        for (const [n, fields] of sent) pending.set(n, fields);
         stop("Not saved: ask Claude to reopen this review. " + (e && e.message ? e.message : ""));
       }
     }
@@ -123,7 +134,7 @@ function setAll(list, ticked) {
     state[n].ticked = ticked;
     box.checked = ticked;
   }
-  changed();
+  changed("ticked", ...list.filter(({ n }) => !closed.has(n)).map(({ n }) => n));
 }
 
 /** A line's text, or a dash for an empty one, which would otherwise show as nothing. */
@@ -133,7 +144,7 @@ function changeRow(change, written, replan, readOnly, mine) {
   const done = closed.has(change.n);
   const box = el("input", { type: "checkbox", checked: state[change.n].ticked, disabled: done || readOnly, id: "c" + change.n });
   box.setAttribute("aria-label", "Change " + change.n + ": " + change.where);
-  box.addEventListener("change", () => { state[change.n].ticked = box.checked; changed(); });
+  box.addEventListener("change", () => { state[change.n].ticked = box.checked; changed("ticked", change.n); });
   const after = written.has(change.n) ? " · written" : replan.has(change.n) ? " · its presentation was written since: plan it again to make it" : "";
   const parts = [el("div", { className: "where", textContent: change.n + ". " + change.where + after })];
   if (change.kind === "structure") {
@@ -150,7 +161,7 @@ function changeRow(change, written, replan, readOnly, mine) {
   } else {
     const note = el("input", { type: "text", value: state[change.n].note || "", maxLength: MAX_NOTE, placeholder: "Note (why, or what else)" });
     note.setAttribute("aria-label", "Note on change " + change.n);
-    note.addEventListener("input", () => { state[change.n].note = note.value; changed(); });
+    note.addEventListener("input", () => { state[change.n].note = note.value; changed("note", change.n); });
     parts.push(note);
   }
   mine.push({ n: change.n, box });
@@ -193,8 +204,10 @@ function render(data, readOnly) {
   for (const run of data.runs) {
     const wrote = run.files.filter((f) => f.written).length;
     outcomes.append(el("p", { className: "outcome", textContent: run.at + ": " + wrote + " of " + run.files.length + " presentations written" }));
-    for (const f of run.files.filter((f) => !f.written)) {
-      outcomes.append(el("p", { className: "outcome", textContent: f.name + ": not written (" + (f.detail || f.reason || "") + ")" }));
+    // A file can be written and still not read back as promised: that is said too, not hidden behind the count.
+    for (const f of run.files.filter((f) => !f.written || f.reason)) {
+      const why = f.detail || f.reason || "";
+      outcomes.append(el("p", { className: "outcome", textContent: f.name + (f.written ? ": written, but " + why : ": not written (" + why + ")") }));
     }
   }
   counted();
@@ -219,7 +232,7 @@ if (embedded) {
   window.addEventListener("blur", save);
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && save());
   window.addEventListener("beforeunload", (event) => {
-    if (dirty || inflight) event.preventDefault();
+    if (pending.size > 0 || inflight) event.preventDefault();
   });
   fetch(base + "review.json")
     .then((response) => (response.ok ? response.json() : response.text().then((t) => Promise.reject(new Error(t)))))
@@ -266,4 +279,5 @@ ${data}<script nonce="${nonce}">${SCRIPT}</script>
 }
 
 /** The read-only snapshot of a review as it stands now: `review.html`. */
-export const snapshotHtml = (review: Review) => reviewPage("", { review: reviewData(review), at: new Date().toISOString() });
+export const snapshotHtml = (review: Review) =>
+  reviewPage("", { review: reviewData(review, { portable: true }), at: new Date().toISOString() });

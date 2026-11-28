@@ -133,6 +133,14 @@ describe("planning into a review folder", () => {
     expect((await call("plan_slide_edits", { edits: EDITS, out: "out" })).text).toMatch(/Give an absolute folder for the review, not out/);
   });
 
+  it("never makes the folder it records plans in inside the library", async () => {
+    const inside = path.join(library, "Reviews");
+    const { call } = await connect(library, { backupDir: backups, reviewsDir: inside, openUrl: async () => true });
+    const result = await call("plan_slide_edits", { edits: EDITS, out });
+    expect([result.isError, result.text]).toEqual([true, expect.stringMatching(/is inside a library folder/)]);
+    expect(fs.existsSync(inside)).toBe(false);
+  });
+
   it("takes more than a form's 200 changes with out, up to 2,000", async () => {
     const { call } = await server();
     const many = (k: number) => Array.from({ length: k }, () => EDITS[0]);
@@ -179,6 +187,25 @@ describe("the page", () => {
     });
   });
 
+  it("keeps every choice a save does not name, so a second tab's save cannot undo the first's", async () => {
+    const { call } = await server();
+    const { review, url } = await planReview(call);
+    await put(url, { 1: { ticked: false } });
+    await put(url, { 2: { ticked: false, note: "From the other tab" } });
+    expect(choicesOf(review).changes).toEqual({
+      1: { ticked: false },
+      2: { ticked: false, note: "From the other tab" },
+      3: { ticked: true },
+    });
+    // Field by field: a note sent alone keeps the tick, and a tick sent alone keeps the note.
+    await put(url, { 1: { note: "Why not" } });
+    await put(url, { 2: { ticked: true } });
+    expect(choicesOf(review).changes).toMatchObject({ 1: { ticked: false, note: "Why not" }, 2: { ticked: true, note: "From the other tab" } });
+    await put(url, { 1: { note: "" } });
+    expect(choicesOf(review).changes[1]).toEqual({ ticked: false });
+    expect((await put(url, { 3: {} })).body).toBe("Nothing was sent for change 3.");
+  });
+
   it("answers only at 127.0.0.1, only with the review's token, and saves only JSON from itself", async () => {
     const { call } = await server();
     const { review, url } = await planReview(call);
@@ -218,7 +245,7 @@ describe("the read-only snapshot", () => {
 
     await put(url, { 1: { ticked: true } });
     expect((await call("export_review", { review })).json()).toEqual({ file });
-    expect(embedded().choices[1]).toEqual({ ticked: true });
+    expect(embedded().choices[1]).toEqual({ ticked: true, note: "Not </script> this" });
 
     await call("apply_slide_edits", { review });
     expect(embedded().written).toEqual([1, 2, 3]);

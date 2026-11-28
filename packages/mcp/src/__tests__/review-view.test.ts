@@ -76,3 +76,22 @@ describe("where the page draws each change", () => {
     expect(data.files[0].changes[0]).toMatchObject({ before: "·lead", after: "lead" });
   });
 });
+
+describe("what the snapshot says of an apply", () => {
+  it("gives the app's sentence for an outcome alone, never the system's words with their paths", () => {
+    const written = review({ lines: [{ n: 1, fix: fix(0, 0, 0, "a", "b") }] });
+    written.runs = [
+      {
+        at: "2026-11-28T00:00:00Z",
+        written: [1],
+        files: [{ path: "/library/Song.pro", name: "Song", lines: 1, written: true, reason: "readBackFailed", detail: "read back wrong: /Users/someone/Backups/Song.pro" }],
+      },
+    ];
+    const [served] = reviewData(written).runs[0].files;
+    const [portable] = reviewData(written, { portable: true }).runs[0].files;
+    expect(served.detail).toContain("/Users/someone");
+    expect(portable).toMatchObject({ name: "Song", written: true, reason: "readBackFailed" });
+    expect(portable.detail).not.toContain("/Users");
+    expect(portable.detail).toBeTruthy();
+  });
+});

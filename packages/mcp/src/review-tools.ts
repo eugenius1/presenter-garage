@@ -176,10 +176,11 @@ export function registerReviewTools(
         title: "Open a review of slide edits",
         description:
           "Show the person a review folder's page again -- after a break, or in a new session -- with their choices " +
-          "as they left them. Writes nothing. Never tick, untick or note anything for the person, and never edit the " +
+          "as they left them. Writes no ProPresenter file; the page records in the review that it was shown. Never tick, untick or note anything for the person, and never edit the " +
           "review folder's files: the choices are theirs.",
         inputSchema: { review: z.string().describe("The review folder plan_slide_edits made, as an absolute path.") },
-        annotations: READ_ONLY,
+        // Opening the page records in the review that it was shown, which is what lets it be applied.
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
       ({ review }, { signal }) =>
         answer(async () => {

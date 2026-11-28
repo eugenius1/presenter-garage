@@ -144,8 +144,8 @@ describe("the tools offered", () => {
     expect(tools.map((t) => t.name).sort()).toEqual(
       [...READING_TOOLS, ...OUT_TOOLS, "apply_slide_edits", "plan_slide_edits", "export_review", "open_review", "read_review", "save_rules"].sort()
     );
-    // plan_slide_edits writes a review folder when given `out`.
-    const writing = new Set(["apply_slide_edits", "plan_slide_edits", "export_review", "save_rules", "check_presentations", ...OUT_TOOLS]);
+    // plan_slide_edits writes a review folder when given `out`, and open_review's page records that it was shown.
+    const writing = new Set(["apply_slide_edits", "plan_slide_edits", "export_review", "open_review", "save_rules", "check_presentations", ...OUT_TOOLS]);
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint, tool.name).toBe(!writing.has(tool.name));
     }

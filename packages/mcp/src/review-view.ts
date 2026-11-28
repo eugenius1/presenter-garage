@@ -2,7 +2,10 @@ import { macroNames, placeAmongSlides, shownGroupName } from "@presenter-garage/
 import { visibleWhitespace } from "@presenter-garage/core/lib/whitespace";
 import type { PlannedFile } from "@presenter-garage/node/edits";
 import { needNewPlan, writtenIn, type Review } from "@presenter-garage/node/review";
+import { createI18n } from "@presenter-garage/core/i18n/core";
 import { beforeWriting, changeWhere, describeChange, lineWhere } from "./wording";
+
+const refusals = createI18n("en").t.tools.presentations.refusals;
 
 /**
  * A review as its page draws it: every change in words, each among the
@@ -100,8 +103,13 @@ function placed(file: PlannedFile): Pick<ViewFile, "runs" | "stray"> {
   };
 }
 
-/** What the page is sent, or the snapshot holds. */
-export function reviewData(review: Review) {
+/**
+ * What the page is sent, or the snapshot holds. `portable` for the
+ * snapshot, which is for sending to someone: an outcome is said in the
+ * app's own sentence alone, without the system's words after it, which can
+ * name a backup's path, and with it the library's and the person's.
+ */
+export function reviewData(review: Review, { portable = false } = {}) {
   return {
     title: `Review: ${review.plan.files.length === 1 ? review.plan.files[0].name : `${review.plan.files.length} presentations`}`,
     files: review.plan.files.map((file): ViewFile => ({ name: file.name, changes: changesOf(file), ...placed(file) })),
@@ -112,7 +120,12 @@ export function reviewData(review: Review) {
     needNewPlan: needNewPlan(review),
     runs: review.runs.map((run) => ({
       at: run.at,
-      files: run.files.map(({ name, written, reason, detail }) => ({ name, written, reason, detail })),
+      files: run.files.map(({ name, written, reason, detail }) => ({
+        name,
+        written,
+        reason,
+        detail: portable ? reason && refusals[reason] : detail,
+      })),
     })),
   };
 }
