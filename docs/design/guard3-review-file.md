@@ -99,7 +99,15 @@ since. Every file that has is refused alone (see *Applying*).
   is typed: "why I unticked this", or "fine, but slide 7 has the same
   typo".
 - **What was written.** Changes a run already wrote are shown as written,
-  and can no longer be ticked.
+  and can no longer be ticked. Nor can the other changes in a presentation
+  a run wrote: its hash changed when it was written, so they are shown as
+  needing a new plan, and `read_review` lists them for the model to plan
+  again.
+- **Saved before handing over.** The page says "Saving…" while a change
+  is not yet on disk and "All choices saved" once the server has written
+  it. It saves at once, without waiting for the batch, when it loses focus
+  or is hidden, which is what switching to the chat to say "done" does.
+  `apply_slide_edits` reads `choices.json` as it is on disk.
 - **When saving fails.** If the server has gone away (its session closed),
   the page says so ("Not saved: ask Claude to reopen this review") and
   stops taking ticks, so nothing the person does is silently lost. Nothing
@@ -139,14 +147,19 @@ form that is already long.
    time in the server's own state on disk, outside `out`: a marker file
    named for the hash in a `Reviews` folder beside the default `Backups`
    one (`defaultBackupDir()`), so it survives a restart as the plan does.
-   A plan that differs is refused whole: what is applied must be what the
-   page showed.
+   The marker names the review folder the plan was written into, and a
+   plan whose marker names another folder is refused too, so the
+   `plan.json` and `choices.json` of one review copied into another do not
+   pass. A plan that differs is refused whole: what is applied must be what
+   the page showed. A review folder moved elsewhere is refused the same
+   way, and is planned again.
 2. Reads `choices.json`, and refuses it unless it names that plan's hash.
 3. Refuses unless the plan's library is the one open, as
    `refuseUnlessOpen()` does today.
 4. Asks the one summary confirmation where the client can.
-5. Runs the ticked, not-yet-written changes through `applyPlan()` in
-   `packages/node/src/apply.ts`, unchanged.
+5. Runs the ticked changes that are still open through `applyPlan()` in
+   `packages/node/src/apply.ts`, unchanged. A change is open while no run
+   of this review has written its presentation.
 
 So guards 1, 2 and 4 run exactly as they do today:
 
@@ -160,9 +173,12 @@ are written. The answer lists the skipped files, so the model can plan just
 those again into a smaller review.
 
 A review can be applied again, for example after ProPresenter was open or a
-backup failed. `runs.json` records what was written, and a second apply
-writes only what is still ticked and not written. A file this review wrote
-has a new hash, so it is refused as stale anyway: nothing is written twice.
+backup failed. `runs.json` records what each run wrote, and a second apply
+writes only presentations no run has written. Changes left unticked in a
+presentation that was written cannot be applied from this review, since its
+hash has changed; the page and `read_review` say so, and the model plans
+them again. A file this review wrote would be refused as stale anyway:
+nothing is written twice.
 
 ## Threat model for guard 3
 
@@ -185,7 +201,8 @@ working against them.
 - The person is shown every change, as it is and as it would read, and
   the run writes only changes left ticked in `choices.json`.
 - What is applied is the plan the page showed. `plan.json` is checked
-  against its hash at plan time, and `choices.json` must name that plan.
+  against its hash at plan time, that hash's record must name this review
+  folder, and `choices.json` must name that plan.
 - Where the client can ask, the server itself asks the person to confirm
   the chosen set, and the model cannot answer that.
 - Other websites in the browser cannot post choices (token, `Host` check).
