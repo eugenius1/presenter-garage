@@ -147,9 +147,24 @@ export async function planSlideEdits(
   edits: readonly RequestedEdit[],
   requested: readonly RequestedChange[] = []
 ): Promise<PlanResult> {
+  const plan = store.add(await planFiles(roots, edits, requested));
+  return { planId: plan.id, files: planView(plan) };
+}
+
+/**
+ * Every file's changes worked out, each file read now, writing nothing:
+ * `planSlideEdits` without the store, for a plan kept somewhere else -- a
+ * review folder, which takes more changes than a form in a chat can show.
+ */
+export async function planFiles(
+  roots: readonly string[],
+  edits: readonly RequestedEdit[],
+  requested: readonly RequestedChange[] = [],
+  max = MAX_PLAN_LINES
+): Promise<PlannedFile[]> {
   if (edits.length === 0 && requested.length === 0) throw new LibraryError("No edits given.");
-  if (edits.length + requested.length > MAX_PLAN_LINES) {
-    throw new LibraryError(`At most ${MAX_PLAN_LINES} changes in one plan; split the work into smaller plans.`);
+  if (edits.length + requested.length > max) {
+    throw new LibraryError(`At most ${max} changes in one plan; split the work into smaller plans.`);
   }
 
   // By the file each edit resolves to, so two spellings of one path are one
@@ -222,27 +237,28 @@ export async function planSlideEdits(
     n += fixes.length + changes.length;
   }
 
-  const plan = store.add(files);
-  return {
-    planId: plan.id,
-    files: plan.files.map((file) => ({
-      path: file.path,
-      name: file.name,
-      changes: file.changes.map(({ n, change }) => plannedChange(n, change)),
-      lines: file.lines.map(({ fix, n, styling }) => ({
-        n,
-        slideIndex: fix.slideIndex,
-        label: fix.cueName,
-        group: fix.groupName,
-        boxIndex: fix.boxIndex,
-        lineIndex: fix.lineIndex,
-        ...(fix.insert && { insert: fix.insert }),
-        before: fix.insert ? null : fix.before,
-        after: fix.after,
-        ...(styling && { styling }),
-      })),
+  return files;
+}
+
+/** A plan's every change as the model and the person both see it: each line as it is and as it would read. */
+export function planView(plan: Plan): PlanResult["files"] {
+  return plan.files.map((file) => ({
+    path: file.path,
+    name: file.name,
+    changes: file.changes.map(({ n, change }) => plannedChange(n, change)),
+    lines: file.lines.map(({ fix, n, styling }) => ({
+      n,
+      slideIndex: fix.slideIndex,
+      label: fix.cueName,
+      group: fix.groupName,
+      boxIndex: fix.boxIndex,
+      lineIndex: fix.lineIndex,
+      ...(fix.insert && { insert: fix.insert }),
+      before: fix.insert ? null : fix.before,
+      after: fix.after,
+      ...(styling && { styling }),
     })),
-  };
+  }));
 }
 
 interface ReadForPlan {

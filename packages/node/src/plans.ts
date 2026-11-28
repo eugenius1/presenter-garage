@@ -11,6 +11,9 @@ import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
 /** Enough changes for a whole song's worth of corrections; a stop for a model asking to rewrite a library at once. */
 export const MAX_PLAN_LINES = 200;
 
+/** A review page shows every change on a page of its own, and keeps the lyrics on disk: room for a cleanup across a library. */
+export const MAX_REVIEW_LINES = 2000;
+
 /** A plan nobody applied within this long is forgotten: the files have probably moved on. */
 const PLAN_TTL_MS = 60 * 60 * 1000;
 

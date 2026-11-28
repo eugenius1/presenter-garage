@@ -4,7 +4,7 @@ import type { Finding } from "@presenter-garage/core/lib/rules";
 import { describeFinding, findingTags } from "@presenter-garage/core/i18n/rules";
 import { useI18n } from "../../i18n";
 import type { TeamRules } from "./useTeamRules";
-import { visibleWhitespace } from "./whitespace";
+import { visibleWhitespace } from "@presenter-garage/core/lib/whitespace";
 
 /**
  * The team's rules. Loading them only adds a list of findings and sets

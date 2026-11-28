@@ -4,6 +4,7 @@ import { z } from "zod";
 import { version } from "../package.json";
 import { answer, READ_ONLY } from "./answer";
 import { registerEditTools } from "./edits";
+import type { ReviewOptions } from "./review-tools";
 import { Library, type LibraryOptions, type OpenLibrary } from "./library";
 import { registerLibraryTools } from "./library-tools";
 import { checkToOut, OUT, registerOutTools, type SourcesDirs } from "./out-tools";
@@ -43,7 +44,7 @@ import {
 /** How long the client has to say what its roots are; every tool waits for the answer. */
 const ROOTS_TIMEOUT_MS = 10 * 1000;
 
-export interface ServerOptions extends LibraryOptions {
+export interface ServerOptions extends LibraryOptions, ReviewOptions {
   /** Where the team's `RULES.md` and `rules.json` are looked for. Defaults to nowhere: a test names its own. */
   rulesDirs?: readonly string[];
   /** The team's rules as found at start-up, for the instructions to point a model at. */
@@ -112,7 +113,9 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
           : editing
             ? "Slide text can be edited, a group renamed or a macro on a slide swapped, with plan_slide_edits then " +
               "apply_slide_edits; the person is asked to confirm every change before anything is written, and each " +
-              "file is backed up first."
+              "file is backed up first. For a bigger cleanup, or a client that cannot ask its user, plan with `out`: the " +
+              "person chooses on a review page and can come back to it later. Their choices and notes are theirs: never " +
+              "tick, untick or note anything for them, and never edit a review folder's files."
             : "Slide text cannot be edited in this library, since it cannot be backed up; the notes say why.") +
         rulesInstruction({ ...options, readOnly: !editing }) +
         ("root" in start && start.notes.length ? ` Important: ${start.notes.join(" ")}` : ""),
@@ -378,7 +381,7 @@ export function createServer(start: OpenLibrary | { problem: string }, options: 
   if (!options.readOnly) {
     registerOutTools(server, library, options);
     const editing = [
-      ...registerEditTools(server, library),
+      ...registerEditTools(server, library, options),
       server.registerTool(
         "save_rules",
         {

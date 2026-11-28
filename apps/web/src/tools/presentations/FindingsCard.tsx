@@ -3,7 +3,7 @@ import type { PresentationReport, TextIssueKind } from "@presenter-garage/core/l
 import { useI18n } from "../../i18n";
 import type { ContextSlide } from "@presenter-garage/core/lib/slide-context";
 import { reviewRuns, type ReviewSlide, type Row } from "./rows";
-import { visibleWhitespace } from "./whitespace";
+import { visibleWhitespace } from "@presenter-garage/core/lib/whitespace";
 
 /**
  * Every line with something wrong, file by file, each one as it is and as it

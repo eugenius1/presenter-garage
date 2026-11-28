@@ -4,6 +4,7 @@ import { createI18n } from "@presenter-garage/core/i18n/core";
 import {
   applyPlan as applyShared,
   MAX_PLAN_LINES,
+  MAX_REVIEW_LINES,
   planSlideEdits,
   PlanStore,
   type AppliedFile,
@@ -12,10 +13,14 @@ import {
   type RequestedChange,
 } from "@presenter-garage/node/edits";
 import { CONTEXT_SLIDES, macroNames, slideHeading, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
-import { canonical, colorName, type MacroRef, type StructureChange } from "@presenter-garage/core/lib/structure";
+import type { StructureChange } from "@presenter-garage/core/lib/structure";
 import { LibraryError } from "@presenter-garage/node/library";
-import { answer, CONFIRM_TIMEOUT_MS, READ_ONLY } from "./answer";
+import { answer, CONFIRM_TIMEOUT_MS } from "./answer";
 import { refuseUnlessOpen, type Library, type OpenLibrary } from "./library";
+import { registerReviewTools, type ReviewApplyResult, type ReviewOptions } from "./review-tools";
+import { beforeWriting, changeWhere, count, describeChange, lineSaid, lineWhere } from "./wording";
+
+export { describeChange } from "./wording";
 
 export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter-garage/node/edits";
 
@@ -31,75 +36,16 @@ export { MAX_PLAN_LINES, planSlideEdits, PlanStore, type Plan } from "@presenter
 const { t } = createI18n("en");
 const refusals = t.tools.presentations.refusals;
 
-/** Where a structural change is, for its tick box's title. */
-function changeWhere(change: StructureChange): string {
-  if (change.kind === "swapMacro") return [`slide ${change.slideIndex + 1}`, change.groupName].filter(Boolean).join(", ");
-  const slides = change.slides.map((i) => i + 1);
-  const held = slides.length === 0 ? "no slides" : slides.length === 1 ? `slide ${slides[0]}` : `slides ${slides.join(", ")}`;
-  return `group ${change.groupIndex + 1}, ${held}`;
-}
-
-/**
- * A structural change as it is and as it would be, every part of it that
- * changes said: a group's name, its colour and the configured group it is
- * tied to; a macro, and the collection the slide records it in.
- */
-export function describeChange(change: StructureChange): string {
-  if (change.kind === "swapMacro") {
-    const { before, after } = change;
-    // Names alone where they differ; with uuids where they do not, so nothing written goes unsaid.
-    const sameName = before.name === after.name;
-    const macro = (ref: MacroRef) => (sameName ? `“${ref.name}” (${ref.uuid ?? "no uuid"})` : `“${ref.name}”`);
-    const said = [`Macro swapped: ${macro(before)} → ${macro(after)}.`];
-    if (after.collection && canonical(after.collection) !== canonical(before.collection)) {
-      const sameCollection = before.collection?.name === after.collection.name;
-      const collection = (c: MacroRef["collection"]) => (c ? `“${c.name}”${sameCollection ? ` (${c.uuid ?? "no uuid"})` : ""}` : "none");
-      said.push(`The slide records it in collection ${collection(after.collection)} instead of ${collection(before.collection)}.`);
-    }
-    if (after.actionName !== before.actionName) said.push(`Its action is renamed to match: “${before.actionName}” → “${after.actionName}”.`);
-    return said.join(" ");
-  }
-  const { before, after } = change;
-  const said = [`Group renamed: “${before.name}” → “${after.name}”.`];
-  // Compared exactly, not as shown: a difference too small to show is still written, and still said.
-  if (canonical(before.color) !== canonical(after.color)) {
-    const shown = colorName(before.color) === colorName(after.color) ? " (the same to the eye, set exactly)" : "";
-    said.push(`Colour: ${colorName(before.color)} → ${colorName(after.color)}, as the configured group has it${shown}.`);
-  }
-  if (before.link && !after.link) said.push(`No longer tied to configured group “${before.link.name ?? before.link.uuid}”, which it would no longer be.`);
-  else if (after.link && canonical(after.link) !== canonical(before.link)) {
-    said.push(`Tied to configured group “${after.link.name}” (${after.link.uuid}) instead of “${before.link?.name ?? ""}” (${before.link?.uuid ?? "no uuid"}).`);
-  }
-  said.push("Arrangements name groups by uuid, which does not change, so each keeps the group where it was.");
-  return said.join(" ");
-}
-
 /** A confirmation form: one tick box per change, all ticked, each saying what it changes and showing the slides around it. */
 export function confirmationRequest(plan: Plan, backupDir: string) {
   const properties: Record<string, { type: "boolean"; title: string; description: string; default: boolean }> = {};
   for (const file of plan.files) {
     const around = contextOf(file);
     for (const { fix, n, styling } of file.lines) {
-      // Box and line too: a slide can hold the same line twice, and a person
-      // choosing one of them has to be able to tell which.
-      const where = [
-        `slide ${fix.slideIndex + 1}`,
-        fix.groupName,
-        `text box ${fix.boxIndex + 1}, ${fix.insert ? `new line ${fix.insert} line` : "line"} ${fix.lineIndex + 1}`,
-      ]
-        .filter(Boolean)
-        .join(", ");
       properties[`line${n}`] = {
         type: "boolean",
-        title: `${n}. ${file.name} (${where})`,
-        // An added line as it would read, and the line it goes beside as it
-        // reads now, so it can be placed without the slide in front of them.
-        description:
-          (fix.insert
-            ? `Added ${fix.insert} ${fix.before ? `“${fix.before}”` : "an empty line"}: “${fix.after}”`
-            : `“${fix.before}” → ${fix.after === null ? "line removed" : `“${fix.after}”`}`) +
-          (styling ? `. Styling: ${styling.join("; ")}.` : "") +
-          (around.get(n) ?? ""),
+        title: `${n}. ${file.name} (${lineWhere(fix)})`,
+        description: lineSaid(fix, styling) + (around.get(n) ?? ""),
         default: true,
       };
     }
@@ -112,14 +58,10 @@ export function confirmationRequest(plan: Plan, backupDir: string) {
       };
     }
   }
-  const count = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
   const lines = plan.files.reduce((sum, f) => sum + f.lines.length, 0);
   const changes = plan.files.reduce((sum, f) => sum + f.changes.length, 0);
   const what = [lines && count(lines, "line"), changes && count(changes, "other change")].filter(Boolean).join(" and ");
-  const cloud = plan.files.some((file) => file.workspace?.cloud) ? `${t.tools.presentations.cloudWrite} ` : "";
-  const closed = plan.files.some((file) => file.workspace)
-    ? "Quit ProPresenter first: while it has the workspace open, nothing is written."
-    : "If ProPresenter has one of these open, close it first: ProPresenter may save its own copy over the change.";
+  const { cloud, closed } = beforeWriting(plan.files);
   return {
     message:
       cloud +
@@ -235,13 +177,15 @@ export async function applyPlan(
 const MAX_REMEMBERED_PLANS = 50;
 
 /**
- * The two tools that edit, returned so the server can offer them only while
+ * The tools that edit, returned so the server can offer them only while
  * the library open can be backed up. Kept apart so a read-only server never
  * registers them, and so the person's answer is fetched here -- by the
- * server, from the client -- where the model cannot supply it.
+ * server, from the client -- where the model cannot supply it. A plan made
+ * with `out` is chosen on a review page instead: `review-tools.ts`.
  */
-export function registerEditTools(server: McpServer, library: Library): RegisteredTool[] {
+export function registerEditTools(server: McpServer, library: Library, options: ReviewOptions = {}): RegisteredTool[] {
   const plans = new PlanStore();
+  const reviews = registerReviewTools(server, library, applyPlan, options);
   /** The library each plan was made in: applied anywhere else, its paths and backups would be another library's. */
   const madeIn = new Map<string, OpenLibrary & { backupDir: string }>();
 
@@ -271,7 +215,11 @@ export function registerEditTools(server: McpServer, library: Library): Register
         "it would read (an added line with `before` null), and every structural change as it is and as it would " +
         "be; a line's `styling` says what the change does to formatting ranges on it (All Caps, say), which the " +
         "person sees too. If any edit cannot be made, nothing is planned and the error says which. " +
-        "Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm.",
+        `Then call apply_slide_edits with the planId: the person is asked there, by their app, to confirm. At most ${MAX_PLAN_LINES} changes. ` +
+        `With \`out\`, for a bigger cleanup (up to ${MAX_REVIEW_LINES} changes), or a client that cannot ask its user: the plan is ` +
+        "kept in a new review folder inside `out` and shown to the person on a page of its own, where they untick what they do " +
+        "not want and leave notes, and can come back to it later (open_review). The answer is counts and the folder, not the " +
+        "lines. When they say they are done, call apply_slide_edits with `review`. Never choose for them.",
       inputSchema: {
         edits: z
           .array(
@@ -289,7 +237,7 @@ export function registerEditTools(server: McpServer, library: Library): Register
                 .describe("Add `text` as a new line on this side of the line, instead of changing the line."),
             })
           )
-          .max(MAX_PLAN_LINES)
+          .max(MAX_REVIEW_LINES)
           .optional(),
         renameGroups: z
           .array(
@@ -299,7 +247,7 @@ export function registerEditTools(server: McpServer, library: Library): Register
               name: z.string().describe("The group's whole new name."),
             })
           )
-          .max(MAX_PLAN_LINES)
+          .max(MAX_REVIEW_LINES)
           .optional(),
         swapMacros: z
           .array(
@@ -310,18 +258,27 @@ export function registerEditTools(server: McpServer, library: Library): Register
               to: z.string().describe("The configured macro to put in its place, by name or uuid."),
             })
           )
-          .max(MAX_PLAN_LINES)
+          .max(MAX_REVIEW_LINES)
           .optional(),
+        out: z
+          .string()
+          .optional()
+          .describe(
+            "An absolute folder, outside the library, to keep the plan in for the person to review on a page: a new folder " +
+              "is made inside it, and nothing already there is touched."
+          ),
       },
-      annotations: READ_ONLY,
+      // With `out` it writes a review folder, though never a ProPresenter file; each call makes a new one.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    ({ edits = [], renameGroups = [], swapMacros = [] }) =>
+    ({ edits = [], renameGroups = [], swapMacros = [], out }, { signal }) =>
       answer(async () => {
         const open = await editable();
         const structural: RequestedChange[] = [
           ...renameGroups.map((r) => ({ kind: "renameGroup" as const, ...r })),
           ...swapMacros.map((r) => ({ kind: "swapMacro" as const, ...r })),
         ];
+        if (out !== undefined) return reviews.plan(open, edits, structural, out, signal);
         const planned = await planSlideEdits([open.root], plans, edits, structural);
         madeIn.set(planned.planId, open);
         while (madeIn.size > MAX_REMEMBERED_PLANS) madeIn.delete(madeIn.keys().next().value!);
@@ -338,15 +295,24 @@ export function registerEditTools(server: McpServer, library: Library): Register
         "as it is and as it would be, and they can untick any; only ticked changes are written. Each file is " +
         "backed up outside the library first, checked, and read back once written; a file that changed " +
         "since the plan was made is left alone. A plan is used once, whatever the answer. Needs an MCP " +
-        "client that can ask its user a question (elicitation); with one that cannot, nothing is written.",
-      inputSchema: { planId: z.string().describe("The planId plan_slide_edits returned.") },
+        "client that can ask its user a question (elicitation); with one that cannot, nothing is written. " +
+        "With `review` instead, applies what the person left ticked on a review's page, once they say they are done: " +
+        "where their client can ask, they confirm the chosen set once; where it cannot, their saved choices are taken " +
+        "as theirs, so never change them. Only changes not written by an earlier apply are written, a file changed " +
+        "since the plan is skipped while the rest are written, and the answer carries the person's notes.",
+      inputSchema: {
+        planId: z.string().optional().describe("The planId plan_slide_edits returned."),
+        review: z.string().optional().describe("Instead of planId: the review folder plan_slide_edits made with `out`."),
+      },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    ({ planId }, { signal }) =>
-      answer(async (): Promise<ApplyResult> => {
-        const plan = plans.take(planId);
-        const made = madeIn.get(planId);
-        madeIn.delete(planId);
+    ({ planId, review }, { signal }) =>
+      answer(async (): Promise<ApplyResult | ReviewApplyResult> => {
+        if ((planId === undefined) === (review === undefined)) throw new LibraryError("Give either planId or review.");
+        if (review !== undefined) return reviews.apply(review, signal);
+        const plan = plans.take(planId!);
+        const made = madeIn.get(planId!);
+        madeIn.delete(planId!);
         if (!plan || !made) throw new LibraryError("No such plan, or it was already used or has expired. Plan the edits again.");
         // Refused before the person is asked anything when another library is open already.
         refuseUnlessOpen(made, await library.get().catch(() => undefined));
@@ -389,5 +355,5 @@ export function registerEditTools(server: McpServer, library: Library): Register
         };
       })
   );
-  return [plan, apply];
+  return [plan, apply, ...reviews.tools];
 }

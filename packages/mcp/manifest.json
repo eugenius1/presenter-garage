@@ -64,7 +64,10 @@
     { "name": "list_themes", "description": "List the themes and the slide styles each offers." },
     { "name": "preview_style", "description": "Preview giving a presentation the look of a theme slide or another slide, without changing it." },
     { "name": "plan_slide_edits", "description": "Work out changes to slides without writing anything: lines changed, removed or added, a group renamed, a macro swapped for another." },
-    { "name": "apply_slide_edits", "description": "Apply planned slide changes once you confirm each one, backing up every file first." }
+    { "name": "apply_slide_edits", "description": "Apply planned slide changes once you confirm each one, or what you chose on a review page, backing up every file first." },
+    { "name": "open_review", "description": "Open a review page again, with your choices and notes on each change as you left them." },
+    { "name": "export_review", "description": "Save a read-only copy of a review page to its folder, to look at later or send to someone." },
+    { "name": "read_review", "description": "Read how many changes you chose on a review page, what was written, and your notes." }
   ],
   "compatibility": {
     "platforms": ["darwin", "win32", "linux"],

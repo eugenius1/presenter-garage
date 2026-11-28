@@ -114,3 +114,69 @@ export function contextSlides(doc: PresentationDoc, changes: readonly ChangeSite
       lines: linesOf.get(slide.slideIndex) ?? [],
     }));
 }
+
+/**
+ * Something drawn among the slides around it: a changed line in its line's
+ * place, an added line on its `insert` side of the line it goes beside, and
+ * one that names no line -- a group renamed, a macro swapped -- at the top
+ * of its slide.
+ */
+export interface Placeable {
+  slideIndex: number;
+  boxIndex?: number;
+  lineIndex?: number;
+  insert?: "before" | "after";
+}
+
+/** One slide of a run shown around placed things: its lines in order, with each thing in its place. */
+export interface PlacedSlide<T> extends Omit<ContextSlide, "lines"> {
+  items: ({ item: T } | { line: ContextLine })[];
+  /** Whether something placed is on it, which sets it apart from the slides only there to read. */
+  holds: boolean;
+}
+
+/**
+ * `items` among the slides around them: each run of slides that overlap or
+ * meet, each slide's lines in order with each item in its place. Every item
+ * comes back exactly once, in a run or, for one whose slide is not in
+ * `context`, in `stray`, so a thing that can be ticked is never left off the
+ * screen; a line only to read is never an item. Several added on one side of
+ * a line keep the order they are given in, which is the order they are
+ * written. `holding` names every slide an item is on -- a group renamed is on
+ * all of its slides -- for the runs and for `holds`; it is placed on the first.
+ */
+export function placeAmongSlides<T extends Placeable>(
+  items: readonly T[],
+  context: readonly ContextSlide[],
+  slideCount: number,
+  holding: (item: T) => readonly number[] = (item) => [item.slideIndex]
+): { runs: PlacedSlide<T>[][]; stray: T[] } {
+  const slides = new Map(context.map((slide) => [slide.slideIndex, slide]));
+  const placed = new Set<T>();
+  const take = (item: T | undefined): { item: T }[] => {
+    if (!item || placed.has(item)) return [];
+    placed.add(item);
+    return [{ item }];
+  };
+  const runs = contextWindows(items.flatMap(holding), slideCount).map(({ from, to }) => {
+    const run: PlacedSlide<T>[] = [];
+    for (let i = from; i <= to; i++) {
+      const slide = slides.get(i);
+      if (!slide) continue;
+      const here = items.filter((item) => item.slideIndex === i);
+      const at = (line: ContextLine) => here.filter((item) => item.boxIndex === line.boxIndex && item.lineIndex === line.lineIndex);
+      const placedHere: PlacedSlide<T>["items"] = here.filter((item) => item.boxIndex === undefined).flatMap(take);
+      for (const line of slide.lines) {
+        const side = (insert: "before" | "after") => at(line).filter((item) => item.insert === insert).flatMap(take);
+        const instead = take(at(line).find((item) => !item.insert && !placed.has(item)));
+        placedHere.push(...side("before"), ...(instead.length ? instead : [{ line }]), ...side("after"));
+      }
+      // One whose line the slide does not list still goes on its slide.
+      for (const item of here) placedHere.push(...take(item));
+      const holds = items.some((item) => holding(item).includes(i));
+      run.push({ slideIndex: i, groupName: slide.groupName, macros: slide.macros, items: placedHere, holds });
+    }
+    return run;
+  });
+  return { runs: runs.filter((run) => run.length > 0), stray: items.filter((item) => !placed.has(item)) };
+}

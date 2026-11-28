@@ -6,7 +6,7 @@ import {
   type TrailingPunctuation,
 } from "@presenter-garage/core/lib/presentation";
 import { groupBy } from "@presenter-garage/core/lib/collections";
-import { contextWindows, type ContextLine, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
+import { placeAmongSlides, type ContextLine, type ContextSlide } from "@presenter-garage/core/lib/slide-context";
 import type { CheckName, RuleSet } from "@presenter-garage/core/lib/rules";
 
 /**
@@ -128,32 +128,11 @@ export function reviewRuns(
   context: readonly ContextSlide[],
   slideCount: number
 ): { runs: ReviewSlide[][]; stray: Row[] } {
-  const slides = new Map(context.map((slide) => [slide.slideIndex, slide]));
-  const placed = new Set<Row>();
-  const runs = contextWindows(
-    rows.map((row) => row.slideIndex),
-    slideCount
-  ).map(({ from, to }) => {
-    const run: ReviewSlide[] = [];
-    for (let i = from; i <= to; i++) {
-      const slide = slides.get(i);
-      if (!slide) continue;
-      const here = rows.filter((row) => row.slideIndex === i);
-      const items: ReviewSlide["items"] = slide.lines.map((line) => {
-        const row = here.find((r) => !placed.has(r) && r.boxIndex === line.boxIndex && r.lineIndex === line.lineIndex);
-        if (!row) return { line };
-        placed.add(row);
-        return { row };
-      });
-      // A row whose line the slide does not list still goes on its slide.
-      for (const row of here) {
-        if (placed.has(row)) continue;
-        placed.add(row);
-        items.push({ row });
-      }
-      run.push({ slideIndex: i, groupName: slide.groupName, macros: slide.macros, items, holdsRow: here.length > 0 });
-    }
-    return run;
-  });
-  return { runs: runs.filter((run) => run.length > 0), stray: rows.filter((row) => !placed.has(row)) };
+  const { runs, stray } = placeAmongSlides(rows, context, slideCount);
+  return {
+    runs: runs.map((run) =>
+      run.map(({ items, holds, ...slide }) => ({ ...slide, items: items.map((entry) => ("item" in entry ? { row: entry.item } : entry)), holdsRow: holds }))
+    ),
+    stray,
+  };
 }

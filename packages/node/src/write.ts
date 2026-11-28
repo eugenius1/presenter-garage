@@ -39,13 +39,18 @@ export function sha256(bytes: Uint8Array): string {
  * no sync or cleanup tool treats as disposable.
  */
 export function defaultBackupDir(): string {
+  return appDataDir("Backups");
+}
+
+/** A folder of the app's own in the platform's place for an application's data: `Backups`, or `Reviews`. */
+export function appDataDir(name: "Backups" | "Reviews"): string {
   const home = os.homedir();
   const app = "Presenter Garage";
-  if (process.platform === "darwin") return path.join(home, "Library", "Application Support", app, "Backups");
+  if (process.platform === "darwin") return path.join(home, "Library", "Application Support", app, name);
   if (process.platform === "win32") {
-    return path.join(process.env.APPDATA ?? path.join(home, "AppData", "Roaming"), app, "Backups");
+    return path.join(process.env.APPDATA ?? path.join(home, "AppData", "Roaming"), app, name);
   }
-  return path.join(process.env.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "presenter-garage", "backups");
+  return path.join(process.env.XDG_DATA_HOME ?? path.join(home, ".local", "share"), "presenter-garage", name.toLowerCase());
 }
 
 /**

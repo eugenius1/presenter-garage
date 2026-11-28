@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { isInside, LibraryError } from "../library";
 
 /**
@@ -20,7 +21,7 @@ import { isInside, LibraryError } from "../library";
  * it; the libraries stay untouched because nothing here is let near them.
  */
 
-export type Command = "sources" | "dump" | "compare" | "check" | "rules-check";
+export type Command = "sources" | "dump" | "compare" | "check" | "rules-check" | "review";
 
 /** A run's own folder, and the one way to write into it. */
 export interface OutFolder {
@@ -30,6 +31,17 @@ export interface OutFolder {
   put(relative: string, content: string): Promise<string>;
   /** Make a folder under it, empty if nothing goes in it. */
   mkdir(relative: string): Promise<void>;
+}
+
+/**
+ * A folder a model or a person named, as an absolute path: a `file:` URL
+ * converted, a relative path refused, since it would resolve against
+ * wherever the server happened to start.
+ */
+export function absoluteFolder(given: string, what: string): string {
+  const dir = given.startsWith("file:") ? fileURLToPath(given) : given;
+  if (!path.isAbsolute(dir)) throw new LibraryError(`Give an absolute folder for ${what}, not ${given}.`);
+  return dir;
 }
 
 /** How many names a run tries before giving up: the same second, many runs over. */
@@ -180,8 +192,8 @@ async function refuseLibraries(
   }
 }
 
-/** A path's real location, through the nearest part of it that exists. */
-async function realPath(p: string): Promise<string> {
+/** A path's real location, through the nearest part of it that exists: where a folder not made yet would be. */
+export async function realPath(p: string): Promise<string> {
   let rest = "";
   let at = path.resolve(p);
   for (;;) {

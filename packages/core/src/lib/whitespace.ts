@@ -1,4 +1,4 @@
-import { SPACE_CLASS } from "@presenter-garage/core/lib/presentation";
+import { SPACE_CLASS } from "./presentation";
 
 /**
  * Show whitespace that is the finding as middle dots, so it can be seen.
