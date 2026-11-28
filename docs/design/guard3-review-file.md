@@ -107,7 +107,13 @@ since. Every file that has is refused alone (see *Applying*).
   is not yet on disk and "All choices saved" once the server has written
   it. It saves at once, without waiting for the batch, when it loses focus
   or is hidden, which is what switching to the chat to say "done" does.
-  `apply_slide_edits` reads `choices.json` as it is on disk.
+  The page and `apply_slide_edits` are one server process, which writes a
+  review's files one at a time, so apply waits for every save it has
+  received for that review before it reads `choices.json`. What is left is
+  a save still on its way over loopback, a millisecond or so, against the
+  seconds it takes the person to say "done" and the model to call the tool.
+  An explicit "done" step that apply waits for would close even that, at
+  the cost of a step the person must remember; that was judged not worth it.
 - **When saving fails.** If the server has gone away (its session closed),
   the page says so ("Not saved: ask Claude to reopen this review") and
   stops taking ticks, so nothing the person does is silently lost. Nothing
